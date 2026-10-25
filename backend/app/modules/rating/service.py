@@ -1,17 +1,22 @@
-"""Motor actuarial: desglose de la prima, degradación por latencia del buró, reglas de suscripción y registro de
-cotizaciones (HU-WEB-03 a 05, HU-WEB-07)."""
+"""Motor actuarial: desglose de la prima, degradación por latencia del buró, reglas de suscripción,
+canal de socios B2B e idempotencia (HU-WEB-03 a 05, HU-WEB-07, HU-WEB-10, HU-WEB-11)."""
 import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Awaitable, Callable, List, Tuple
+from typing import Awaitable, Callable, List, Optional, Tuple
 
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.security import get_password_hash
 from app.modules.underwriting import rules as underwriting_rules
 from app.modules.underwriting.service import new_rejection_id, record_rejection
 from app.modules.rating.models import (
     Coverage,
+    PartnerDB,
+    PartnerQuoteResponse,
+    PartnerStatus,
     PlanTier,
     PremiumFactor,
     QuoteDB,
@@ -19,6 +24,27 @@ from app.modules.rating.models import (
     QuoteResponse,
     QuoteTierDetail,
 )
+
+DEFAULT_PARTNERS = [
+    {
+        "partner_id": "banco-aliado-1",
+        "client_id": "banco_aliado",
+        "client_secret": "AliadoSecret2026*",  # sdd:allow-secret
+        "name": "Banco Aliado S.A.",
+        "status": PartnerStatus.ACTIVE.value,
+        "quota_limit": 50000,
+        "quota_used": 0,
+    },
+    {
+        "partner_id": "socio-inactivo-1",
+        "client_id": "socio_inactivo",
+        "client_secret": "Inactivo2026*",  # sdd:allow-secret
+        "name": "Financiera Inactiva S.A.",
+        "status": PartnerStatus.REVOKED.value,
+        "quota_limit": 1000,
+        "quota_used": 0,
+    },
+]
 
 # Tasa mensual por peso asegurado del prototipo comercial (perfil de referencia: 31-40 años).
 BASE_MONTHLY_RATE = 0.0002736
@@ -166,8 +192,10 @@ class RatingService:
         session: AsyncSession,
         request: QuoteRequest,
         simulated_bureau_delay: float = 0.0,
+        partner_id: Optional[str] = None,
+        commit: bool = True,
     ) -> QuoteResponse:
-        """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HA-17).
+        """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HU-WEB-10, HA-17).
         Un rechazo de suscripción se registra aparte y no deja cotización emitible (HU-WEB-07)."""
         quote = await self.calculate_quote(request, simulated_bureau_delay)
         if quote.underwriting is not None:
@@ -178,11 +206,13 @@ class RatingService:
                 requested_amount=request.insured_amount,
                 decision=quote.underwriting,
                 created_at=datetime.fromisoformat(quote.created_at),
+                commit=commit,
             )
             return quote
         session.add(
             QuoteDB(
                 quote_id=quote.quote_id,
+                partner_id=partner_id,
                 document_number=quote.document_number,
                 status=quote.status,
                 degradation_reason=quote.degradation_reason,
@@ -192,8 +222,67 @@ class RatingService:
                 expires_at=datetime.fromisoformat(quote.expires_at),
             )
         )
-        await session.commit()
+        if partner_id:
+            await session.execute(
+                update(PartnerDB)
+                .where(PartnerDB.partner_id == partner_id)
+                .values(quota_used=PartnerDB.quota_used + 1)
+            )
+        if commit:
+            await session.commit()
         return quote
+
+    async def get_partner_quote(
+        self,
+        session: AsyncSession,
+        quote_id: str,
+        partner_id: str,
+    ) -> Optional[PartnerQuoteResponse]:
+        """Obtiene una cotización solo si existe y pertenece al socio autenticado (HU-WEB-10)."""
+        stmt = select(QuoteDB).where(QuoteDB.quote_id == quote_id)
+        result = await session.execute(stmt)
+        quote = result.scalars().first()
+        if not quote or not quote.partner_id or quote.partner_id != partner_id:
+            return None
+        return PartnerQuoteResponse.from_db(quote)
+
+    async def list_partner_quotes(
+        self,
+        session: AsyncSession,
+        partner_id: str,
+    ) -> List[PartnerQuoteResponse]:
+        """Lista el histórico de cotizaciones del socio autenticado (HU-WEB-10)."""
+        stmt = (
+            select(QuoteDB)
+            .where(QuoteDB.partner_id == partner_id)
+            .order_by(QuoteDB.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        quotes = result.scalars().all()
+        return [PartnerQuoteResponse.from_db(q) for q in quotes]
+
+    async def seed_default_partners(self, session: AsyncSession) -> List[PartnerDB]:
+        """Siembra de forma idempotente los socios B2B semilla (activo y revocado) en la base de datos (HU-WEB-10)."""
+        seeded: List[PartnerDB] = []
+        for item in DEFAULT_PARTNERS:
+            stmt = select(PartnerDB).where(PartnerDB.client_id == item["client_id"])
+            existing = (await session.execute(stmt)).scalars().first()
+            if existing:
+                seeded.append(existing)
+                continue
+            partner = PartnerDB(
+                partner_id=item["partner_id"],
+                client_id=item["client_id"],
+                client_secret_hash=item.get("client_secret_hash") or get_password_hash(item.get("client_secret", "")),
+                name=item["name"],
+                status=item["status"],
+                quota_limit=item["quota_limit"],
+                quota_used=item["quota_used"],
+            )
+            session.add(partner)
+            seeded.append(partner)
+        await session.commit()
+        return seeded
 
 
 rating_service = RatingService()

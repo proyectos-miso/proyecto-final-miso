@@ -18,6 +18,7 @@ async def record_rejection(
     requested_amount: float,
     decision: UnderwritingDecision,
     created_at: datetime,
+    commit: bool = True,
 ) -> None:
     session.add(
         UnderwritingRejectionDB(
@@ -30,4 +31,5 @@ async def record_rejection(
             created_at=created_at,
         )
     )
-    await session.commit()
+    if commit:
+        await session.commit()
