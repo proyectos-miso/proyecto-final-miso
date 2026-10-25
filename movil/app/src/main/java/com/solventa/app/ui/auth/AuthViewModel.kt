@@ -193,7 +193,7 @@ class AuthViewModel(
         }
         when (val result = authApi.biometricLogin(credential)) {
             is LoginResult.Success -> {
-                sessionRepository.startSession(result.tokens)
+                sessionRepository.start(email, result.tokens)
                 _uiState.update {
                     withAccounts(
                         it.copy(
@@ -299,7 +299,7 @@ class AuthViewModel(
                 !sessionRepository.isBound(accountEmail) &&
                 authenticator.checkAvailability() == BiometricAvailability.AVAILABLE
             if (result is LoginResult.Success) {
-                sessionRepository.startSession(result.tokens)
+                sessionRepository.start(accountEmail, result.tokens)
                 otpCooldownJob?.cancel()
             }
 
@@ -417,7 +417,7 @@ class AuthViewModel(
         val refreshToken = sessionRepository.activeSession?.refreshToken
         val email = _uiState.value.currentAccountEmail
         val biometricReady = sessionRepository.hasStoredSession()
-        sessionRepository.endSession()
+        sessionRepository.end()
         _uiState.value = withAccounts(
             AuthUiState(
                 status = if (biometricReady) AuthStatus.LOGGED_OUT_BIOMETRIC_READY else AuthStatus.LOGGED_OUT,
@@ -433,7 +433,7 @@ class AuthViewModel(
     // El servidor rechazó el token: la billetera ya borró la copia y se vuelve a pedir el ingreso.
     fun onSessionExpired() {
         val email = _uiState.value.currentAccountEmail
-        sessionRepository.endSession()
+        sessionRepository.end()
         _uiState.value = withAccounts(AuthUiState(status = AuthStatus.SESSION_EXPIRED, selectedAccountEmail = email))
         email?.let { viewModelScope.launch { policyStore.delete(it) } }
     }

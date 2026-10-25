@@ -29,6 +29,7 @@ import com.solventa.app.domain.auth.BiometricResult
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
+import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.policies.PoliciesResult
@@ -59,6 +60,7 @@ class SolventaMobileRootTest {
         override suspend fun login(email: String, password: String, otpCode: String): LoginResult =
             LoginResult.Success(SessionTokens("a", "r"), "María Ruiz")
         override suspend fun logout(refreshToken: String) = true
+        override suspend fun refresh(refreshToken: String): RefreshResult = RefreshResult.Unavailable
         override suspend fun registerDevice(accessToken: String) = DeviceCredential("device-1", "secreto")
         override suspend fun biometricLogin(credential: DeviceCredential): LoginResult =
             LoginResult.Success(SessionTokens("a2", "r2"), "María Ruiz")

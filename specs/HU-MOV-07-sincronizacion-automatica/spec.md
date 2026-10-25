@@ -173,7 +173,7 @@ Fuera de alcance:
   - La sesión es una instantánea inmutable `OpenSession(id, email, tokens, credential, credentialSince, renewalUnanswered)` en un `AtomicReference`. No es `data class` y su `toString` no muestra datos.
   - `id` y `credentialSince` se conservan al renovar y al soltar la credencial. `credentialSince` usa `elapsedRealtime()`, y un tiempo negativo cuenta como vencido.
   - Mutadores: `start`, `startOffline`, `replace(from, to)`, `endIf(from)` y `endSession(id)` (devuelve la instantánea que quitó), todos con `compareAndSet`; `end()`; `dropCredential`, que crea una instantánea nueva y también lo llaman `unbind`, `unbindAll` y `clear`.
-  - `keyUsable(email)` no lanza y responde `USABLE`, `LOST` (llave invalidada, que pasa por `unbindAll`, o cuenta sin vincular) o `UNAVAILABLE`.
+  - `keyState(email)` no lanza y responde `USABLE`, `LOST` (llave invalidada, que pasa por `unbindAll`, o cuenta sin vincular) o `UNAVAILABLE`.
 - **`data/policies/SessionPolicySync`:**
   1. Registra su `Job`, toma un `Mutex` único y después lee la instantánea. Sin sesión responde `NoSession`.
   2. **Sin tokens:**
@@ -269,7 +269,7 @@ Fuera de alcance:
 |---|---|---|---|---|---|
 | T-01 | Backend: 423 en `auth/refresh` con el ingreso suspendido | AC-14, SR-10 | CTL-10 | DONE | backend/tests/unit/test_insured_logout.py::test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar |
 | T-02 | Release solo HTTPS | AC-16, SR-11 | CTL-11 | DONE | movil/app/src/test/java/com/solventa/app/data/NetworkSecurityConfigTest.kt |
-| T-03 | Sesión atómica, credencial con tope y `refresh` (#198) | AC-05, AC-07, SR-04, SR-05 | CTL-04, CTL-05 | TODO | — |
+| T-03 | Sesión atómica, credencial con tope y `refresh` (#198) | AC-05, AC-07, SR-04, SR-05 | CTL-04, CTL-05 | DONE | movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt; movil/app/src/test/java/com/solventa/app/data/auth/HttpAuthApiTest.kt |
 | T-04 | `SessionPolicySync` (#199) | AC-02, AC-05, AC-06, AC-07, AC-08, AC-10, AC-11, AC-12, SR-05, SR-06, SR-07, SR-09 | CTL-05, CTL-06, CTL-07, CTL-09 | TODO | — |
 | T-05 | WorkManager: dependencia, trabajo, programador y permisos (#198, #199) | AC-01, AC-03, AC-11, QR-02, SR-01, SR-02, SR-08 | CTL-01, CTL-02, CTL-08 | TODO | — |
 | T-06 | Pantallas: sincronizar, copia visible, avisos y fin de sesión (#198) | AC-01, AC-04, AC-09, AC-13, AC-15, AC-17, SR-03, SR-09 | CTL-03, CTL-09 | TODO | — |
