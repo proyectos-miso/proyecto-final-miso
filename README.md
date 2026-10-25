@@ -14,7 +14,7 @@ Su arquitectura implementa un **Monolito Modular API-First con Arquitectura Hexa
 | [`/web`](web/)                            | Portal Web para Asesores Comerciales                              | Angular 22, TypeScript, Standalone Components, Vitest         |
 | [`/movil`](movil/)                        | Aplicación Móvil para Asegurados                                  | Android, Kotlin 2.1, Jetpack Compose, BiometricPrompt, Android Keystore, JUnit |
 | [`/terraform`](terraform/)                | Infraestructura como Código (AWS Multi-AZ)                        | Terraform >= 1.5, AWS Provider (ALB, ECS, RDS, S3, SQS)       |
-| [`.github/workflows`](.github/workflows/) | Pipelines de CI/CD                                                | GitHub Actions (CI en cada commit, CD a AWS en `main`)        |
+| [`.github/workflows`](.github/workflows/) | Pipelines de CI/CD; proceso y condiciones en [`docs/ci-cd.md`](docs/ci-cd.md) | GitHub Actions (CI en cada commit, CD a AWS en `main` con aprobación) |
 | [`experiments/`](experiments/)            | Experimentos de arquitectura y validaciones de carga E1 y E3      | Python, k6, AWS Cloud                                         |
 | [`docs/`](docs/)                          | Prototipos de navegación interactivos y guía de pruebas manuales  | HTML5, CSS3, JavaScript, Markdown                             |
 | [`sdd/`](sdd/README.md)                   | Framework SDD con seguridad y privacidad obligatorias (ver [`AGENTS.md`](AGENTS.md)) | Markdown, Python 3.11+ (solo biblioteca estándar)        |
