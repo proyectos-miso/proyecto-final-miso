@@ -4,6 +4,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, DateTime, Float, String
 from app.core.database import Base
+from app.modules.underwriting.models import UnderwritingDecision
 
 
 class PlanTier(str, Enum):
@@ -48,12 +49,18 @@ class QuoteTierDetail(BaseModel):
 class QuoteResponse(BaseModel):
     quote_id: str
     document_number: str
-    status: str = Field(..., description="'active' o 'degraded' si el buró no respondió a tiempo")
+    status: str = Field(
+        ...,
+        description="'active'; 'degraded' si el buró no respondió a tiempo; 'review_required' si supera una regla de suscripción",
+    )
     degradation_reason: Optional[str] = Field(None, description="'TIMEOUT_EXCEEDED' cuando status es 'degraded'")
     score_applied: float
     tiers: List[QuoteTierDetail]
     created_at: str
     expires_at: str
+    underwriting: Optional[UnderwritingDecision] = Field(
+        None, description="Motivo y suma máxima aprobable cuando status es 'review_required' (HU-WEB-07)"
+    )
 
 
 class QuoteDB(Base):
