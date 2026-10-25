@@ -44,8 +44,13 @@ Option A.
    AES-256-GCM by an `AndroidKeyStore` key per account (`solventa_wallet_<id>`), non-exportable and usable
    only while the phone is unlocked (`setUnlockedDeviceRequired`). The passphrase is in clear only in memory
    while one operation runs, then zero-filled.
-4. If the key or the database no longer opens, the copy is deleted and downloaded again when there is a
-   network. Recovery beyond that is HU-MOV-05.
+4. Only a deterministic failure discards the copy (HU-MOV-05): a missing or permanently invalidated key, a
+   tampered or malformed wrapped passphrase, or a damaged database (`SQLiteNotADatabaseException`,
+   `SQLiteDatabaseCorruptException` or Room's integrity check). The account's copy is then deleted, a
+   per-account marker makes the wallet explain why until the next successful sync, and the copy is
+   downloaded again with a network. A locked phone or any other failure keeps the copy and reports it as
+   unavailable. Operations of one account run one at a time; they check cancellation before any effect and
+   then finish without cancellation, so the passphrase is zero-filled only after Room is done with it.
 5. The copy of an account is deleted with its key on logout, on a 401 from the backend and when the server
    no longer recognizes the phone for that account.
 6. Room schemas are not exported (`exportSchema = false`) while the copy is a cache that can be rebuilt
@@ -60,12 +65,15 @@ Option A.
   database, so encryption is tested with instrumented tests on an emulator
   (`src/androidTest/.../EncryptedPolicyStoreTest`).
 - Build: the KSP plugin (2.1.0-1.0.29) and `room-compiler` join the build.
-- Migration: `EncryptedStorageManager` is removed; HU-MOV-05 builds invalid-key handling on this store.
+- Migration: `EncryptedStorageManager` is removed; HU-MOV-05 adds the invalid-key handling of decision 4.
 
 ## Security and privacy impact
 
 - A copied database file is unreadable without the account's Keystore key, which never leaves the device.
-- While the phone is locked the key cannot be used, so the copy cannot be opened.
+- While the phone is locked the key cannot be used, so the copy cannot be opened; it is reported as
+  unavailable, not deleted.
 - A compromised phone with the app open could read the passphrase or the screen from memory (RISK-02 in
   the HU-MOV-04 spec).
-- `allowBackup` stays `false`, so neither the database nor the wrapped passphrase goes to backups.
+- `allowBackup` stays `false`, but on Android 12 and later it does not stop device-to-device transfer.
+  `android:dataExtractionRules` excludes all nine storage domains from cloud backup, device transfer and
+  cross-platform transfer, so neither the database nor the wrapped passphrase leaves the phone (HU-MOV-05).
