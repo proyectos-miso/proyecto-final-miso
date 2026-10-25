@@ -143,6 +143,7 @@ describe('ClientDataStepComponent (HU-WEB-02 / TC-S1-03)', () => {
     fixture.detectChanges();
 
     expect(component.formattedAmount()).toContain('200.000.000');
+    expect(component.formattedAmount()).toMatch(/COP$/);
   });
 
   it('debe validar con ClientService y emitir clientDataSubmitted al completar con éxito', () => {
