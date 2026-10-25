@@ -118,11 +118,11 @@ N/A: canal del asesor; el canal de socios queda fuera.
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-01 | Un asesor puede probar sumas por debajo del cupo hasta encontrarlo; los cupos no son secretos de negocio y cada intento queda registrado | THR-03 | MEDIUM | LOW | LOW | ACCEPT | Bajo: la suma máxima aprobable se muestra a propósito | ACCEPTED |
-| RISK-02 | Los cupos propuestos no están validados por el negocio | THR-03 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Se validan en DEC-01 antes de producción | OPEN |
+| RISK-02 | Los cupos los fijó el equipo sin un estudio actuarial | THR-03 | MEDIUM | MEDIUM | MEDIUM | ACCEPT | Medio: los cupos están en un solo archivo y se ajustan con un cambio revisado cuando el negocio entregue los suyos | ACCEPTED |
 
 ## 16. Pending decisions
 
 | ID | Decision | Options | Recommendation | Decider | Blocks gate | Status |
 |---|---|---|---|---|---|---|
-| DEC-01 | Cupos de aprobación directa | Los propuestos en AC-05 u otros del área de suscripción | Validar con negocio antes de producción; el código los tiene en un solo archivo | Líder de producto | NO | PENDING |
+| DEC-01 | Cupos de aprobación directa | Los propuestos en AC-05 u otros del área de suscripción | Usar los propuestos; el código los tiene en un solo archivo | Líder de producto | NO | APPROVED |
 | DEC-02 | Retención de los registros de rechazo | Plazo legal de la aseguradora | Definirla con el área legal; hoy no se borran | Responsable de datos | NO | PENDING |

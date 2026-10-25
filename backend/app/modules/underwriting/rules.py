@@ -1,6 +1,6 @@
 """Reglas de suscripción: cupo de aprobación directa por perfil crediticio y por edad (HU-WEB-07, HA-20).
 
-Los cupos son una propuesta pendiente de validar con el negocio (DEC-01); este es el único lugar donde cambian.
+Cupos aprobados por el equipo (DEC-01); este es el único lugar donde cambian.
 """
 from typing import List, Optional, Tuple
 

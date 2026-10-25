@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | IMPLEMENTED |
+| Security status | RISK_ACCEPTED |
 | Evaluated on | 2026-10-25 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-WEB-07-motivo-de-rechazo |
 
@@ -34,6 +34,7 @@
 
 | Risk | Decision | Approved by | Role | Date | Expires |
 |---|---|---|---|---|---|
+| RISK-02 | ACCEPT | Juan Camilo Peña | Owner | 2026-10-25 | — |
 
 ## Evidence
 
