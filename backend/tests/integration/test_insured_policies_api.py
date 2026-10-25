@@ -16,7 +16,7 @@ NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
 MARIA_DOCUMENT = "1020304050"
 OTHER_DOCUMENT = "9080706050"
 URL = "/api/v1/insured/policies"
-CARD_FIELDS = {"policy_number", "plan", "holder_name", "coverages", "valid_from", "valid_until"}
+CARD_FIELDS = {"policy_number", "plan", "insured_amount", "holder_name", "coverages", "valid_from", "valid_until"}
 
 
 @pytest.fixture(autouse=True)
@@ -30,8 +30,9 @@ def tier(plan: str = "standard") -> dict:
         "monthly_premium": 100000.0,
         "annual_premium": 1200000.0,
         "coverages": [
-            {"id": "rc", "name": "Responsabilidad civil", "limit": 1e8, "deductible": 0.0},
-            {"id": "pt", "name": "Pérdida total", "limit": 5e7, "deductible": 1e6, "optional": True, "included": False},
+            {"id": "disability", "name": "Incapacidad total y permanente", "limit": 1e8, "deductible": 0.0},
+            {"id": "death", "name": "Muerte por cualquier causa", "limit": 2.5e8, "deductible": 0.0},
+            {"id": "critical_illness", "name": "Enfermedades graves", "limit": 3e8, "deductible": 0.0, "optional": True, "included": False},
         ],
         "breakdown": [],
     }
@@ -89,7 +90,11 @@ async def test_tc_01_devuelve_solo_las_polizas_activas_y_vigentes_del_titular(as
     premium = policies[1]
     assert premium["plan"] == "premium"
     assert premium["holder_name"] == "María Ruiz"
-    assert premium["coverages"] == [{"name": "Responsabilidad civil", "limit": 1e8}]
+    assert premium["insured_amount"] == 2.5e8
+    assert premium["coverages"] == [
+        {"name": "Incapacidad total y permanente", "limit": 1e8},
+        {"name": "Muerte por cualquier causa", "limit": 2.5e8},
+    ]
     assert datetime.fromisoformat(premium["valid_until"]) == NOW + timedelta(days=200)
     assert datetime.fromisoformat(premium["valid_from"]) == NOW + timedelta(days=200) - timedelta(days=365)
 

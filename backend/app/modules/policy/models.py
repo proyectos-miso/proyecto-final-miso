@@ -52,6 +52,7 @@ class InsuredPolicyCard(BaseModel):
     """Tarjeta de la billetera: sin documento, beneficiarios ni prima (HU-MOV-04)."""
     policy_number: str
     plan: PlanTier
+    insured_amount: float
     holder_name: str
     coverages: List[CardCoverage]
     valid_from: datetime
