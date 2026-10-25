@@ -17,7 +17,7 @@
 | SC-11 | UC-01 | Dado un asegurado sin copia y sin red, cuando abre la billetera, entonces no hay fecha y se pide conexión | TC-01 |
 | SC-12 | AC-02 | Dada la fuente al máximo y TalkBack activo, cuando aparece el aviso, entonces se anuncia y la fecha se lee completa | TC-06 |
 | SC-13 | UC-03 | Dada la red recuperada con la app abierta, cuando vuelve, entonces se sincroniza sola | OUT OF SCOPE: la sincronización automática al volver la red es de HU-MOV-07 |
-| SC-14 | UC-02 | Dada la billetera abierta durante horas, cuando cruza las 24 horas sin cerrarse, entonces el aviso aparece al volver a abrirla | OUT OF SCOPE: el estado se calcula al abrir la billetera; refrescarlo en vivo llega con la sincronización de HU-MOV-07 |
+| SC-14 | AC-08 | Dada la billetera abierta durante horas, cuando cruza las 24 horas sin cerrarse, entonces el aviso aparece al volver a la app | TC-07 |
 
 ## Scenario coverage
 
@@ -134,6 +134,23 @@
 | Environment | LOCAL |
 | Evidence | PENDING |
 | Status | PENDING |
+
+### TC-07 · Recalcular al volver a la app
+
+| Field | Value |
+|---|---|
+| Covers | AC-08 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | WalletViewModel con dobles y un reloj que se puede mover |
+| Procedure | 1. Sincronizar con red. 2. Mover el reloj 25 horas y llamar a refreshClock. 3. Abrir una copia reciente sin red, mover el reloj dos días atrás y llamar a refreshClock. 4. Mover el reloj más allá del fin de vigencia y llamar a refreshClock |
+| Expected result | 2 y 3 marcan la copia desactualizada; 4 marca la póliza como vencida; la hora de la última sincronización no cambia |
+| Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest) |
+| Automation | AUTOMATED |
+| Environment | CI |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-07 al volver a la app despues de 25 horas aparece el aviso sin cambiar la fecha mostrada"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-07 al volver a la app con el reloj atrasado aparece el aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-07 al volver a la app una poliza que vencio se marca vencida" |
+| Status | PASS |
 
 ## Security test coverage
 

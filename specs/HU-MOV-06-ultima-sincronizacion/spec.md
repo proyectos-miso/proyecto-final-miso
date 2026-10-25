@@ -8,7 +8,7 @@
 | Owner | Juan Camilo Peña |
 | Status | IN_PROGRESS |
 | Created | 2026-10-24 |
-| Security profile | MEDIUM |
+| Security profile | HIGH |
 
 ## 1. Requirements
 
@@ -43,6 +43,7 @@ Fuera de alcance: sincronizar sola al volver la red y los reintentos (HU-MOV-07)
 | movil/app/src/main/java/com/solventa/app/domain/policies/PolicyCard.kt | La copia trae la hora de la sincronización |
 | movil/app/src/main/java/com/solventa/app/data/policies/EncryptedPolicyStore.kt | Guardar y leer la hora con la copia cifrada |
 | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt | Hora de la última sincronización y cálculo de desactualización |
+| movil/app/src/main/java/com/solventa/app/MainActivity.kt | Recalcula la billetera cuando la app vuelve al primer plano |
 | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt | Texto de la última sincronización y aviso |
 | movil/app/src/main/java/com/solventa/app/ui/wallet/Formats.kt | Fecha y hora local |
 | movil/app/src/main/java/com/solventa/app/ui/theme/Components.kt | El aviso acepta el ícono del reloj |
@@ -79,6 +80,7 @@ Fuera de alcance: sincronizar sola al volver la red y los reintentos (HU-MOV-07)
 | AC-05 | WHEN el servidor falla o no hay red, THE billetera SHALL conservar la hora de la última sincronización exitosa | DERIVED: un intento fallido no es una sincronización |
 | AC-06 | IF la hora guardada queda después de la hora del teléfono, THE billetera SHALL tratar la copia como desactualizada | DERIVED: con el reloj atrasado el aviso no debe esconderse (AB-01) |
 | AC-07 | WHEN han pasado exactamente 24 horas, THE billetera SHALL no mostrar todavía el aviso | DERIVED: la historia dice "más de 24 horas"; se fija el borde |
+| AC-08 | WHEN la app vuelve al primer plano, THE billetera SHALL recalcular el aviso de desactualización y las pólizas vencidas con la hora actual | DERIVED: en la prueba manual del 2026-10-25 el aviso no aparecía al volver de cambiar la fecha, porque solo se calculaba al abrir la billetera |
 
 ### Quality requirements
 
@@ -101,7 +103,7 @@ Fuera de alcance: sincronizar sola al volver la red y los reintentos (HU-MOV-07)
 | Storage or processing on a mobile device | YES | La hora se guarda en la base cifrada del teléfono |
 | Web UI or data exposed in the browser | NO | Solo app móvil |
 | New or updated dependencies | NO | Sin dependencias nuevas |
-| Critical paths (sdd/security/critical-paths.md) | NO | No cambia el manifiesto, la sesión, MainActivity ni la composición de la app |
+| Critical paths (sdd/security/critical-paths.md) | YES | MainActivity (perfil mínimo MEDIUM) observa cuándo la app vuelve al primer plano; no cambia el manifiesto, la sesión ni la composición |
 
 ### Security requirements
 
@@ -119,6 +121,7 @@ Fuera de alcance: sincronizar sola al volver la red y los reintentos (HU-MOV-07)
 - `ui/wallet/WalletViewModel`: `WalletUiState` suma `lastSync` y `stale`. Con red, la hora es la del reloj al terminar; sin red o con error, la de la copia. `stale` es verdadero si pasaron más de 24 horas o si la hora guardada está en el futuro.
 - `ui/wallet/WalletScreen`: texto "Última sincronización: <fecha y hora>" con el ícono del reloj, como en el mockup, y el aviso de desactualización con el componente de aviso.
 - `ui/wallet/Formats`: fecha y hora local del teléfono.
+- `MainActivity`: al volver la app al primer plano (`ON_RESUME`) llama a `WalletViewModel.refreshClock`, que recalcula el aviso y las pólizas vencidas sin volver a leer la copia.
 
 ### Data flows
 
@@ -153,4 +156,5 @@ N/A: reutiliza la base cifrada de la ADR 0021 y la pantalla única de la billete
 |---|---|---|---|---|---|
 | T-01 | Guardar y exponer la hora de la última sincronización con la copia cifrada (#195) | AC-04, AC-05, SR-01 | CTL-01 | DONE | movil/app/src/main/java/com/solventa/app/data/policies/EncryptedPolicyStore.kt |
 | T-02 | Texto de la última sincronización y aviso de desactualización en la billetera (#196) | AC-01, AC-02, AC-03, AC-06, AC-07, QR-01, SR-02 | CTL-02 | DONE | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt; movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt |
+| T-04 | Recalcular el aviso y las pólizas vencidas al volver al primer plano | AC-08 | CTL-02 | DONE | movil/app/src/main/java/com/solventa/app/MainActivity.kt; movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt |
 | T-03 | Pruebas unitarias del ViewModel, de la pantalla y del almacén (#197) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07 | CTL-01, CTL-02 | DONE | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt |
