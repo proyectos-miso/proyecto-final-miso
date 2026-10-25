@@ -39,8 +39,8 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas del ViewModel y de la pantalla de la billetera | SR-02, CTL-02, TC-01, TC-02, TC-03 | movil/app/src/test/java/com/solventa/app/ui/wallet/ | PENDING |
-| EV-02 | Prueba instrumentada del almacén con la hora y la base alterada | SR-01, CTL-01, TC-04, TC-05 | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt | PENDING |
+| EV-01 | Pruebas del ViewModel y de la pantalla de la billetera | SR-02, CTL-02, TC-01, TC-02, TC-03 | movil/app/src/test/java/com/solventa/app/ui/wallet/ | AVAILABLE |
+| EV-02 | Prueba instrumentada del almacén con la hora y la base alterada | SR-01, CTL-01, TC-04, TC-05 | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt | AVAILABLE |
 
 ## Closeout
 

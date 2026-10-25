@@ -47,8 +47,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest, WalletScreenTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-01 una sincronizacion exitosa guarda y muestra la hora actual y quita el aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-01 sin red muestra la hora de la copia sin aviso si tiene menos de 24 horas"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"TC-01 muestra la ultima sincronizacion con fecha y hora"; movil/app/src/test/java/com/solventa/app/ui/wallet/MoneyTest.kt::"TC-01 la ultima sincronizacion usa fecha y hora en la zona del telefono" |
+| Status | PASS |
 
 ### TC-02 · Aviso de desactualización
 
@@ -64,8 +64,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest, WalletScreenTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-02 una copia de mas de 24 horas se marca desactualizada"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-02 con exactamente 24 horas todavia no hay aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-02 con el servidor caido se conserva la hora de la ultima sincronizacion exitosa"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"TC-02 una copia desactualizada muestra el aviso, anunciado por TalkBack" |
+| Status | PASS |
 
 ### TC-03 · Reloj atrasado
 
@@ -81,8 +81,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"TC-03 una hora guardada en el futuro por un reloj atrasado se marca desactualizada" |
+| Status | PASS |
 
 ### TC-04 · Hora por cuenta y borrada con la copia
 
@@ -98,8 +98,8 @@
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::cada_cuenta_recupera_su_hora_de_sincronizacion_y_se_borra_con_la_copia; emulador con Android 15, 2026-10-24: 6 de 6 |
+| Status | PASS |
 
 ### TC-05 · Base alterada
 
@@ -115,8 +115,8 @@
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_base_alterada_no_devuelve_copia_ni_hora_y_se_borra; emulador con Android 15, 2026-10-24: 6 de 6 |
+| Status | PASS |
 
 ### TC-06 · Accesibilidad de la fecha y el aviso
 

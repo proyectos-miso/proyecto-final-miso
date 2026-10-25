@@ -53,8 +53,8 @@ N/A: la historia no usa servicios externos.
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
-| CTL-01 | La hora vive en la base SQLCipher de la cuenta y se borra con la copia | MOBILE, DATA | MISSING | THR-02, DATA-01 | TC-04, TC-05 | T-01 | MASVS-STORAGE-1 | — |
-| CTL-02 | Una hora guardada en el futuro cuenta como copia desactualizada | MOBILE | MISSING | THR-01 | TC-03 | T-02 | MASVS-RESILIENCE-2 | — |
+| CTL-01 | La hora vive en la base SQLCipher de la cuenta y se borra con la copia | MOBILE, DATA | EXISTING | THR-02, DATA-01 | TC-04, TC-05 | T-01 | MASVS-STORAGE-1 | — |
+| CTL-02 | Una hora guardada en el futuro cuenta como copia desactualizada | MOBILE | EXISTING | THR-01 | TC-03 | T-02 | MASVS-RESILIENCE-2 | — |
 
 ## 10. Cryptography
 

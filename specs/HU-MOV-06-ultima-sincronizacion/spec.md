@@ -45,6 +45,7 @@ Fuera de alcance: sincronizar sola al volver la red y los reintentos (HU-MOV-07)
 | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt | Hora de la última sincronización y cálculo de desactualización |
 | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt | Texto de la última sincronización y aviso |
 | movil/app/src/main/java/com/solventa/app/ui/wallet/Formats.kt | Fecha y hora local |
+| movil/app/src/main/java/com/solventa/app/ui/theme/Components.kt | El aviso acepta el ícono del reloj |
 | movil/app/src/main/res/values/strings.xml | Textos de la fecha y del aviso |
 | movil/app/src/main/res/drawable/ic_clock.xml | Ícono del reloj del mockup |
 | movil/app/src/test/java/com/solventa/app/data/policies/PolicyTestDoubles.kt | Almacén en memoria con la hora |
@@ -150,6 +151,6 @@ N/A: reutiliza la base cifrada de la ADR 0021 y la pantalla única de la billete
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Guardar y exponer la hora de la última sincronización con la copia cifrada (#195) | AC-04, AC-05, SR-01 | CTL-01 | TODO | — |
-| T-02 | Texto de la última sincronización y aviso de desactualización en la billetera (#196) | AC-01, AC-02, AC-03, AC-06, AC-07, QR-01, SR-02 | CTL-02 | TODO | — |
-| T-03 | Pruebas unitarias del ViewModel, de la pantalla y del almacén (#197) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07 | CTL-01, CTL-02 | TODO | — |
+| T-01 | Guardar y exponer la hora de la última sincronización con la copia cifrada (#195) | AC-04, AC-05, SR-01 | CTL-01 | DONE | movil/app/src/main/java/com/solventa/app/data/policies/EncryptedPolicyStore.kt |
+| T-02 | Texto de la última sincronización y aviso de desactualización en la billetera (#196) | AC-01, AC-02, AC-03, AC-06, AC-07, QR-01, SR-02 | CTL-02 | DONE | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt; movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt |
+| T-03 | Pruebas unitarias del ViewModel, de la pantalla y del almacén (#197) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07 | CTL-01, CTL-02 | DONE | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt |
