@@ -13,6 +13,7 @@ import { ConsentStepComponent } from './consent-step/consent-step.component';
 import { PaymentStepComponent } from './payment-step/payment-step.component';
 import { PremiumBreakdownComponent } from './premium-breakdown/premium-breakdown.component';
 import { extractErrorMessage } from '../../core/utils/http-error';
+import { COP } from '../../core/money';
 
 interface Emission {
   policy?: PolicyRecord;
@@ -81,6 +82,24 @@ interface Emission {
             <p>{{ err }}</p>
           </div>
           <button type="button" class="btn-retry" (click)="requestQuote()">Reintentar</button>
+        </div>
+      }
+
+      @if (quote()?.underwriting; as review) {
+        <div class="notice notice-error" role="alert" style="margin-top: 24px;" data-testid="underwriting-review">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M15 9l-6 6M9 9l6 6" />
+          </svg>
+          <div>
+            <strong>La suscripción automática requiere revisión</strong>
+            <p>{{ review.reason }}</p>
+            <p>Suma asegurada máxima aprobable: <strong>{{ formatMoney(review.max_approvable_amount) }}</strong></p>
+            <button type="button" class="btn-retry" [disabled]="quoting()" (click)="requoteWith(review.max_approvable_amount)">
+              Recotizar con {{ formatMoney(review.max_approvable_amount) }}
+            </button>
+          </div>
         </div>
       }
 
@@ -365,6 +384,16 @@ export class CotizadorComponent {
           );
         },
       });
+  }
+
+  // HU-WEB-07: recotiza con la suma máxima aprobable que sugirió la suscripción.
+  requoteWith(amount: number): void {
+    this.risk.update((risk) => (risk ? { ...risk, insured_amount: amount } : risk));
+    this.requestQuote();
+  }
+
+  formatMoney(amount: number): string {
+    return COP.format(amount);
   }
 
   readonly selectedTier = signal<PlanTier>('standard');

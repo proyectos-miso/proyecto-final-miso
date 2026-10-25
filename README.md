@@ -14,7 +14,7 @@ Su arquitectura implementa un **Monolito Modular API-First con Arquitectura Hexa
 | [`/web`](web/)                            | Portal Web para Asesores Comerciales                              | Angular 22, TypeScript, Standalone Components, Vitest         |
 | [`/movil`](movil/)                        | Aplicación Móvil para Asegurados                                  | Android, Kotlin 2.1, Jetpack Compose, BiometricPrompt, Android Keystore, JUnit |
 | [`/terraform`](terraform/)                | Infraestructura como Código (AWS Multi-AZ)                        | Terraform >= 1.5, AWS Provider (ALB, ECS, RDS, S3, SQS)       |
-| [`.github/workflows`](.github/workflows/) | Pipelines de CI/CD                                                | GitHub Actions (CI en cada commit, CD a AWS en `main`)        |
+| [`.github/workflows`](.github/workflows/) | Pipelines de CI/CD; proceso y condiciones en [`docs/ci-cd.md`](docs/ci-cd.md) | GitHub Actions (CI en cada commit, CD a AWS en `main` con aprobación) |
 | [`experiments/`](experiments/)            | Experimentos de arquitectura y validaciones de carga E1 y E3      | Python, k6, AWS Cloud                                         |
 | [`docs/`](docs/)                          | Prototipos de navegación interactivos y guía de pruebas manuales  | HTML5, CSS3, JavaScript, Markdown                             |
 | [`sdd/`](sdd/README.md)                   | Framework SDD con seguridad y privacidad obligatorias (ver [`AGENTS.md`](AGENTS.md)) | Markdown, Python 3.11+ (solo biblioteca estándar)        |
@@ -118,7 +118,25 @@ El BFF expone la verificación de asegurabilidad sociodemográfica por rango de 
 | :------- | :---------- | :--------- |
 | `POST /api/v1/experience/clients/validate` | Valida que el tomador cumpla con el rango asegurable de 18 a 75 años según su fecha de nacimiento. Exige rol `advisor`. | `200` `{"status": "ELIGIBLE", "age": N}` · `400` fuera de rango · `422` formato |
 
-### 2.6 Hooks de git del framework SDD (una vez por copia)
+### 2.6 Canal de Socios B2B — Quote Edge (HU-WEB-10, HU-WEB-11, HU-WEB-14)
+
+El BFF expone en `/api/v1/quote-edge` el canal dedicado para socios de distribución B2B con autenticación OAuth2 *Client Credentials*, confinamiento estricto por `partner_id`, idempotencia de reintentos por socio y clave (`Idempotency-Key`), emisión atómica e idempotente de pólizas y auditoría JSON de rechazos:
+
+| Endpoint | Descripción | Respuestas |
+| :------- | :---------- | :--------- |
+| `POST /api/v1/quote-edge/auth/token` | Emite un JWT firmado con `role: "partner"` y `partner_id` a partir de `client_id` y `client_secret`. | `200` token · `401` credenciales inválidas o socio revocado |
+| `POST /api/v1/quote-edge/quotes` | Calcula y persiste la cotización confinada al `partner_id` e incrementa `quota_used`. Exige `Idempotency-Key`; reintentos idénticos repiten respuesta sin duplicar ni descontar cuota; discrepancias retornan conflicto; claves con >24h expiran. | `200` cotización · `400` clave ausente o vacía · `401` no autorizado · `409` conflicto de payload |
+| `GET /api/v1/quote-edge/quotes/{quote_id}` | Consulta una cotización individual verificando pertenencia estricta al socio autenticado. | `200` cotización · `401` no autorizado · `404` no existe o pertenece a otro socio |
+| `GET /api/v1/quote-edge/quotes` | Lista el histórico de cotizaciones generadas exclusivamente por el socio autenticado (`created_at DESC`). | `200` listado · `401` no autorizado |
+| `POST /api/v1/quote-edge/policies` | Emite una póliza digital de forma atómica e idempotente (`HA-11`) asociada al socio autenticado (`HA-14`). | `200` póliza · `401` no autorizado · `404` cotización ajena o no encontrada · `409` cotización expirada |
+| `GET /api/v1/quote-edge/policies/{policy_number}` | Consulta una póliza emitida individual verificando confinamiento estricto por `partner_id`. | `200` póliza · `401` no autorizado · `404` póliza inexistente o de otro socio |
+| `GET /api/v1/quote-edge/policies` | Lista el histórico de pólizas emitidas por el socio mediante la vista de lectura optimizada CQRS (`HA-04`). | `200` listado · `401` no autorizado |
+
+Socios semilla inicializados automáticamente en el arranque (`lifespan`):
+- **Socio activo:** `client_id`: `banco_aliado` · `client_secret`: `AliadoSecret2026*` (`partner_id`: `banco-aliado-1`).
+- **Socio revocado:** `client_id`: `socio_inactivo` · `client_secret`: `Inactivo2026*` (`partner_id`: `socio-inactivo-1`, estado `REVOKED`).
+
+### 2.7 Hooks de git del framework SDD (una vez por copia)
 
 Git no activa los hooks de un repositorio al clonarlo: cada persona los activa una vez en su copia. Requieren Python 3.11+ y `sh` (en Windows, Git Bash).
 
@@ -334,7 +352,7 @@ La topología en AWS está estructurada de forma modular en [`/terraform`](terra
 - **`modules/rds`**: Base de datos PostgreSQL 16 Multi-AZ con conmutación por error automática y cifrado KMS (`HA-15`).
 - **`modules/storage_events`**: Bucket S3 con versionado y SSE-KMS (`HA-08`) y cola SQS con Dead Letter Queue (DLQ).
 - **`modules/ecr`**: Repositorio de imágenes Docker del backend con escaneo de vulnerabilidades.
-- **`modules/web_hosting`**: Bucket S3 y CDN CloudFront con Origin Access Control (OAC) para el portal web Angular.
+- **`modules/web_hosting`**: Bucket S3 y CDN CloudFront con Origin Access Control (OAC) para el portal web Angular y enrutamiento dinámico sin caché de `/api/*` y `/health` hacia el Application Load Balancer.
 
 ### 7.1 Comprobación y Validación Local
 
