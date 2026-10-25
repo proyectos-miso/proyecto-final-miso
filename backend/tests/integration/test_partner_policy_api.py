@@ -1,6 +1,7 @@
 """Pruebas de integración HTTP de los endpoints B2B de emisión y consulta de pólizas (HU-WEB-14)."""
 from datetime import datetime, timedelta, timezone
 import time
+import uuid
 import pytest
 from httpx import AsyncClient
 
@@ -32,7 +33,7 @@ async def _obtain_partner_token(
 
 
 async def _create_partner_quote(client: AsyncClient, token: str) -> str:
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": f"key-{uuid.uuid4().hex}"}
     resp = await client.post("/api/v1/quote-edge/quotes", headers=headers, json=QUOTE_PAYLOAD)
     assert resp.status_code == 200
     return resp.json()["quote_id"]

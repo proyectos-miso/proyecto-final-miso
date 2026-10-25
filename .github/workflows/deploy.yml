@@ -10,11 +10,19 @@ concurrency:
   group: production-deployment
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # 1. Aprovisionamiento y actualización de infraestructura Multi-AZ con Terraform
+  # Solo desde main y con la aprobación de un revisor del ambiente produccion (docs/ci-cd.md).
   deploy-infra:
     name: Despliegue de Infraestructura (Terraform)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: produccion
+    outputs:
+      cloudfront_domain: ${{ steps.outputs.outputs.cloudfront_domain }}
     defaults:
       run:
         working-directory: terraform
@@ -33,6 +41,8 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.10.5
+          # Sin el envoltorio, terraform output -raw devuelve solo el valor.
+          terraform_wrapper: false
 
       - name: Inicializar Terraform con Backend Remoto (S3)
         run: |
@@ -63,6 +73,10 @@ jobs:
           TF_VAR_jwt_secret_key: ${{ secrets.JWT_SECRET_KEY }}
           TF_VAR_otp_secret_key: ${{ secrets.OTP_SECRET_KEY }}
         run: terraform apply -auto-approve
+
+      - name: Leer el dominio de CloudFront
+        id: outputs
+        run: echo "cloudfront_domain=$(terraform output -raw cloudfront_domain_name)" >> "$GITHUB_OUTPUT"
 
   # 2. Construcción de contenedor y actualización de servicio ECS Fargate
   deploy-backend:
@@ -97,6 +111,12 @@ jobs:
             --cluster solventa-cluster-production \
             --service solventa-backend-service-production \
             --force-new-deployment
+
+      - name: Esperar a que el servicio quede estable
+        run: |
+          aws ecs wait services-stable \
+            --cluster solventa-cluster-production \
+            --services solventa-backend-service-production
 
   # 3. Compilación y despliegue del Portal Web en S3 + CloudFront
   deploy-web:
@@ -140,3 +160,17 @@ jobs:
           if [ "$DISTRIBUTION_ID" != "None" ] && [ -n "$DISTRIBUTION_ID" ]; then
             aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
           fi
+
+  # 4. Prueba de humo: solo peticiones GET al portal, a la salud del backend y a la API
+  smoke-test:
+    name: Prueba de humo en producción
+    needs: [deploy-infra, deploy-backend, deploy-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Verificar portal, backend y API
+        env:
+          BASE_URL: https://${{ needs.deploy-infra.outputs.cloudfront_domain }}
+        run: python3 scripts/ci/smoke_test.py "$BASE_URL" | tee -a "$GITHUB_STEP_SUMMARY"

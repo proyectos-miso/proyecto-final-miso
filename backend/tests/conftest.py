@@ -34,10 +34,15 @@ class InMemorySessionTestDouble:
         self.policies_by_number = {}
         self.policies_by_quote = {}
         self.outbox = []
+        self.idempotency_records = {}
 
     async def get(self, model, pk):
+        from app.core.idempotency import IdempotencyRecordDB
         from app.modules.rating.models import QuoteDB, PartnerDB
         from app.modules.policy.models import PolicyDB
+        if issubclass(model, IdempotencyRecordDB):
+            key = tuple(pk) if isinstance(pk, (list, tuple)) else pk
+            return self.idempotency_records.get(key)
         if model is QuoteDB:
             return self.quotes.get(pk)
         if model is PartnerDB:
@@ -180,6 +185,7 @@ class InMemorySessionTestDouble:
             return Result([])
 
     def add(self, obj):
+        from app.core.idempotency import IdempotencyRecordDB
         from app.modules.profile.models import FinancialEntityDB, CityDB
         from app.modules.rating.models import PartnerDB, QuoteDB
         from app.modules.policy.models import PolicyDB
@@ -203,8 +209,18 @@ class InMemorySessionTestDouble:
             self.policies_by_quote[obj.quote_id] = obj
         elif isinstance(obj, OutboxMessageDB):
             self.outbox.append(obj)
+        elif isinstance(obj, IdempotencyRecordDB):
+            self.idempotency_records[(obj.partner_id, obj.idempotency_key)] = obj
         else:
             self.users[obj.username] = obj
+
+    async def delete(self, obj):
+        from app.core.idempotency import IdempotencyRecordDB
+        if isinstance(obj, IdempotencyRecordDB):
+            self.idempotency_records.pop((obj.partner_id, obj.idempotency_key), None)
+
+    async def flush(self):
+        pass
 
     async def commit(self):
         pass
