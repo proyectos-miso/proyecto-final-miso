@@ -2,8 +2,10 @@ package com.solventa.app.ui.wallet
 
 import com.solventa.app.data.policies.FakePoliciesApi
 import com.solventa.app.data.policies.InMemoryPolicyStore
+import com.solventa.app.data.policies.PendingPoliciesApi
 import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.StoredCopy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -264,8 +266,79 @@ class WalletViewModelTest {
         assertEquals(listOf(true), vm.uiState.value.policies.map { it.expired })
     }
 
+    // HU-MOV-05: copia descartada, copia no disponible y cierre de la billetera (TC-02, TC-05, TC-07, TC-12).
+
+    @Test
+    fun `sin red o con el servidor caido y la copia descartada pide conexion con su aviso`() {
+        store.readAs = StoredCopy.Discarded
+
+        viewModel.open(EMAIL, null)
+        assertTrue(viewModel.uiState.value.needsConnection)
+        assertTrue(viewModel.uiState.value.copyDiscarded)
+
+        api.result = PoliciesResult.Unavailable
+        viewModel.open(EMAIL, "token")
+        assertTrue(viewModel.uiState.value.copyDiscarded)
+    }
+
+    @Test
+    fun `sin red y sin copia pide conexion sin el aviso de copia descartada`() {
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.needsConnection)
+        assertFalse(viewModel.uiState.value.copyDiscarded)
+    }
+
+    @Test
+    fun `tras una copia descartada, con red guarda las polizas y quita el aviso`() {
+        store.readAs = StoredCopy.Discarded
+        viewModel.open(EMAIL, null)
+
+        api.result = PoliciesResult.Loaded(listOf(active))
+        viewModel.open(EMAIL, "token")
+
+        assertFalse(viewModel.uiState.value.copyDiscarded)
+        assertEquals(listOf(active), store.copies[EMAIL])
+    }
+
+    @Test
+    fun `una copia no disponible muestra su aviso y al reintentar o volver a la app muestra la copia`() {
+        store.readAs = StoredCopy.Unavailable
+        viewModel.open(EMAIL, null)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.copyUnavailable)
+        assertFalse(state.needsConnection)
+        assertFalse(state.copyDiscarded)
+        assertFalse(state.empty)
+
+        store.readAs = null
+        store.copies[EMAIL] = listOf(active)
+        viewModel.retry()
+        assertEquals(listOf(active), viewModel.uiState.value.policies.map { it.policy })
+
+        store.readAs = StoredCopy.Unavailable
+        viewModel.open(EMAIL, null)
+        store.readAs = null
+        viewModel.refreshClock()
+        assertEquals(listOf(active), viewModel.uiState.value.policies.map { it.policy })
+    }
+
+    @Test
+    fun `cerrar la billetera antes de que responda el servidor no guarda la copia`() {
+        val pending = PendingPoliciesApi()
+        val vm = WalletViewModel(pending, store, Clock.fixed(now, ZoneOffset.UTC))
+        vm.open(EMAIL, "token")
+
+        vm.close()
+        pending.response.complete(PoliciesResult.Loaded(listOf(active)))
+
+        assertNull(store.copies[EMAIL])
+        assertTrue(vm.uiState.value.loading)
+    }
+
     private companion object {
-        const val EMAIL = "maria.ruiz@correo.co"
+        const val EMAIL = "asegurada@example.com"
         const val OTHER_EMAIL = "otra.cuenta@example.com"
     }
 }

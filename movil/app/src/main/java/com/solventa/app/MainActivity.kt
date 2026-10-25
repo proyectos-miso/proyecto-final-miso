@@ -119,7 +119,11 @@ fun SolventaMobileRoot(
     if (uiState.showLogoutConfirmation) {
         LogoutConfirmationDialog(
             biometricEnabled = uiState.biometricEnabled,
-            onConfirm = viewModel::confirmLogout,
+            // La billetera se cierra primero para que ninguna descarga guarde la copia después del borrado (AC-12).
+            onConfirm = {
+                walletViewModel.close()
+                viewModel.confirmLogout()
+            },
             onDismiss = viewModel::cancelLogout,
         )
     }
@@ -142,6 +146,7 @@ fun SolventaMobileRoot(
                 onDisableBiometrics = viewModel::disableBiometrics,
                 onLogout = viewModel::requestLogout,
                 modifier = modifier,
+                onRetry = walletViewModel::retry,
             )
         }
         uiState.showPasswordRecovery -> PasswordRecoveryScreen(

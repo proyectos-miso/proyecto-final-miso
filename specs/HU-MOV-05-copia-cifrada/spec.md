@@ -6,7 +6,7 @@
 | Title | Copia cifrada |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/71 |
 | Owner | David Gutiérrez |
-| Status | READY |
+| Status | IN_PROGRESS |
 | Created | 2026-10-25 |
 | Security profile | HIGH |
 
@@ -247,10 +247,10 @@ Billetera, sin pantallas nuevas. Dos estados nuevos sin red: copia descartada (a
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
 | T-01 | Verificar con pruebas lo que entregó HU-MOV-04 (#192), reutilizando `EncryptedPolicyStoreTest` y `PassphraseVaultTest` | AC-01, AC-02, AC-03, SR-01 | CTL-01 | TODO | — |
-| T-02 | Almacén: descarte solo ante invalidez real, regeneración, marca, turnos por cuenta, sin registros y frase en cero (#193) | AC-04, AC-05, AC-06, AC-10, AC-11, SR-02, SR-05, SR-06 | CTL-02, CTL-04, CTL-06, CTL-07, CTL-08, CTL-09 | TODO | — |
-| T-03 | Llaves: bloqueo y fallas pasajeras como "no disponible" y nueva lectura al volver (#193) | AC-06, AC-07, SR-04 | CTL-05, CTL-09 | TODO | — |
-| T-04 | Billetera: avisos de copia descartada y no disponible (#193) | AC-08, AC-13, QR-01 | CTL-02, CTL-09 | TODO | — |
+| T-02 | Almacén: descarte solo ante invalidez real, regeneración, marca, turnos por cuenta, sin registros y frase en cero (#193) | AC-04, AC-05, AC-06, AC-10, AC-11, SR-02, SR-05, SR-06 | CTL-02, CTL-04, CTL-06, CTL-07, CTL-08, CTL-09 | IN_PROGRESS | — |
+| T-03 | Llaves: bloqueo y fallas pasajeras como "no disponible" y nueva lectura al volver (#193) | AC-06, AC-07, SR-04 | CTL-05, CTL-09 | IN_PROGRESS | — |
+| T-04 | Billetera: avisos de copia descartada y no disponible (#193) | AC-08, AC-13, QR-01 | CTL-02, CTL-09 | IN_PROGRESS | — |
 | T-05 | Reglas de extracción, en su propio commit | AC-09, SR-03 | CTL-03 | TODO | — |
 | T-06 | Actualizar las ADR 0021 y 0017 | AC-04, AC-09, SR-02, SR-03 | CTL-02, CTL-03 | TODO | — |
 | T-07 | Pruebas en el CI y en el teléfono, y evidencia en `gate.md` (#194) | AC-01, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09, AC-10, AC-11, AC-12, AC-13, QR-01, SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07 | CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-07, CTL-08, CTL-09, CTL-10 | TODO | — |
-| T-08 | Cerrar la billetera antes de confirmar el cierre de sesión | AC-12, SR-07 | CTL-10 | TODO | — |
+| T-08 | Cerrar la billetera antes de confirmar el cierre de sesión | AC-12, SR-07 | CTL-10 | IN_PROGRESS | — |

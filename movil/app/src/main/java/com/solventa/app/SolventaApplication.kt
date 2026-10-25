@@ -1,6 +1,7 @@
 package com.solventa.app
 
 import android.app.Application
+import android.app.KeyguardManager
 import com.solventa.app.data.auth.HttpAuthApi
 import com.solventa.app.data.policies.EncryptedPolicyStore
 import com.solventa.app.data.policies.HttpPoliciesApi
@@ -13,6 +14,8 @@ import com.solventa.app.data.session.SharedPreferencesSessionStore
 import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PolicyStore
+import net.zetetic.database.Logger
+import net.zetetic.database.NoopTarget
 
 class SolventaApplication : Application() {
 
@@ -26,5 +29,14 @@ class SolventaApplication : Application() {
 
     val policiesApi: PoliciesApi by lazy { HttpPoliciesApi(BuildConfig.API_BASE_URL) }
 
-    val policyStore: PolicyStore by lazy { EncryptedPolicyStore(this, PassphraseVault(this, KeystoreWalletKeys())) }
+    val policyStore: PolicyStore by lazy {
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        EncryptedPolicyStore(this, PassphraseVault(this, KeystoreWalletKeys(isDeviceLocked = keyguard::isDeviceLocked)))
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        // SQLCipher escribe en logcat la ruta de la base cuando no abre; la app no registra nada de la copia (CTL-06).
+        Logger.setTarget(NoopTarget())
+    }
 }
