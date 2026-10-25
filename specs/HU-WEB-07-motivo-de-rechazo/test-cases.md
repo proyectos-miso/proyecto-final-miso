@@ -16,6 +16,7 @@
 | SC-10 | AC-01 | Dado un rechazo, cuando se muestra, entonces no aparece la regla interna ni el puntaje | TC-06 |
 | SC-11 | UC-02 | Dados varios intentos con sumas distintas del mismo documento, cuando se rechazan, entonces cada uno queda registrado | TC-03 |
 | SC-12 | UC-01 | Dado un asesor sin sesión, cuando cotiza, entonces recibe 401 | TC-02 |
+| SC-15 | AC-10 | Dado el paso 1 sin el plazo del crédito, cuando el asesor pulsa "Validar y continuar", entonces ve que falta el plazo, el campo queda marcado y recibe el foco | TC-08 |
 | SC-13 | UC-02 | Dado el rechazo, cuando el asesor pide revisión manual a un suscriptor, entonces se envía la solicitud | OUT OF SCOPE: la revisión manual del mockup no está en los criterios de la historia |
 | SC-14 | UC-03 | Dado un auditor, cuando quiere consultar los rechazos desde el portal, entonces los ve en una pantalla | OUT OF SCOPE: la historia pide el registro, no una consulta; hoy se revisa en la base |
 
@@ -25,7 +26,7 @@
 |---|---|---|---|
 | Main flow | YES | SC-01, SC-02 | — |
 | Alternate flows | YES | SC-04, SC-05, SC-06 | — |
-| Invalid input and errors | YES | SC-07, SC-12 | — |
+| Invalid input and errors | YES | SC-07, SC-12, SC-15 | — |
 | Limits and boundaries | YES | SC-03 | — |
 | Related flows before and after | YES | SC-07, SC-13, SC-14 | — |
 | Several users, sessions, devices or roles | YES | SC-11, SC-12 | — |
@@ -151,6 +152,23 @@
 | Environment | LOCAL |
 | Evidence | PENDING |
 | Status | PENDING |
+
+### TC-08 · Campos que faltan en el paso 1
+
+| Field | Value |
+|---|---|
+| Covers | AC-10 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | ClientDataStepComponent con datos válidos salvo el plazo y el teléfono |
+| Procedure | 1. Comprobar que el botón está habilitado. 2. Enviar el formulario. 3. Revisar el mensaje, los campos marcados y el foco |
+| Expected result | El mensaje nombra el plazo y el teléfono; esos campos tienen aria-invalid; el foco queda en el primero; no se llama al backend |
+| Tool or method | npm test (client-data-step.component.spec.ts) |
+| Automation | AUTOMATED |
+| Environment | CI |
+| Evidence | web/src/app/features/cotizador/client-data-step/client-data-step.component.spec.ts::"TC-08 con datos incompletos el botón sigue habilitado y al enviar dice qué falta, marca los campos y enfoca el primero" |
+| Status | PASS |
 
 ## Security test coverage
 

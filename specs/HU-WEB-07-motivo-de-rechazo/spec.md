@@ -52,6 +52,8 @@ Fuera de alcance: la revisión manual por un suscriptor (el botón "Solicitar re
 | web/src/app/core/models/quote.model.ts | Estado y decisión de suscripción en el contrato |
 | web/src/app/features/cotizador/cotizador.component.ts | Aviso de rechazo y recotización en un clic |
 | web/src/app/features/cotizador/cotizador.component.spec.ts | Pruebas del aviso |
+| web/src/app/features/cotizador/client-data-step/client-data-step.component.ts | El paso 1 explica qué campos faltan en lugar de deshabilitar el botón |
+| web/src/app/features/cotizador/client-data-step/client-data-step.component.spec.ts | Pruebas de los campos que faltan |
 
 ### Use cases
 
@@ -82,6 +84,7 @@ Fuera de alcance: la revisión manual por un suscriptor (el botón "Solicitar re
 | AC-07 | WHEN la suma supera el cupo por las dos reglas, THE motivo SHALL ser el de la regla con el cupo menor | DERIVED: un solo motivo claro para el cliente |
 | AC-08 | THE cotización rechazada SHALL no poder emitirse | DERIVED: un rechazo que se pueda emitir anula la regla |
 | AC-09 | THE suma asegurada igual al cupo SHALL aprobarse | DERIVED: fija el borde ("supera" es estrictamente mayor) |
+| AC-10 | WHEN el asesor pulsa "Validar y continuar" con datos incompletos o inválidos, THE portal SHALL decir qué campos corregir, marcarlos y llevar el foco al primero | DERIVED: en la prueba manual del 2026-10-25 el botón quedaba deshabilitado sin explicar por qué y no se podía llegar a la cotización (WCAG 3.3.1) |
 
 ### Quality requirements
 
@@ -180,4 +183,5 @@ N/A: módulo nuevo dentro de la arquitectura hexagonal (ADR 0004); las reglas qu
 | T-01 | Reglas de cupo con motivo y alternativa en la respuesta de cotización (#165) | AC-01, AC-05, AC-06, AC-07, AC-08, AC-09, SR-01, SR-04 | CTL-01, CTL-04 | DONE | backend/app/modules/underwriting/rules.py; backend/app/modules/rating/service.py |
 | T-02 | Registro inmutable de los rechazos (#166) | AC-04, SR-02, SR-03 | CTL-02, CTL-03 | DONE | backend/app/modules/underwriting/models.py; backend/app/modules/underwriting/service.py |
 | T-03 | Aviso de rechazo con motivo y recotización en un clic (#167) | AC-01, AC-02, AC-03, QR-01 | CTL-04 | DONE | web/src/app/features/cotizador/cotizador.component.ts |
+| T-05 | Paso 1 del cotizador: decir qué campos faltan, marcarlos y enfocar el primero | AC-10 | — | DONE | web/src/app/features/cotizador/client-data-step/client-data-step.component.ts |
 | T-04 | Pruebas de las reglas, del registro y del aviso (#168) | AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09 | CTL-01, CTL-02 | DONE | backend/tests/unit/test_underwriting_rules.py; backend/tests/integration/test_underwriting_api.py; web/src/app/features/cotizador/cotizador.component.spec.ts |
