@@ -150,8 +150,8 @@
 | Tool or method | NVDA o el lector del sistema, y teclado |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Prueba manual de Juan Camilo Peña en el portal, 2026-10-25, y prueba de punta a punta en Chrome contra el portal y el backend locales (23 de 23 verificaciones): el aviso tiene rol de alerta, Tab llega a "Recotizar con…" y Enter recotiza con la suma sugerida |
+| Status | PASS |
 
 ### TC-08 · Campos que faltan en el paso 1
 

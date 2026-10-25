@@ -6,7 +6,7 @@
 | Title | Motivo de rechazo |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/61 |
 | Owner | Juan Camilo Peña |
-| Status | IN_PROGRESS |
+| Status | IN_REVIEW |
 | Created | 2026-10-25 |
 | Security profile | MEDIUM |
 

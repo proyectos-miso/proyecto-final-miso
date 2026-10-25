@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
+| Security status | IMPLEMENTED |
 | Evaluated on | 2026-10-25 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-WEB-07-motivo-de-rechazo |
 
