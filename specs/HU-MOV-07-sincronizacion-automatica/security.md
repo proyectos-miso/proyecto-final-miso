@@ -140,7 +140,7 @@ N/A: no se envían datos a servicios externos; WorkManager corre en el teléfono
 | CTL-07 | Las pólizas repetidas se guardan una vez | MOBILE, DATA | MISSING | THR-07, DATA-01 | TC-02 | T-04 | CWE-20 | HA-11 |
 | CTL-08 | Sin `RECEIVE_BOOT_COMPLETED` ni `FOREGROUND_SERVICE`; WorkManager solo exporta lo que protege el sistema | MOBILE | MISSING | THR-08, DATA-04 | TC-11 | T-05 | MASVS-PLATFORM-1 | Tras reiniciar no hay sesión |
 | CTL-09 | La sincronización usa la instantánea que tomó tras obtener el turno y comprueba antes de guardar que no cambió; la billetera solo muestra su cuenta | MOBILE | MISSING | THR-09, DATA-01 | TC-13 | T-04, T-06 | MASVS-STORAGE-1, CWE-639 | Aislamiento de HU-MOV-04 |
-| CTL-10 | Con el ingreso suspendido, `auth/refresh` responde 423 sin revocar ni auditar, después de validar el jti y la versión; la app reintenta | BACKEND, API | MISSING | THR-10, DATA-01 | TC-05, TC-17 | T-01 | ASVS V2.2, CWE-645 | Hoy responde 401 (`identity/service.py:247`) (DEC-06) |
+| CTL-10 | Con el ingreso suspendido, `auth/refresh` responde 423 sin revocar ni auditar, después de validar el jti y la versión; la app reintenta | BACKEND, API | EXISTING | THR-10, DATA-01 | TC-05, TC-17 | T-01 | ASVS V2.2, CWE-645 | Implementado en HU-MOV-07: `identity/service.py:251` y `bff/auth/router.py:123`; la app lo trata en T-04 (DEC-06) |
 | CTL-11 | Release sin HTTP sin TLS y `preReleaseBuild` exige `https://` | MOBILE, INFRA | MISSING | THR-11, DATA-02, DATA-03 | TC-18 | T-02 | MASVS-NETWORK-1, CWE-319 | Regla 5 de ADR 0016 (DEC-09) |
 
 ## 10. Cryptography

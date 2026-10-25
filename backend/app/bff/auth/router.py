@@ -116,10 +116,12 @@ async def logout(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de sesión inválido.")
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post("/refresh", response_model=TokenPair, responses=LOCKED_RESPONSES)
 async def refresh(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db_session)):
     try:
         return await insured_auth_service.refresh(db, request.refresh_token)
+    except AccountLockedError as exc:
+        return _locked(exc)
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión revocada o vencida.")
 

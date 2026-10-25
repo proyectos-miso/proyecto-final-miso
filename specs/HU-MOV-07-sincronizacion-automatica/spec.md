@@ -6,7 +6,7 @@
 | Title | Sincronizacion automatica |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/73 |
 | Owner | David Gutiérrez |
-| Status | READY |
+| Status | IN_PROGRESS |
 | Created | 2026-10-25 |
 | Security profile | HIGH |
 
@@ -267,7 +267,7 @@ Fuera de alcance:
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Backend: 423 en `auth/refresh` con el ingreso suspendido | AC-14, SR-10 | CTL-10 | TODO | — |
+| T-01 | Backend: 423 en `auth/refresh` con el ingreso suspendido | AC-14, SR-10 | CTL-10 | DONE | backend/tests/unit/test_insured_logout.py::test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar |
 | T-02 | Release solo HTTPS | AC-16, SR-11 | CTL-11 | TODO | — |
 | T-03 | Sesión atómica, credencial con tope y `refresh` (#198) | AC-05, AC-07, SR-04, SR-05 | CTL-04, CTL-05 | TODO | — |
 | T-04 | `SessionPolicySync` (#199) | AC-02, AC-05, AC-06, AC-07, AC-08, AC-10, AC-11, AC-12, SR-05, SR-06, SR-07, SR-09 | CTL-05, CTL-06, CTL-07, CTL-09 | TODO | — |

@@ -2,8 +2,10 @@
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import func, select
 
 from app.core.security import create_access_token
+from app.modules.identity.db_models import LoginAttemptDB
 from app.modules.identity.service import (
     AccountLockedError,
     InvalidCredentialsError,
@@ -141,10 +143,32 @@ async def test_recuperar_contrasena_con_codigo_malo_no_dice_si_la_clave_es_la_mi
         await identity.reset_password(postgres_session, EMAIL, "000000", PASSWORD)
 
 
-async def test_refresh_con_ingreso_suspendido_es_rechazado(identity, postgres_session, tokens):
+async def _suspend_login(identity, postgres_session):
     for _ in range(5):
         with pytest.raises((InvalidCredentialsError, AccountLockedError)):
             await identity.login(postgres_session, EMAIL, "otra-clave", "000000")
+
+
+async def _attempts(postgres_session) -> int:
+    return (await postgres_session.execute(select(func.count()).select_from(LoginAttemptDB))).scalar_one()
+
+
+# HU-MOV-07 TC-17: con el ingreso suspendido la renovación responde bloqueo, sin rotar el token ni auditar.
+async def test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar(identity, postgres_session, clock, tokens):
+    await _suspend_login(identity, postgres_session)
+    attempts = await _attempts(postgres_session)
+
+    with pytest.raises(AccountLockedError):
+        await identity.refresh(postgres_session, tokens.refresh_token)
+
+    assert await _attempts(postgres_session) == attempts
+    clock.advance(timedelta(minutes=16))
+    assert (await identity.refresh(postgres_session, tokens.refresh_token)).refresh_token != tokens.refresh_token
+
+
+async def test_refresh_revocado_con_ingreso_suspendido_sigue_rechazado(identity, postgres_session, tokens):
+    await identity.logout(postgres_session, tokens.refresh_token)
+    await _suspend_login(identity, postgres_session)
 
     with pytest.raises(InvalidTokenError):
         await identity.refresh(postgres_session, tokens.refresh_token)
