@@ -66,6 +66,17 @@ class WalletViewModel(
         }
     }
 
+    /** Recalcula el aviso y las pólizas vencidas con la hora actual, por ejemplo al volver a la app (AC-08). */
+    fun refreshClock() {
+        val state = _uiState.value
+        if (state.loading) return
+        val now = clock.instant()
+        _uiState.value = state.copy(
+            policies = state.policies.map { it.copy(expired = it.policy.isExpiredAt(now)) },
+            stale = state.lastSync?.let(::isStale) ?: false,
+        )
+    }
+
     private suspend fun fromCopy(accountEmail: String): WalletUiState {
         val copy = policyStore.read(accountEmail)
             ?: return WalletUiState(loading = false, offline = true, needsConnection = true)

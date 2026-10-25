@@ -215,6 +215,55 @@ class WalletViewModelTest {
         assertTrue(viewModel.uiState.value.stale)
     }
 
+    // AC-08: al volver a la app se recalcula con la hora actual (TC-07).
+
+    private class MovableClock(var now: Instant) : Clock() {
+        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+        override fun withZone(zone: java.time.ZoneId?): Clock = this
+        override fun instant(): Instant = now
+    }
+
+    @Test
+    fun `TC-07 al volver a la app despues de 25 horas aparece el aviso sin cambiar la fecha mostrada`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        api.result = PoliciesResult.Loaded(listOf(active))
+        vm.open(EMAIL, "token")
+
+        clock.now = now.plus(Duration.ofHours(25))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+        assertEquals(now, vm.uiState.value.lastSync)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app con el reloj atrasado aparece el aviso`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(1)))
+        vm.open(EMAIL, null)
+        assertFalse(vm.uiState.value.stale)
+
+        clock.now = now.minus(Duration.ofDays(2))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app una poliza que vencio se marca vencida`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now)
+        vm.open(EMAIL, null)
+
+        clock.now = active.validUntil.plusSeconds(1)
+        vm.refreshClock()
+
+        assertEquals(listOf(true), vm.uiState.value.policies.map { it.expired })
+    }
+
     private companion object {
         const val EMAIL = "maria.ruiz@correo.co"
         const val OTHER_EMAIL = "otra.cuenta@example.com"

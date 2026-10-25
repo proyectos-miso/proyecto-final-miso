@@ -57,6 +57,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    // Al volver de otra app (por ejemplo, de cambiar la hora) se recalcula el aviso de desactualización (HU-MOV-06).
+    override fun onResume() {
+        super.onResume()
+        walletViewModel.refreshClock()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val biometricAuthenticator = AndroidBiometricAuthenticator(this)
