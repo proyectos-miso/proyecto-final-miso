@@ -195,8 +195,8 @@
 | Tool or method | TalkBack y Accessibility Scanner |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Prueba manual de Juan Camilo Peña en su celular, 2026-10-24: ingreso y billetera con TalkBack y fuente al máximo, en tema claro y oscuro, sin hallazgos |
+| Status | PASS |
 
 ### TC-10 · Dependencias de la copia cifrada
 
