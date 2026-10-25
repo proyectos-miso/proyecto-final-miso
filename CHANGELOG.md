@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
 ### Added
+- **HU-WEB-14 · Emisión de póliza embebida B2B (#113, #181, #182, #183):**
+  - Backend: Extensión del modelo relacional `PolicyDB` (tabla `policies`) con clave foránea indexada `partner_id`, y definición de esquemas Pydantic `PartnerPolicyIssueRequest` y `PartnerPolicyResponse` para emisión y consultas CQRS de socios B2B.
+  - Servicio de Políticas (`PolicyService`): Incorporación de `issue_partner_policy` con validación estricta de pertenencia y vigencia de cotización, emisión atómica e idempotente (`insert ... on_conflict_do_nothing`) y encolado de evento `PolicyIssued` en outbox; adición de `get_partner_policy` con aislamiento multi-tenant y `list_partner_policies` con proyección de lectura CQRS.
+  - Endpoints Quote Edge B2B: Rutas `POST /api/v1/quote-edge/policies`, `GET /api/v1/quote-edge/policies/{policy_number}` y `GET /api/v1/quote-edge/policies` gobernadas por autenticación OAuth2 Bearer (`role: partner`), retornando `404 Not Found` ante recursos ajenos para evitar enumeración y `409 Conflict` ante cotizaciones expiradas.
+  - Pruebas Automatizadas: Cobertura unitaria en `tests/unit/test_partner_policy.py` e integración en `tests/integration/test_partner_policy_api.py` verificando emisión atómica, rechazo cross-tenant, idempotencia, consulta CQRS y rendimiento.
 - **HU-WEB-11 · Reintentar una cotización sin crear registros duplicados (#179, #180):**
   - Backend e Idempotencia B2B: Validación del encabezado `Idempotency-Key` en `POST /api/v1/quote-edge/quotes` con rechazo inmediato `400 Bad Request` ante valor vacío.
   - Persistencia y Aislamiento por Socio: Persistencia atómica de cotizaciones B2B calculadas en la tabla `idempotency_records` bajo clave primaria compuesta `(partner_id, idempotency_key)`, garantizando que dos socios no colisionen aunque utilicen la misma clave.
