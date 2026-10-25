@@ -177,7 +177,7 @@ N/A: módulo nuevo dentro de la arquitectura hexagonal (ADR 0004); las reglas qu
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Reglas de cupo con motivo y alternativa en la respuesta de cotización (#165) | AC-01, AC-05, AC-06, AC-07, AC-08, AC-09, SR-01, SR-04 | CTL-01, CTL-04 | TODO | — |
-| T-02 | Registro inmutable de los rechazos (#166) | AC-04, SR-02, SR-03 | CTL-02, CTL-03 | TODO | — |
-| T-03 | Aviso de rechazo con motivo y recotización en un clic (#167) | AC-01, AC-02, AC-03, QR-01 | CTL-04 | TODO | — |
-| T-04 | Pruebas de las reglas, del registro y del aviso (#168) | AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09 | CTL-01, CTL-02 | TODO | — |
+| T-01 | Reglas de cupo con motivo y alternativa en la respuesta de cotización (#165) | AC-01, AC-05, AC-06, AC-07, AC-08, AC-09, SR-01, SR-04 | CTL-01, CTL-04 | DONE | backend/app/modules/underwriting/rules.py; backend/app/modules/rating/service.py |
+| T-02 | Registro inmutable de los rechazos (#166) | AC-04, SR-02, SR-03 | CTL-02, CTL-03 | DONE | backend/app/modules/underwriting/models.py; backend/app/modules/underwriting/service.py |
+| T-03 | Aviso de rechazo con motivo y recotización en un clic (#167) | AC-01, AC-02, AC-03, QR-01 | CTL-04 | DONE | web/src/app/features/cotizador/cotizador.component.ts |
+| T-04 | Pruebas de las reglas, del registro y del aviso (#168) | AC-01, AC-02, AC-03, AC-04, AC-05, AC-06, AC-07, AC-08, AC-09 | CTL-01, CTL-02 | DONE | backend/tests/unit/test_underwriting_rules.py; backend/tests/integration/test_underwriting_api.py; web/src/app/features/cotizador/cotizador.component.spec.ts |

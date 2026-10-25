@@ -47,8 +47,8 @@
 | Tool or method | pytest backend/tests/unit/test_underwriting_rules.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/unit/test_underwriting_rules.py::test_tc_01_el_cupo_se_aprueba_y_un_peso_mas_requiere_revision; backend/tests/unit/test_underwriting_rules.py::test_tc_01_a_los_70_anos_manda_el_cupo_por_edad_si_es_menor; backend/tests/unit/test_underwriting_rules.py::test_tc_01_el_puntaje_neutro_usa_el_cupo_de_su_franja |
+| Status | PASS |
 
 ### TC-02 · Cotización con y sin rechazo
 
@@ -64,8 +64,8 @@
 | Tool or method | pytest backend/tests/integration/test_underwriting_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_underwriting_api.py::test_tc_02_dentro_del_cupo_trae_planes_sin_decision; backend/tests/integration/test_underwriting_api.py::test_tc_02_por_encima_del_cupo_requiere_revision_con_motivo_y_suma_maxima; backend/tests/integration/test_underwriting_api.py::test_tc_02_sin_sesion_responde_401 |
+| Status | PASS |
 
 ### TC-03 · Registro del rechazo
 
@@ -81,8 +81,8 @@
 | Tool or method | pytest backend/tests/integration/test_underwriting_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_underwriting_api.py::test_tc_03_cada_rechazo_queda_registrado_sin_el_puntaje |
+| Status | PASS |
 
 ### TC-04 · Un rechazo no se emite
 
@@ -98,8 +98,8 @@
 | Tool or method | pytest backend/tests/integration/test_underwriting_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_underwriting_api.py::test_tc_04_el_identificador_de_un_rechazo_no_se_puede_emitir |
+| Status | PASS |
 
 ### TC-05 · Registro inmutable
 
@@ -115,8 +115,8 @@
 | Tool or method | pytest backend/tests/integration/test_underwriting_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_underwriting_api.py::test_tc_05_la_base_impide_cambiar_o_borrar_un_rechazo |
+| Status | PASS |
 
 ### TC-06 · Aviso y recotización en el portal
 
@@ -132,8 +132,8 @@
 | Tool or method | npm test (cotizador.component.spec.ts) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | web/src/app/features/cotizador/cotizador.component.spec.ts::"TC-06 muestra el motivo y la suma máxima en COP como alerta, sin planes ni códigos internos"; web/src/app/features/cotizador/cotizador.component.spec.ts::"TC-06 recotiza en un clic con la suma sugerida y luego muestra los planes sin aviso" |
+| Status | PASS |
 
 ### TC-07 · Accesibilidad del aviso
 

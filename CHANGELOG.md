@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
 ### Added
+- **Motivo del rechazo de suscripción (HU-WEB-07):** la cotización aplica cupos de aprobación directa por perfil crediticio y por edad; si se superan, el portal muestra el motivo en lenguaje de negocio y permite recotizar con la suma máxima aprobable en un clic. Los rechazos quedan en `underwriting_rejections`, que la base no deja modificar ni borrar.
 - **Framework SDD con seguridad obligatoria (`AGENTS.md`, `sdd/`):**
   - Paquetes de especificación en `specs/` (Requirements → Design → Tasks, evaluación de seguridad, casos de prueba y gate) con plantillas en `sdd/templates/`.
   - Roles, skills y reglas en Markdown, independientes de la herramienta de IA.

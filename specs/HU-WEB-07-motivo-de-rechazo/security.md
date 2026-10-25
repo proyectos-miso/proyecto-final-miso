@@ -73,10 +73,10 @@ N/A: el buró ya se usa en la tarifa (HU-WEB-04) y esta historia no cambia esa i
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
-| CTL-01 | El rechazo no se guarda en `quotes`; su identificador no sirve para emitir | BACKEND | MISSING | THR-01 | TC-04 | T-01 | CWE-841 | — |
-| CTL-02 | Disparador de PostgreSQL que impide UPDATE y DELETE en `underwriting_rejections` | DATA | MISSING | THR-02, THR-03 | TC-05 | T-02 | CWE-284, OWASP ASVS V7 | — |
-| CTL-03 | El registro no guarda el puntaje del buró | DATA | MISSING | THR-04, DATA-01 | TC-05 | T-02 | CWE-359 | — |
-| CTL-04 | El portal muestra motivo y suma, nunca la regla interna ni el puntaje | WEB | MISSING | THR-04 | TC-06 | T-03 | CWE-209 | — |
+| CTL-01 | El rechazo no se guarda en `quotes`; su identificador no sirve para emitir | BACKEND | EXISTING | THR-01 | TC-04 | T-01 | CWE-841 | — |
+| CTL-02 | Disparador de PostgreSQL que impide UPDATE y DELETE en `underwriting_rejections` | DATA | EXISTING | THR-02, THR-03 | TC-05 | T-02 | CWE-284, OWASP ASVS V7 | — |
+| CTL-03 | El registro no guarda el puntaje del buró | DATA | EXISTING | THR-04, DATA-01 | TC-05 | T-02 | CWE-359 | — |
+| CTL-04 | El portal muestra motivo y suma, nunca la regla interna ni el puntaje | WEB | EXISTING | THR-04 | TC-06 | T-03 | CWE-209 | — |
 
 ## 10. Cryptography
 
