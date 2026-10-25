@@ -7,6 +7,13 @@ import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.StoredCopy
 import com.solventa.app.domain.policies.WalletCopy
+import com.solventa.app.domain.auth.AuthApi
+import com.solventa.app.domain.auth.DeviceCredential
+import com.solventa.app.domain.auth.LoginResult
+import com.solventa.app.domain.auth.OtpResult
+import com.solventa.app.domain.auth.RefreshResult
+import com.solventa.app.domain.auth.ResetResult
+import com.solventa.app.domain.policies.SyncScheduler
 import kotlinx.coroutines.CompletableDeferred
 import java.time.Instant
 
@@ -42,13 +49,18 @@ class InMemoryPolicyStore : PolicyStore {
     /** Lo que responde `read` en lugar de la copia, para simular un descarte o un bloqueo (HU-MOV-05). */
     var readAs: StoredCopy? = null
 
+    /** false simula una copia que no se puede escribir, como con el teléfono bloqueado (HU-MOV-07). */
+    var canWrite = true
+
     fun put(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) {
         copies[accountEmail] = policies
         syncTimes[accountEmail] = syncedAt
     }
 
-    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) =
-        put(accountEmail, policies, syncedAt)
+    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant): Boolean {
+        if (canWrite) put(accountEmail, policies.distinctBy(PolicyCard::policyNumber), syncedAt)
+        return canWrite
+    }
 
     override suspend fun read(accountEmail: String): StoredCopy = readAs
         ?: copies[accountEmail]?.let { StoredCopy.Found(WalletCopy(it, syncTimes[accountEmail] ?: Instant.EPOCH)) }
@@ -74,6 +86,62 @@ class PendingPoliciesApi : PoliciesApi {
     val response = CompletableDeferred<PoliciesResult>()
 
     override suspend fun activePolicies(accessToken: String): PoliciesResult = response.await()
+}
+
+/** Autenticación del sincronizador: renovación, ingreso con la credencial y revocación (HU-MOV-07). */
+class FakeSyncAuthApi : AuthApi {
+    var refreshResult: suspend () -> RefreshResult = { RefreshResult.Unavailable }
+    var biometricResult: suspend () -> LoginResult = { LoginResult.NetworkError }
+    val refreshed = mutableListOf<String>()
+    val loggedOut = mutableListOf<String>()
+    val biometricCredentials = mutableListOf<DeviceCredential>()
+    val calls: Int get() = refreshed.size + biometricCredentials.size
+
+    override suspend fun refresh(refreshToken: String): RefreshResult {
+        refreshed += refreshToken
+        return refreshResult()
+    }
+
+    override suspend fun biometricLogin(credential: DeviceCredential): LoginResult {
+        biometricCredentials += credential
+        return biometricResult()
+    }
+
+    override suspend fun logout(refreshToken: String): Boolean {
+        loggedOut += refreshToken
+        return true
+    }
+
+    override suspend fun requestOtp(email: String): OtpResult = error("no se usa")
+    override suspend fun login(email: String, password: String, otpCode: String): LoginResult = error("no se usa")
+    override suspend fun registerDevice(accessToken: String): DeviceCredential? = error("no se usa")
+    override suspend fun revokeDevice(accessToken: String, deviceId: String): Boolean = error("no se usa")
+    override suspend fun forgotPassword(email: String): OtpResult = error("no se usa")
+    override suspend fun resetPassword(email: String, code: String, newPassword: String): ResetResult = error("no se usa")
+}
+
+/** Servidor de pólizas que responde según el access token recibido. */
+class ScriptedPoliciesApi : PoliciesApi {
+    var respond: suspend (String) -> PoliciesResult = { PoliciesResult.Unavailable }
+    val calls = mutableListOf<String>()
+
+    override suspend fun activePolicies(accessToken: String): PoliciesResult {
+        calls += accessToken
+        return respond(accessToken)
+    }
+}
+
+class FakeScheduler : SyncScheduler {
+    var requests = 0
+    var cancels = 0
+
+    override fun request() {
+        requests++
+    }
+
+    override fun cancel() {
+        cancels++
+    }
 }
 
 fun samplePolicy(number: String = "POL-2026-00001", validUntil: String = "2027-01-01T00:00:00Z") = PolicyCard(

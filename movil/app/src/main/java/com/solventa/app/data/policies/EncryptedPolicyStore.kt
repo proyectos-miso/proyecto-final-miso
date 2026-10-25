@@ -38,18 +38,25 @@ class EncryptedPolicyStore(
     // Un turno por cuenta: read, save y delete de la misma cuenta no se cruzan (CTL-10).
     private val turns = ConcurrentHashMap<String, Mutex>()
 
-    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) {
+    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant): Boolean {
         val accountId = PassphraseVault.accountId(accountEmail)
-        inTurn(accountId) {
+        // Una póliza repetida haría fallar la clave primaria en cada reintento (HU-MOV-07, CTL-07).
+        val unique = policies.distinctBy(PolicyCard::policyNumber)
+        return inTurn(accountId) {
             val stored = vault.existing(accountId)
             val hadCopy = stored != null || databaseExists(accountId)
-            if (stored == Unwrapped.Unavailable) return@inTurn
+            if (stored == Unwrapped.Unavailable) return@inTurn false
             // Con una frase válida solo una base dañada obliga a regenerar; una falla pasajera conserva la anterior.
-            if (stored is Unwrapped.Secret && write(accountId, stored.bytes, policies, syncedAt) != Outcome.DAMAGED) return@inTurn
+            if (stored is Unwrapped.Secret) {
+                val outcome = write(accountId, stored.bytes, unique, syncedAt)
+                if (outcome != Outcome.DAMAGED) return@inTurn outcome == Outcome.DONE
+            }
             // Sin frase válida o con la base dañada se empieza de cero (AC-05, AC-06).
             discard(accountId, mark = hadCopy)
-            val fresh = vault.create(accountId) ?: return@inTurn
-            if (write(accountId, fresh, policies, syncedAt) != Outcome.DONE) discard(accountId, mark = hadCopy)
+            val fresh = vault.create(accountId) ?: return@inTurn false
+            val written = write(accountId, fresh, unique, syncedAt) == Outcome.DONE
+            if (!written) discard(accountId, mark = hadCopy)
+            written
         }
     }
 

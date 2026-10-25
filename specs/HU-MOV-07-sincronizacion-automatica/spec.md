@@ -270,7 +270,7 @@ Fuera de alcance:
 | T-01 | Backend: 423 en `auth/refresh` con el ingreso suspendido | AC-14, SR-10 | CTL-10 | DONE | backend/tests/unit/test_insured_logout.py::test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar |
 | T-02 | Release solo HTTPS | AC-16, SR-11 | CTL-11 | DONE | movil/app/src/test/java/com/solventa/app/data/NetworkSecurityConfigTest.kt |
 | T-03 | Sesión atómica, credencial con tope y `refresh` (#198) | AC-05, AC-07, SR-04, SR-05 | CTL-04, CTL-05 | DONE | movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt; movil/app/src/test/java/com/solventa/app/data/auth/HttpAuthApiTest.kt |
-| T-04 | `SessionPolicySync` (#199) | AC-02, AC-05, AC-06, AC-07, AC-08, AC-10, AC-11, AC-12, SR-05, SR-06, SR-07, SR-09 | CTL-05, CTL-06, CTL-07, CTL-09 | TODO | — |
+| T-04 | `SessionPolicySync` (#199) | AC-02, AC-05, AC-06, AC-07, AC-08, AC-10, AC-11, AC-12, SR-05, SR-06, SR-07, SR-09 | CTL-05, CTL-06, CTL-07, CTL-09 | DONE | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt |
 | T-05 | WorkManager: dependencia, trabajo, programador y permisos (#198, #199) | AC-01, AC-03, AC-11, QR-02, SR-01, SR-02, SR-08 | CTL-01, CTL-02, CTL-08 | TODO | — |
 | T-06 | Pantallas: sincronizar, copia visible, avisos y fin de sesión (#198) | AC-01, AC-04, AC-09, AC-13, AC-15, AC-17, SR-03, SR-09 | CTL-03, CTL-09 | TODO | — |
 | T-07 | ADR 0022 nueva y ADR 0016 y 0017 actualizadas | AC-05, AC-07, AC-16, SR-04, SR-05, SR-11 | CTL-04, CTL-05, CTL-11 | TODO | — |
