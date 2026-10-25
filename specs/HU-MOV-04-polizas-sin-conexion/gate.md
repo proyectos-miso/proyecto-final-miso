@@ -44,7 +44,7 @@
 |---|---|---|---|---|
 | EV-01 | Pruebas del endpoint de pólizas del asegurado | SR-01, SR-02, CTL-01, CTL-02, TC-01, TC-02, TC-03 | backend/tests/integration/test_insured_policies_api.py | AVAILABLE |
 | EV-02 | Pruebas de la billetera, del almacén y del borrado | SR-02, SR-04, CTL-02, CTL-04, TC-03, TC-04, TC-05, TC-07 | movil/app/src/test/java/com/solventa/app/ui/wallet/ | AVAILABLE |
-| EV-03 | Prueba instrumentada del cifrado (hecha) y prueba manual de la entrada con huella (pendiente) | SR-03, SR-05, CTL-03, CTL-05, TC-06, TC-08 | Merge request de HU-MOV-04 | PENDING |
+| EV-03 | Prueba instrumentada del cifrado y prueba manual de la entrada con huella en el celular | SR-03, SR-05, CTL-03, CTL-05, TC-06, TC-08 | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt; test-cases.md, TC-08 | AVAILABLE |
 | EV-04 | Revisión de accesibilidad con TalkBack y Accessibility Scanner | QR-01, TC-09 | Merge request de HU-MOV-04 | PENDING |
 | EV-05 | Consulta en OSV.dev de las dependencias nuevas | SR-03, TC-10 | security.md, sección 14 | AVAILABLE |
 

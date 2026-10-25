@@ -64,6 +64,10 @@ Fuera de alcance: llave inválida y regeneración de la base (HU-MOV-05); sincro
 | movil/app/src/test/** | Pruebas del cliente, de la frase, del ViewModel y de la pantalla |
 | movil/app/src/androidTest/** | Prueba instrumentada del cifrado |
 | docs/adr/** | ADR 0021 y ajuste de la ADR 0015 |
+| web/src/app/core/money.ts | Montos en pesos con el código COP |
+| web/src/app/features/** | Pruebas del portal que verifican montos |
+| movil/app/src/main/res/** | Textos e íconos de la billetera y del ingreso, e ícono de la app |
+| movil/app/src/main/AndroidManifest.xml | Ícono de la app |
 | AGENTS.md | Rango de las ADR del móvil |
 
 ### Use cases
@@ -100,12 +104,14 @@ Fuera de alcance: llave inválida y regeneración de la base (HU-MOV-05); sincro
 | AC-12 | WHEN no hay red, THE asegurado con huella vinculada SHALL entrar a la billetera con un desbloqueo local de su huella y ver solo la copia; sin huella vinculada, THE app SHALL indicar que active la huella para usar la billetera sin conexión | DERIVED: el ingreso actual siempre pasa por el servidor; sin esto el criterio 2 no se puede cumplir (decisión del 2026-10-22) |
 | AC-13 | WHEN el asegurado no tiene pólizas vigentes, THE billetera SHALL indicarlo en lugar de una lista vacía | DERIVED: la historia no dice qué ve quien aún no tiene pólizas pagadas |
 | AC-14 | WHEN una póliza de la copia vence mientras no hay red, THE billetera SHALL mostrarla como vencida | DERIVED: sin red la copia no se actualiza y no debe presentar como vigente una cobertura terminada |
+| AC-15 | THE app y el portal SHALL mostrar los montos en pesos colombianos con el código de la moneda (por ejemplo "$ 250.000.000 COP"), sin conversiones | DERIVED: decisión del 2026-10-24; el símbolo $ solo se confunde con dólares |
+| AC-16 | THE billetera y las pantallas de ingreso SHALL seguir el mockup móvil (vistas biometria, loginAlt y billetera): barra con la marca, carné con degradado que se voltea a las coberturas, chip de en línea o sin conexión, lista de pólizas con su estado, tema claro u oscuro que el asegurado puede cambiar desde la barra (por defecto, el del teléfono) e ícono de la app con el escudo de la marca | DERIVED: decisiones del 2026-10-24 de alinear la app con el mockup que cita la historia |
 
 ### Quality requirements
 
 | ID | Category | Requirement | Target and conditions |
 |---|---|---|---|
-| QR-01 | ACCESSIBILITY | La billetera se usa con TalkBack y con la fuente más grande | Guías de accesibilidad de Android: descripciones, encabezados, áreas táctiles de 48 dp y textos que crecen hasta 200 % sin cortarse |
+| QR-01 | ACCESSIBILITY | La billetera y el ingreso se usan con TalkBack y con la fuente más grande | Guías de accesibilidad de Android: descripciones, encabezados, áreas táctiles de 48 dp y textos que crecen hasta 200 % sin cortarse |
 
 ### Security triggers
 
@@ -161,6 +167,8 @@ App (ADR 0013):
 - `MainActivity`: la billetera reemplaza la pantalla que hoy aparece tras entrar.
 - `SolventaApplication`: compone `HttpPoliciesApi` y `EncryptedPolicyStore`.
 - Se reemplaza el marcador `data/local/EncryptedStorageManager`, porque el cifrado nace en esta historia.
+- `ui/theme/`: formas, colores de estado y componentes comunes del mockup (barra de marca, botones, chips y aviso) para el ingreso y la billetera. La billetera muestra un carné por póliza, que se voltea a las coberturas, y la lista de pólizas; reportar siniestros, la última sincronización y la barra de pestañas quedan para sus historias.
+- La base local pasa a la versión 2 con la suma asegurada; como es una copia que se descarga de nuevo, se recrea en lugar de migrarse.
 
 ### Data flows
 
@@ -176,6 +184,7 @@ App (ADR 0013):
 |---|---|---|
 | policy_number | string (16) | Número de la póliza |
 | plan | basic, standard o premium | Plan contratado |
+| insured_amount | number | Suma asegurada en COP: el límite de la cobertura de muerte, o el mayor límite si no la tiene |
 | holder_name | string (150) | Nombre de la cuenta del asegurado |
 | coverages | lista de {name: string, limit: number} | Solo coberturas incluidas |
 | valid_from | fecha y hora ISO 8601 | Inicio de vigencia |
@@ -217,5 +226,7 @@ La respuesta no incluye el documento, los beneficiarios, la cotización ni la pr
 | T-03 | App: billetera con estados con conexión, sin conexión y primera vez, y entrada sin red con huella (#190) | AC-02, AC-03, AC-07, AC-10, AC-12, AC-13, AC-14, SR-05 | CTL-05 | DONE | movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt |
 | T-04 | App: borrado de la copia al cerrar sesión, con 401 y por cuenta | AC-04, AC-06, AC-09, SR-04 | CTL-04 | DONE | movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt |
 | T-05 | Pruebas del endpoint, del repositorio y del ViewModel (#191) | AC-01, AC-05, SR-01 | CTL-01 | DONE | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt |
-| T-06 | Pruebas en dispositivo del cifrado, del Keystore y de la entrada sin red | AC-11, AC-12, SR-03, SR-05 | CTL-03, CTL-05 | IN_PROGRESS | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt; falta la prueba manual de la huella (TC-08) |
+| T-06 | Pruebas en dispositivo del cifrado, del Keystore y de la entrada sin red | AC-11, AC-12, SR-03, SR-05 | CTL-03, CTL-05 | DONE | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt; prueba manual de la huella del 2026-10-24 (TC-08) |
 | T-07 | ADR 0021 y ajuste de la ADR 0015 | AC-11 | — | DONE | docs/adr/0021-mobile-encrypted-local-database.md |
+| T-08 | Suma asegurada en el contrato y montos en COP con su código en el portal y en la app | AC-10, AC-15 | — | DONE | web/src/app/core/money.ts; movil/app/src/main/java/com/solventa/app/ui/wallet/Formats.kt |
+| T-09 | Ingreso y billetera según el mockup móvil | AC-16, QR-01 | — | DONE | movil/app/src/main/java/com/solventa/app/ui/theme/Components.kt; movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt |

@@ -27,16 +27,18 @@
 | SC-21 | UC-01 | Dada la conexión recuperada tras usar la copia, cuando vuelve la red, entonces se sincroniza sola | OUT OF SCOPE: la sincronización al volver la red es de HU-MOV-07 |
 | SC-22 | UC-02 | Dada la copia en uso, cuando la billetera la muestra, entonces indica la fecha de la última sincronización | OUT OF SCOPE: la fecha de la última sincronización es de HU-MOV-06 |
 | SC-23 | AC-05 | Dados dos titulares con el mismo número y distinto tipo de documento, cuando uno consulta, entonces podría ver pólizas del otro | OUT OF SCOPE: RISK-03, la póliza no guarda el tipo de documento |
+| SC-25 | AC-15 | Dada una póliza con suma asegurada de 250 millones, cuando se ve en la app o en el portal, entonces aparece "$ 250.000.000 COP" | TC-11 |
+| SC-26 | AC-16 | Dada una póliza en la billetera, cuando el asegurado toca el carné, entonces ve las coberturas y al tocarlo otra vez vuelve al frente | TC-12 |
 | SC-24 | UC-02 | Dada la fuente al 200 % y TalkBack activo, cuando recorre la billetera, entonces lee cada tarjeta completa sin textos cortados | TC-09 |
 
 ## Scenario coverage
 
 | Kind | Applies | Scenarios | Rationale |
 |---|---|---|---|
-| Main flow | YES | SC-01, SC-05 | — |
+| Main flow | YES | SC-01, SC-05, SC-26 | — |
 | Alternate flows | YES | SC-04, SC-06, SC-07, SC-09 | — |
 | Invalid input and errors | YES | SC-10, SC-12, SC-13 | — |
-| Limits and boundaries | YES | SC-03, SC-14, SC-24 | — |
+| Limits and boundaries | YES | SC-03, SC-14, SC-24, SC-25 | — |
 | Related flows before and after | YES | SC-15, SC-16, SC-20, SC-21, SC-22 | — |
 | Several users, sessions, devices or roles | YES | SC-13, SC-17, SC-23 | — |
 | State and time (expiry, retries, interruptions, going back, offline) | YES | SC-08, SC-11, SC-15, SC-19 | — |
@@ -170,14 +172,14 @@
 | Kind | SECURITY |
 | Risk covered | THR-05 |
 | Level | E2E |
-| Preconditions | Emulador con huella registrada, una cuenta con huella vinculada y copia; otra cuenta sin huella vinculada |
+| Preconditions | Celular con huella registrada y el APK de depuración conectado al backend local por un túnel; la cuenta de prueba con una póliza activa |
 | Procedure | 1. Modo avión. 2. Entrar con la huella correcta. 3. Repetir con una huella no registrada y cancelando. 4. Cerrar la app desde el sistema y abrirla. 5. Intentar entrar con la cuenta sin huella |
 | Expected result | 2 muestra la copia en solo lectura; 3 no la abre; 4 pide la huella otra vez; 5 indica activar la huella |
-| Tool or method | Prueba manual en emulador (README, sección 5.5); la lógica se prueba en AuthViewModelTest con los casos TC-08 |
+| Tool or method | Prueba manual en el celular; la lógica se prueba en AuthViewModelTest con los casos TC-08 |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Prueba manual de Juan Camilo Peña en su celular con huella real, 2026-10-24: pasos de la guía de HU-MOV-04 sin hallazgos |
+| Status | PASS |
 
 ### TC-09 · Accesibilidad de la billetera
 
@@ -187,8 +189,8 @@
 | Kind | QUALITY |
 | Risk covered | — |
 | Level | ACCESSIBILITY |
-| Preconditions | Emulador con TalkBack y fuente al 200 %, copia con tres pólizas |
-| Procedure | 1. Recorrer la billetera con TalkBack. 2. Revisar textos y áreas táctiles con la fuente al 200 %. 3. Pasar Accessibility Scanner |
+| Preconditions | Celular con TalkBack y fuente al máximo, después del rediseño (T-09) |
+| Procedure | 1. Recorrer el ingreso y la billetera con TalkBack, con el carné al frente y volteado. 2. Revisar textos y áreas táctiles con la fuente al máximo. 3. Pasar Accessibility Scanner |
 | Expected result | Cada tarjeta se lee completa, el aviso de sin conexión se anuncia, nada se corta y las áreas táctiles miden al menos 48 dp |
 | Tool or method | TalkBack y Accessibility Scanner |
 | Automation | MANUAL |
@@ -211,6 +213,40 @@
 | Automation | MANUAL |
 | Environment | LOCAL |
 | Evidence | movil/gradle/libs.versions.toml solo declara net.zetetic:sqlcipher-android 4.9.0; consulta de OSV.dev del 2026-10-22 en security.md, sección 14 |
+| Status | PASS |
+
+### TC-11 · Montos en COP con su código
+
+| Field | Value |
+|---|---|
+| Covers | AC-10, AC-15 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | Formateadores de moneda del portal y de la app |
+| Procedure | 1. Formatear 250000000 en el portal. 2. Formatear 250000000 en la app. 3. Consultar el endpoint y revisar la suma asegurada |
+| Expected result | Ambos muestran "$ 250.000.000 COP" sin decimales; el endpoint devuelve insured_amount con el límite de la cobertura de muerte |
+| Tool or method | npm test (money.spec.ts); ./gradlew testDebugUnitTest (MoneyTest); pytest backend/tests/integration/test_insured_policies_api.py |
+| Automation | AUTOMATED |
+| Environment | CI |
+| Evidence | web/src/app/core/money.spec.ts; movil/app/src/test/java/com/solventa/app/ui/wallet/MoneyTest.kt::"TC-11 muestra pesos sin centavos y con el codigo COP"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"TC-11 el carne y la lista muestran la suma asegurada en COP"; backend/tests/unit/test_policy_card.py::test_tc_11_la_suma_asegurada_es_el_limite_de_la_cobertura_de_muerte |
+| Status | PASS |
+
+### TC-12 · Ingreso y billetera según el mockup
+
+| Field | Value |
+|---|---|
+| Covers | AC-16 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | Pantallas de Compose con datos de prueba |
+| Procedure | 1. Abrir el ingreso con huella y revisar la barra de marca, el sensor y la nota de cifrado. 2. Abrir la billetera y tocar el carné. 3. Revisar el chip de en línea o sin conexión y la lista con el estado de cada póliza. 4. Cambiar el tema desde la barra y cerrar y abrir la app. 5. Revisar el ícono de la app en el lanzador |
+| Expected result | Se ven los elementos del mockup; el carné muestra las coberturas al tocarlo y vuelve al frente al tocarlo otra vez; el tema cambia y se conserva al volver a abrir; el ícono muestra el escudo de Solventa |
+| Tool or method | ./gradlew testDebugUnitTest (WalletScreenTest, AuthScreensTest) y comparación visual con el mockup |
+| Automation | AUTOMATED |
+| Environment | CI |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"TC-12 tocar el carne muestra las coberturas y tocarlo otra vez vuelve al frente"; movil/app/src/test/java/com/solventa/app/ui/theme/BrandTopBarTest.kt::"TC-12 la barra muestra la marca y alterna entre tema claro y oscuro"; movil/app/src/test/java/com/solventa/app/ui/theme/BrandTopBarTest.kt::"TC-12 el tema elegido se conserva y sin eleccion se sigue el del sistema"; capturas en claro, oscuro y del ícono comparadas con el mockup el 2026-10-24 |
 | Status | PASS |
 
 ## Security test coverage
