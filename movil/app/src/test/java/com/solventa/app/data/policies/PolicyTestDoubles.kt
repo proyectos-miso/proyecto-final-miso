@@ -10,6 +10,31 @@ import com.solventa.app.domain.policies.WalletCopy
 import kotlinx.coroutines.CompletableDeferred
 import java.time.Instant
 
+/** Llaves que envuelven con XOR; la prueba puede perderlas, negar el envoltorio o volverlas no disponibles. */
+class XorWalletKeys : WalletKeys {
+    val aliases = mutableSetOf<String>()
+    var canWrap = true
+    var unavailable = false
+    var lastWrapped: ByteArray? = null
+
+    override fun wrap(alias: String, plaintext: ByteArray): WrappedSecret? {
+        lastWrapped = plaintext
+        if (!canWrap || unavailable) return null
+        aliases += alias
+        return WrappedSecret(ByteArray(12) { 1 }, plaintext.map { (it.toInt() xor 0x5A).toByte() }.toByteArray() + ByteArray(16))
+    }
+
+    override fun unwrap(alias: String, wrapped: WrappedSecret): Unwrapped = when {
+        unavailable -> Unwrapped.Unavailable
+        alias in aliases -> Unwrapped.Secret(wrapped.ciphertext.dropLast(16).map { (it.toInt() xor 0x5A).toByte() }.toByteArray())
+        else -> Unwrapped.Invalid
+    }
+
+    override fun delete(alias: String) {
+        aliases -= alias
+    }
+}
+
 class InMemoryPolicyStore : PolicyStore {
     val copies = mutableMapOf<String, List<PolicyCard>>()
     val syncTimes = mutableMapOf<String, Instant>()

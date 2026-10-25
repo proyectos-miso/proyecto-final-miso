@@ -3,6 +3,7 @@ package com.solventa.app.data.policies
 import android.content.Context
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
@@ -30,6 +31,8 @@ import java.util.concurrent.ConcurrentHashMap
 class EncryptedPolicyStore(
     private val context: Context,
     private val vault: PassphraseVault,
+    // La app siempre cifra con SQLCipher; las pruebas en la JVM pasan SQLite sin cifrar para probar el flujo.
+    private val openHelper: (ByteArray) -> SupportSQLiteOpenHelper.Factory = ::sqlcipher,
 ) : PolicyStore {
 
     // Un turno por cuenta: read, save y delete de la misma cuenta no se cruzan (CTL-10).
@@ -124,9 +127,8 @@ class EncryptedPolicyStore(
     private suspend fun <T> withDatabase(accountId: String, passphrase: ByteArray, block: suspend (WalletDatabase) -> T): Opened<T> {
         var db: WalletDatabase? = null
         return try {
-            sqlcipherLoaded
             db = Room.databaseBuilder(context, WalletDatabase::class.java, fileName(accountId))
-                .openHelperFactory(SupportOpenHelperFactory(passphrase))
+                .openHelperFactory(openHelper(passphrase))
                 .fallbackToDestructiveMigration()
                 .build()
             Opened.Done(block(db))
@@ -157,6 +159,11 @@ class EncryptedPolicyStore(
     private companion object {
         const val ROOM_INTEGRITY_FAILURE = "Room cannot verify the data integrity"
         val sqlcipherLoaded: Unit by lazy { System.loadLibrary("sqlcipher") }
+
+        fun sqlcipher(passphrase: ByteArray): SupportSQLiteOpenHelper.Factory {
+            sqlcipherLoaded
+            return SupportOpenHelperFactory(passphrase)
+        }
     }
 }
 

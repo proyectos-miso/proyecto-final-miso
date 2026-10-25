@@ -17,30 +17,6 @@ import java.util.Base64
 @RunWith(RobolectricTestRunner::class)
 class PassphraseVaultTest {
 
-    private class XorWalletKeys : WalletKeys {
-        val aliases = mutableSetOf<String>()
-        var canWrap = true
-        var lastWrapped: ByteArray? = null
-
-        override fun wrap(alias: String, plaintext: ByteArray): WrappedSecret? {
-            lastWrapped = plaintext
-            if (!canWrap) return null
-            aliases += alias
-            return WrappedSecret(ByteArray(12) { 1 }, plaintext.map { (it.toInt() xor 0x5A).toByte() }.toByteArray() + ByteArray(16))
-        }
-
-        override fun unwrap(alias: String, wrapped: WrappedSecret): Unwrapped =
-            if (alias in aliases) {
-                Unwrapped.Secret(wrapped.ciphertext.dropLast(16).map { (it.toInt() xor 0x5A).toByte() }.toByteArray())
-            } else {
-                Unwrapped.Invalid
-            }
-
-        override fun delete(alias: String) {
-            aliases -= alias
-        }
-    }
-
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val prefs = context.getSharedPreferences("solventa_wallet", Context.MODE_PRIVATE)
     private lateinit var keys: XorWalletKeys
