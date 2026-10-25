@@ -188,11 +188,14 @@ async def test_quote_edge_requiere_socio_y_cotiza(async_client: AsyncClient):
     resp_no_header = await async_client.post("/api/v1/quote-edge/quotes", json=quote_payload)
     assert resp_no_header.status_code == 401
 
-    # Con token Bearer de socio activo -> 200 (motor de tarifa de HU-WEB-03 y confinamiento HU-WEB-10)
+    # Con token Bearer de socio activo e Idempotency-Key -> 200 (motor de tarifa de HU-WEB-03, confinamiento HU-WEB-10 e idempotencia HU-WEB-11)
     partner_token = create_partner_access_token(client_id="banco_aliado", partner_id="banco-aliado-1")
     resp_with_token = await async_client.post(
         "/api/v1/quote-edge/quotes",
-        headers={"Authorization": f"Bearer {partner_token}"},
+        headers={
+            "Authorization": f"Bearer {partner_token}",
+            "Idempotency-Key": "test-health-key-1",
+        },
         json=quote_payload,
     )
     assert resp_with_token.status_code == 200

@@ -26,7 +26,7 @@ DEFAULT_PARTNERS = [
     {
         "partner_id": "banco-aliado-1",
         "client_id": "banco_aliado",
-        "client_secret_hash": "$2b$12$1Snwq47xfeX/hNNSbHTJRObiDw9imA2NiDyTV3AjMjDIYkZ.N5yC6",
+        "client_secret": "AliadoSecret2026*",  # sdd:allow-secret
         "name": "Banco Aliado S.A.",
         "status": PartnerStatus.ACTIVE.value,
         "quota_limit": 50000,
@@ -35,7 +35,7 @@ DEFAULT_PARTNERS = [
     {
         "partner_id": "socio-inactivo-1",
         "client_id": "socio_inactivo",
-        "client_secret_hash": "$2b$12$TpSEIfR99FQddHpj.hzgwe00b39BEmrb56GJSgM963jBb6sZH194W",
+        "client_secret": "Inactivo2026*",  # sdd:allow-secret
         "name": "Financiera Inactiva S.A.",
         "status": PartnerStatus.REVOKED.value,
         "quota_limit": 1000,
