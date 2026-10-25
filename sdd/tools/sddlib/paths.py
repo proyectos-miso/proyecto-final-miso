@@ -45,10 +45,26 @@ def matches_any(patterns, path: str) -> bool:
     return any(matches(p, path) for p in patterns)
 
 
+def _is_pattern(value: str) -> bool:
+    return any(c in value for c in "*?")
+
+
+def _as_pattern(value: str) -> str:
+    """A concrete folder covers everything inside it; a concrete file only itself."""
+    value = _clean(value)
+    if _is_pattern(value) or "." in value.rstrip("/").rsplit("/", 1)[-1]:
+        return value
+    return value.rstrip("/") + "/**"
+
+
 def overlap(a: str, b: str) -> bool:
-    """Two patterns overlap when either covers the other taken literally, or they share a fixed prefix."""
+    """Two patterns overlap when either covers the other taken literally, or they share a fixed prefix.
+    A concrete file overlaps a pattern only when the pattern covers it."""
+    a, b = _as_pattern(a), _as_pattern(b)
     if matches(a, b) or matches(b, a):
         return True
+    if not (_is_pattern(a) and _is_pattern(b)):
+        return False
     fixed_a = re.split(r"[*?]", _clean(a), maxsplit=1)[0]
     fixed_b = re.split(r"[*?]", _clean(b), maxsplit=1)[0]
     return bool(fixed_a) and bool(fixed_b) and (fixed_a.startswith(fixed_b) or fixed_b.startswith(fixed_a))
