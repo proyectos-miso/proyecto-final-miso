@@ -50,6 +50,7 @@ class HttpPoliciesApi(private val baseUrl: String) : PoliciesApi {
             PolicyCard(
                 policyNumber = policy.getString("policy_number"),
                 plan = policy.getString("plan"),
+                insuredAmount = policy.getDouble("insured_amount"),
                 holderName = policy.getString("holder_name"),
                 coverages = (0 until coverages.length()).map { j ->
                     val coverage = coverages.getJSONObject(j)

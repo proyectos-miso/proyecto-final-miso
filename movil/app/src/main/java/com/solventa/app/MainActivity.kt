@@ -2,14 +2,23 @@ package com.solventa.app
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.initializer
@@ -22,6 +31,7 @@ import com.solventa.app.ui.auth.BiometricEnrollmentDialog
 import com.solventa.app.ui.auth.BiometricLoginScreen
 import com.solventa.app.ui.auth.LogoutConfirmationDialog
 import com.solventa.app.ui.auth.PasswordRecoveryScreen
+import com.solventa.app.ui.theme.BrandTopBar
 import com.solventa.app.ui.theme.SolventaTheme
 import com.solventa.app.ui.wallet.WalletScreen
 import com.solventa.app.ui.wallet.WalletViewModel
@@ -50,9 +60,28 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val biometricAuthenticator = AndroidBiometricAuthenticator(this)
+        val themeStore = (application as SolventaApplication).themeStore
         setContent {
-            SolventaTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+            val systemDark = isSystemInDarkTheme()
+            var darkTheme by rememberSaveable { mutableStateOf(themeStore.darkTheme() ?: systemDark) }
+            // Barras del sistema transparentes y con íconos que contrastan con el tema elegido.
+            DisposableEffect(darkTheme) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                val style = if (darkTheme) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
+            }
+            SolventaTheme(darkTheme = darkTheme) {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets.safeDrawing,
+                    topBar = {
+                        BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
+                            darkTheme = !darkTheme
+                            themeStore.saveDarkTheme(darkTheme)
+                        })
+                    },
+                ) { innerPadding ->
                     SolventaMobileRoot(
                         viewModel = authViewModel,
                         walletViewModel = walletViewModel,

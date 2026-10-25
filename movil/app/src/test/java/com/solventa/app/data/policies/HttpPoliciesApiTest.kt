@@ -38,8 +38,8 @@ class HttpPoliciesApiTest {
             MockResponse().setResponseCode(200).setBody(
                 """
                 {"policies": [{
-                  "policy_number": "POL-2026-00001", "plan": "premium", "holder_name": "María Ruiz",
-                  "coverages": [{"name": "Responsabilidad civil", "limit": 100000000.0, "deductible": 0}],
+                  "policy_number": "POL-2026-00001", "plan": "premium", "insured_amount": 250000000.0, "holder_name": "María Ruiz",
+                  "coverages": [{"name": "Muerte por cualquier causa", "limit": 250000000.0, "deductible": 0}],
                   "valid_from": "2026-01-01T00:00:00Z", "valid_until": "2027-01-01T00:00:00+00:00",
                   "insured_document": "1020304050", "beneficiaries": [{"name": "Beneficiaria"}]
                 }]}
@@ -56,8 +56,9 @@ class HttpPoliciesApiTest {
         val card = result.policies.single()
         assertEquals("POL-2026-00001", card.policyNumber)
         assertEquals("premium", card.plan)
+        assertEquals(2.5e8, card.insuredAmount, 0.0)
         assertEquals("María Ruiz", card.holderName)
-        assertEquals(listOf(CoverageLimit("Responsabilidad civil", 1e8)), card.coverages)
+        assertEquals(listOf(CoverageLimit("Muerte por cualquier causa", 2.5e8)), card.coverages)
         assertEquals(Instant.parse("2026-01-01T00:00:00Z"), card.validFrom)
         assertEquals(Instant.parse("2027-01-01T00:00:00Z"), card.validUntil)
         assertEquals(card, card.toEntity().toCard())

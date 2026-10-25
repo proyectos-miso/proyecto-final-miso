@@ -8,6 +8,8 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -35,10 +37,12 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import javax.crypto.Cipher
 
 // Recorrido completo de las pantallas de acceso con el ViewModel real (HU-MOV-01, 02, 03 y 12).
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = PHONE)
 class SolventaMobileRootTest {
 
     @get:Rule
@@ -84,8 +88,8 @@ class SolventaMobileRootTest {
         compose.onNodeWithText(s(R.string.auth_submit)).performClick()
 
         compose.onNodeWithText(s(R.string.auth_enroll_confirm)).performClick()
-        compose.onNodeWithText(s(R.string.home_title_named, "María Ruiz")).assertIsDisplayed()
-        compose.onNodeWithText(s(R.string.wallet_policy_number, "POL-2026-00001"), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
+        compose.onAllNodesWithText("POL-2026-00001", substring = true).onFirst().assertIsDisplayed()
         compose.onNodeWithText(s(R.string.biometric_disable)).assertIsDisplayed()
 
         compose.onNodeWithText(s(R.string.logout_button)).performClick()
@@ -94,7 +98,7 @@ class SolventaMobileRootTest {
 
         compose.onNodeWithText(s(R.string.auth_biometric_account, "María Ruiz")).assertIsDisplayed()
         compose.onNodeWithContentDescription(s(R.string.auth_sensor_description)).performClick()
-        compose.onNodeWithText(s(R.string.home_title_named, "María Ruiz")).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
 
         compose.onNodeWithText(s(R.string.biometric_disable)).performClick()
         compose.onNodeWithText(s(R.string.biometric_disabled)).assertIsDisplayed()
@@ -138,6 +142,8 @@ class MainActivityTest {
     @Test
     fun `la app abre en la pantalla de ingreso con huella`() {
         compose.onNodeWithText(compose.activity.getString(R.string.auth_biometric_title)).assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.app_name)).assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.auth_device_protected)).assertIsDisplayed()
         compose.onNodeWithText(compose.activity.getString(R.string.auth_use_alternative)).assertIsDisplayed()
     }
 }

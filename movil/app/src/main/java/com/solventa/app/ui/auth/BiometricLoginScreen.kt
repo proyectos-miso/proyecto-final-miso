@@ -16,18 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -40,6 +36,13 @@ import androidx.compose.ui.unit.dp
 import com.solventa.app.R
 import com.solventa.app.data.session.BoundAccount
 import com.solventa.app.ui.theme.SolventaTheme
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import com.solventa.app.ui.theme.BrandMark
+import com.solventa.app.ui.theme.PrimaryButton
+import com.solventa.app.ui.theme.SecondaryButton
+import com.solventa.app.ui.theme.SecureNote
 
 @Composable
 fun BiometricLoginScreen(
@@ -57,22 +60,7 @@ fun BiometricLoginScreen(
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(15.dp))
-                .background(
-                    Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_shield),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(28.dp),
-            )
-        }
+        BrandMark(size = 52)
         Spacer(Modifier.height(16.dp))
         Text(
             text = stringResource(R.string.auth_biometric_title),
@@ -122,14 +110,12 @@ fun BiometricLoginScreen(
         }
 
         if (biometricBlocked) {
-            Button(onClick = onUseAlternative, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text(stringResource(R.string.auth_use_alternative))
-            }
+            PrimaryButton(stringResource(R.string.auth_use_alternative), onUseAlternative)
         } else {
-            OutlinedButton(onClick = onUseAlternative, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text(stringResource(R.string.auth_use_alternative))
-            }
+            SecondaryButton(stringResource(R.string.auth_use_alternative), onUseAlternative)
         }
+        Spacer(Modifier.height(20.dp))
+        SecureNote(stringResource(R.string.auth_device_protected))
     }
 }
 
@@ -159,21 +145,46 @@ private fun AccountSelector(accounts: List<BoundAccount>, selectedEmail: String?
 @Composable
 private fun SensorButton(active: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = CircleShape,
-        color = if (active) colors.primary else colors.primaryContainer,
-        contentColor = if (active) colors.onPrimary else colors.primary,
-        border = BorderStroke(2.dp, if (enabled) colors.primary else colors.outline),
-        modifier = Modifier.size(104.dp),
+    val ring = if (enabled) colors.primary else colors.outline
+    // Sensor del mockup: degradado suave, sombra y un anillo punteado fijo alrededor.
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(120.dp)
+            .drawBehind {
+                drawCircle(
+                    color = ring.copy(alpha = 0.4f),
+                    radius = size.minDimension / 2 - 1.dp.toPx(),
+                    style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+                )
+            },
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                painter = painterResource(R.drawable.ic_fingerprint),
-                contentDescription = stringResource(R.string.auth_sensor_description),
-                modifier = Modifier.size(56.dp),
-            )
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            shape = CircleShape,
+            color = Color.Transparent,
+            contentColor = if (active) colors.onPrimary else colors.primary,
+            border = BorderStroke(2.dp, ring),
+            shadowElevation = 8.dp,
+            modifier = Modifier.size(104.dp),
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.background(
+                    if (active) {
+                        Brush.linearGradient(listOf(colors.primary, colors.primary))
+                    } else {
+                        Brush.linearGradient(listOf(colors.primaryContainer, colors.surface))
+                    }
+                ),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_fingerprint),
+                    contentDescription = stringResource(R.string.auth_sensor_description),
+                    modifier = Modifier.size(56.dp),
+                )
+            }
         }
     }
 }

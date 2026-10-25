@@ -14,6 +14,7 @@ import androidx.room.Transaction
 data class PolicyCardEntity(
     @PrimaryKey val policyNumber: String,
     val plan: String,
+    val insuredAmount: Double,
     val holderName: String,
     val coveragesJson: String,
     val validFromEpochMillis: Long,
@@ -51,7 +52,7 @@ interface PolicyCardDao {
     suspend fun saveMeta(meta: WalletMetaEntity)
 }
 
-@Database(entities = [PolicyCardEntity::class, WalletMetaEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PolicyCardEntity::class, WalletMetaEntity::class], version = 2, exportSchema = false)
 abstract class WalletDatabase : RoomDatabase() {
     abstract fun policyCards(): PolicyCardDao
 }

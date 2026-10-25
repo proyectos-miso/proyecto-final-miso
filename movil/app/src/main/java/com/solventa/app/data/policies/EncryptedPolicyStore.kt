@@ -64,6 +64,7 @@ class EncryptedPolicyStore(
         sqlcipherLoaded
         val db = Room.databaseBuilder(context, WalletDatabase::class.java, fileName(accountId))
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
+            .fallbackToDestructiveMigration()
             .build()
         try {
             return block(db)
@@ -83,6 +84,7 @@ class EncryptedPolicyStore(
 internal fun PolicyCard.toEntity() = PolicyCardEntity(
     policyNumber = policyNumber,
     plan = plan,
+    insuredAmount = insuredAmount,
     holderName = holderName,
     coveragesJson = JSONArray(coverages.map { JSONObject().put("name", it.name).put("limit", it.limit) }).toString(),
     validFromEpochMillis = validFrom.toEpochMilli(),
@@ -94,6 +96,7 @@ internal fun PolicyCardEntity.toCard(): PolicyCard {
     return PolicyCard(
         policyNumber = policyNumber,
         plan = plan,
+        insuredAmount = insuredAmount,
         holderName = holderName,
         coverages = (0 until coverages.length()).map { i ->
             val coverage = coverages.getJSONObject(i)

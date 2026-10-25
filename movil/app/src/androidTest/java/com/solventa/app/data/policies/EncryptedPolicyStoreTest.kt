@@ -25,8 +25,9 @@ class EncryptedPolicyStoreTest {
     private val policy = PolicyCard(
         policyNumber = "POL-2026-07777",
         plan = "standard",
+        insuredAmount = 1e8,
         holderName = "Asegurado de Prueba",
-        coverages = listOf(CoverageLimit("Responsabilidad civil", 1e8)),
+        coverages = listOf(CoverageLimit("Muerte por cualquier causa", 1e8)),
         validFrom = Instant.parse("2026-01-01T00:00:00Z"),
         validUntil = Instant.parse("2027-01-01T00:00:00Z"),
     )

@@ -8,6 +8,7 @@ data class CoverageLimit(val name: String, val limit: Double)
 data class PolicyCard(
     val policyNumber: String,
     val plan: String,
+    val insuredAmount: Double,
     val holderName: String,
     val coverages: List<CoverageLimit>,
     val validFrom: Instant,

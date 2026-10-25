@@ -3,6 +3,7 @@ package com.solventa.app.ui.auth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +29,7 @@ fun PasswordField(
 ) {
     var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
+        shape = MaterialTheme.shapes.small,
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },

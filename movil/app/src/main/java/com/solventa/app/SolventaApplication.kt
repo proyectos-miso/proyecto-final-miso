@@ -7,6 +7,7 @@ import com.solventa.app.data.policies.HttpPoliciesApi
 import com.solventa.app.data.policies.KeystoreWalletKeys
 import com.solventa.app.data.policies.PassphraseVault
 import com.solventa.app.data.session.KeystoreSessionCrypto
+import com.solventa.app.data.settings.ThemePreferenceStore
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.data.session.SharedPreferencesSessionStore
 import com.solventa.app.domain.auth.AuthApi
@@ -20,6 +21,8 @@ class SolventaApplication : Application() {
     }
 
     val authApi: AuthApi by lazy { HttpAuthApi(BuildConfig.API_BASE_URL) }
+
+    val themeStore: ThemePreferenceStore by lazy { ThemePreferenceStore(this) }
 
     val policiesApi: PoliciesApi by lazy { HttpPoliciesApi(BuildConfig.API_BASE_URL) }
 

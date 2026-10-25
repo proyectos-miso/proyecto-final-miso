@@ -33,8 +33,9 @@ class FakePoliciesApi(var result: PoliciesResult = PoliciesResult.Loaded(emptyLi
 fun samplePolicy(number: String = "POL-2026-00001", validUntil: String = "2027-01-01T00:00:00Z") = PolicyCard(
     policyNumber = number,
     plan = "premium",
+    insuredAmount = 2.5e8,
     holderName = "María Ruiz",
-    coverages = listOf(CoverageLimit("Responsabilidad civil", 1e8)),
+    coverages = listOf(CoverageLimit("Muerte por cualquier causa", 2.5e8), CoverageLimit("Incapacidad total y permanente", 2.5e8)),
     validFrom = Instant.parse("2026-01-01T00:00:00Z"),
     validUntil = Instant.parse(validUntil),
 )
