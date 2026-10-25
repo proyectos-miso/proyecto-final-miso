@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
+| Security status | SECURITY_REVIEW_PENDING |
 | Evaluated on | 2026-10-25 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-MOV-05-copia-cifrada |
 
@@ -39,9 +39,9 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas unitarias | SR-01, SR-02, SR-03, SR-04, SR-05, SR-07, CTL-01, CTL-02, CTL-03, CTL-05, CTL-07, CTL-09, CTL-10, TC-01, TC-02, TC-04, TC-05, TC-07, TC-08, TC-12 | movil/app/src/test/java/com/solventa/app/ | PENDING |
-| EV-02 | Pruebas instrumentadas en el teléfono | SR-01, SR-02, SR-04, SR-06, SR-07, CTL-01, CTL-02, CTL-04, CTL-05, CTL-08, CTL-09, CTL-10, TC-01, TC-02, TC-03, TC-04, TC-05, TC-10, TC-11, TC-12 | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt | PENDING |
-| EV-03 | Pruebas manuales: bloqueo real, transferencia, accesibilidad y revisión de código | SR-03, SR-04, SR-05, CTL-03, CTL-05, CTL-06, CTL-07, TC-06, TC-09, TC-13, TC-14 | Resultado registrado en cada caso de prueba | PENDING |
+| EV-01 | Pruebas unitarias | SR-01, SR-02, SR-03, SR-04, SR-05, SR-07, CTL-01, CTL-02, CTL-03, CTL-05, CTL-07, CTL-09, CTL-10, TC-01, TC-02, TC-04, TC-05, TC-07, TC-08, TC-12 | movil/app/src/test/java/com/solventa/app/ | AVAILABLE |
+| EV-02 | Pruebas instrumentadas en el teléfono | SR-01, SR-02, SR-04, SR-06, SR-07, CTL-01, CTL-02, CTL-04, CTL-05, CTL-08, CTL-09, CTL-10, TC-01, TC-02, TC-03, TC-04, TC-05, TC-10, TC-11, TC-12 | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt | AVAILABLE |
+| EV-03 | Pruebas manuales: bloqueo real, transferencia, accesibilidad y revisión de código | SR-03, SR-04, SR-05, CTL-03, CTL-05, CTL-06, CTL-07, TC-06, TC-09, TC-13, TC-14 | Resultado registrado en cada caso de prueba | AVAILABLE |
 
 ## Closeout
 

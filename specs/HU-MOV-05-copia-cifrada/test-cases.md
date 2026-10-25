@@ -56,8 +56,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest); ./gradlew testDebugUnitTest (PassphraseVaultTest); los pasos 1 y 4 ya existen |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::el_archivo_no_es_sqlite_legible_ni_contiene_el_numero_de_poliza; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::el_archivo_no_abre_con_otra_frase_y_la_llave_no_se_puede_exportar; movil/app/src/test/java/com/solventa/app/data/policies/PassphraseVaultTest.kt::"crea una frase aleatoria de 32 bytes por cuenta y solo guarda su version envuelta"; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-02 · Llave perdida y marca de descarte
 
@@ -73,8 +73,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest); ./gradlew testDebugUnitTest (WalletViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::sin_la_llave_se_descarta_hasta_el_siguiente_guardado; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::sin_la_frase_envuelta_la_copia_se_descarta_y_borrar_no_falla; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"tras una copia descartada, con red guarda las polizas y quita el aviso"; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-03 · Base dañada
 
@@ -90,8 +90,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest; el paso 3 ya existe) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_base_alterada_se_reemplaza_al_guardar; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_base_alterada_no_devuelve_copia_ni_hora_y_se_borra; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::sin_permiso_de_escritura_el_primer_guardado_no_deja_nada; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_base_con_otro_esquema_se_descarta; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-04 · Frase dañada, fallas del Keystore y frase en cero
 
@@ -107,8 +107,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew testDebugUnitTest (PassphraseVaultTest, KeystoreWalletKeysTest); ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/PassphraseVaultTest.kt::"una frase guardada con Base64, IV o texto cifrado invalidos es invalida"; movil/app/src/test/java/com/solventa/app/data/policies/PassphraseVaultTest.kt::"si no se puede envolver, create devuelve null y deja la frase en ceros"; movil/app/src/test/java/com/solventa/app/data/policies/KeystoreWalletKeysTest.kt::"sin el alias o con el secreto alterado es invalida"; movil/app/src/test/java/com/solventa/app/data/policies/KeystoreWalletKeysTest.kt::"un Keystore que falla al cargar, buscar o borrar no lanza y deja la llave no disponible"; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_frase_envuelta_alterada_es_invalida_con_el_keystore_real; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_frase_ilegible_descarta_la_copia_y_el_guardado_la_regenera; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-05 · Copia no disponible
 
@@ -124,8 +124,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew testDebugUnitTest (KeystoreWalletKeysTest, WalletViewModelTest); ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/KeystoreWalletKeysTest.kt::"con el telefono bloqueado antes o despues del fallo la llave no esta disponible"; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::con_la_llave_no_disponible_la_copia_se_conserva; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::con_la_llave_no_disponible_el_primer_guardado_no_crea_nada; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_falla_pasajera_al_escribir_conserva_la_copia_anterior; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"una copia no disponible muestra su aviso y al reintentar o volver a la app muestra la copia"; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-06 · Teléfono bloqueado de verdad
 
@@ -141,8 +141,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest), con la persona desbloqueando el teléfono |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/RealLockTest.kt::con_el_telefono_bloqueado_la_copia_no_esta_disponible_y_se_conserva; corrida manual con `realLock=true` en el Galaxy S22 Ultra con PIN y bloqueo inmediato, 2026-10-25: pasó; David Gutiérrez desbloqueó el teléfono |
+| Status | PASS |
 
 ### TC-07 · Avisos de la billetera
 
@@ -158,8 +158,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest, WalletScreenTest, PassphraseVaultTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"sin red o con el servidor caido y la copia descartada pide conexion con su aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"sin red y sin copia pide conexion sin el aviso de copia descartada"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"la copia descartada muestra su aviso en lugar del de primera descarga"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"la copia no disponible muestra su aviso y reintenta con el boton"; movil/app/src/test/java/com/solventa/app/data/policies/PassphraseVaultTest.kt::"la marca de copia descartada sigue hasta borrarla"; 181 de 181 unitarias |
+| Status | PASS |
 
 ### TC-08 · Reglas de extracción
 
@@ -175,8 +175,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew testDebugUnitTest (DataExtractionRulesTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/DataExtractionRulesTest.kt::"el manifiesto niega las copias y declara las reglas de extraccion"; movil/app/src/test/java/com/solventa/app/data/DataExtractionRulesTest.kt::"cada seccion excluye los nueve dominios completos y no incluye nada"; 181 de 181 unitarias |
+| Status | PASS |
 
 ### TC-09 · Transferencia simulada
 
@@ -192,8 +192,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | `adb shell bmgr`, logcat y `./gradlew lintRelease` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | Paso 3 hecho el 2026-10-25 en un Galaxy S22 Ultra con Android 16: viajaron los cinco archivos de prueba de `root`, `file`, `database`, `sharedpref` y `device_file`. Pasos 4 y 5 pendientes |
-| Status | PENDING |
+| Evidence | 2026-10-25, Galaxy S22 Ultra con Android 16: antes de las reglas viajaron los cinco archivos de prueba de `root`, `file`, `database`, `sharedpref` y `device_file`; con las reglas, el registro `BackupXmlParserLogging` lista los nueve dominios excluidos, ningún archivo de la app entra en la transferencia y `LocalTransport` rechaza el paquete vacío (−1002); `lintRelease` ya no reporta `DataExtractionRules`; el teléfono quedó con su transporte y su compilación normal |
+| Status | PASS |
 
 ### TC-10 · Una cuenta no afecta a otra
 
@@ -209,8 +209,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_base_de_otra_cuenta_no_abre_y_solo_se_descarta_esa; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::borrar_la_llave_de_una_cuenta_no_toca_la_otra; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-11 · Cancelación
 
@@ -226,8 +226,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::cancelar_lecturas_y_guardados_no_borra_ni_deja_la_base_con_ceros; 50 lecturas y 100 guardados cancelados en el teléfono, 2026-10-25 |
+| Status | PASS |
 
 ### TC-12 · Cierre de sesión durante la descarga
 
@@ -243,8 +243,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest, MainActivityTest); ./gradlew connectedDebugAndroidTest (EncryptedPolicyStoreTest) |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"cerrar la billetera antes de que responda el servidor no guarda la copia"; movil/app/src/test/java/com/solventa/app/MainActivityTest.kt::"cerrar sesion con la descarga pendiente no deja copia de la cuenta"; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::el_borrado_espera_al_guardado_en_curso_aunque_se_cancele; Galaxy S22 Ultra con Android 16, 2026-10-25: 21 de 21 instrumentadas |
+| Status | PASS |
 
 ### TC-13 · Accesibilidad
 
@@ -254,14 +254,14 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Kind | QUALITY |
 | Risk covered | — |
 | Level | ACCESSIBILITY |
-| Preconditions | TalkBack y fuente al máximo; copia descartada sin red; para la copia no disponible, una prueba de `androidTest` que deja abierta `WalletScreen` con `copyUnavailable` (nunca en release) |
-| Procedure | 1. Abrir la billetera con la copia descartada. 2. Abrir la pantalla con la copia no disponible y activar Reintentar con TalkBack |
-| Expected result | Se anuncian al aparecer y se leen completos; Reintentar se anuncia como botón y se activa; nada se corta |
+| Preconditions | TalkBack y fuente al máximo; la app real con la copia descartada sin red. El aviso de copia no disponible usa el mismo `WarningBanner` y un `SecondaryButton`, cuya región en vivo y cuyo clic verifica `WalletScreenTest`, sin agregar dependencias a `androidTest` |
+| Procedure | 1. Abrir la billetera con la copia descartada. 2. Revisar el aviso con TalkBack y la fuente al máximo |
+| Expected result | El aviso se anuncia al aparecer y se lee completo; nada se corta |
 | Tool or method | TalkBack; los avisos usan `WarningBanner` con región en vivo (WalletScreenTest) |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | prueba manual de David Gutiérrez en su Galaxy S22 Ultra, 2026-10-25: con TalkBack y la fuente en 2.0, el aviso de copia descartada se anunció al aparecer y se leyó completo; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"la copia no disponible muestra su aviso y reintenta con el boton" |
+| Status | PASS |
 
 ### TC-14 · Revisión de registros, frase en cero y turnos
 
@@ -277,8 +277,8 @@ Datos de prueba ficticios, con correos de `example.com`. Las pruebas instrumenta
 | Tool or method | grep, revisión de código y `python sdd/tools/sdd.py scan secrets` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | revisión del 2026-10-25: sin registros en `data/policies`; `SolventaApplication.kt` apaga los registros de SQLCipher; `read` y `save` comprueban `ensureActive()` al tomar el turno y antes de obtener la frase, así que no hay frase en memoria en esa comprobación; la base se usa sin cancelación y la frase se pone en cero tras cerrarla y al fallar `wrap`; `sdd.py scan secrets --diff` sin hallazgos |
+| Status | PASS |
 
 ## Security test coverage
 
