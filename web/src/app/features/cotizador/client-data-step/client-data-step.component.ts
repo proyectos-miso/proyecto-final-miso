@@ -89,6 +89,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 (input)="onDocumentNumberInput($event)"
                 (keydown)="onDocumentNumberKeyDown($event)"
                 name="docNumber"
+                [attr.aria-invalid]="isInvalid('docNumber') || null"
                 placeholder="1020304050"
                 required
                 minlength="5"
@@ -106,6 +107,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="birthDate()"
                 (ngModelChange)="birthDate.set($event)"
                 name="birthDate"
+                [attr.aria-invalid]="isInvalid('birthDate') || null"
                 required
               />
               @if (isFutureDate()) {
@@ -130,6 +132,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="firstName()"
                 (ngModelChange)="firstName.set($event)"
                 name="firstName"
+                [attr.aria-invalid]="isInvalid('firstName') || null"
                 placeholder="Carlos"
                 required
                 minlength="2"
@@ -146,6 +149,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="lastName()"
                 (ngModelChange)="lastName.set($event)"
                 name="lastName"
+                [attr.aria-invalid]="isInvalid('lastName') || null"
                 placeholder="Rodríguez"
                 required
                 minlength="2"
@@ -163,6 +167,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="phone()"
                 (ngModelChange)="phone.set($event)"
                 name="phone"
+                [attr.aria-invalid]="isInvalid('phone') || null"
                 placeholder="3001234567"
                 required
               />
@@ -178,6 +183,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="email()"
                 (ngModelChange)="email.set($event)"
                 name="email"
+                [attr.aria-invalid]="isInvalid('email') || null"
                 placeholder="carlos.rodriguez@email.com"
                 required
               />
@@ -253,6 +259,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                 [ngModel]="insuredAmount()"
                 (ngModelChange)="insuredAmount.set($event ? +$event : null)"
                 name="insuredAmount"
+                [attr.aria-invalid]="isInvalid('insuredAmount') || null"
                 required
               />
               <small class="helper-text helper-money">
@@ -273,6 +280,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
                   [ngModel]="termMonths()"
                   (ngModelChange)="termMonths.set($event ? +$event : null)"
                   name="termMonths"
+                  [attr.aria-invalid]="isInvalid('termMonths') || null"
                   required
                 />
                 <small class="helper-text">
@@ -339,7 +347,7 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
         }
 
         <div class="actions-row">
-          <button type="submit" class="submit-button" [disabled]="validating() || !isFormValid()">
+          <button type="submit" class="submit-button" [disabled]="validating()">
             @if (validating()) {
               <span class="spinner" aria-hidden="true"></span>
               Validando asegurabilidad...
@@ -516,6 +524,11 @@ import { extractErrorMessage } from '../../../core/utils/http-error';
       .submit-button:hover:not(:disabled) {
         background: #083c53;
       }
+      input[aria-invalid='true'] {
+        border-color: var(--error, #b91c1c);
+        box-shadow: 0 0 0 1px var(--error, #b91c1c);
+      }
+
       .submit-button:disabled {
         opacity: 0.6;
         cursor: not-allowed;
@@ -717,21 +730,41 @@ export class ClientDataStepComponent implements OnInit {
     );
   });
 
+  // HU-WEB-07 (AC-10): el botón no se deshabilita; al enviar se dice qué corregir y se enfoca el primer campo.
+  readonly submitted = signal(false);
+  readonly invalidFields = computed(() => {
+    const fields: { id: string; label: string }[] = [];
+    if (!this.isDocumentNumberValid()) {
+      fields.push({ id: 'docNumber', label: 'número de documento (solo dígitos numéricos, entre 5 y 20)' });
+    }
+    if (!this.isAgeValid()) fields.push({ id: 'birthDate', label: 'fecha de nacimiento (entre 18 y 75 años)' });
+    if (this.firstName().trim().length < 2) fields.push({ id: 'firstName', label: 'nombres' });
+    if (this.lastName().trim().length < 2) fields.push({ id: 'lastName', label: 'apellidos' });
+    if (this.phone().trim().length < 7) fields.push({ id: 'phone', label: 'teléfono celular (mínimo 7 dígitos)' });
+    if (!this.email().includes('@')) fields.push({ id: 'email', label: 'correo electrónico' });
+    if (!((this.insuredAmount() ?? 0) > 0)) fields.push({ id: 'insuredAmount', label: 'monto del préstamo' });
+    if ((this.termMonths() ?? 0) < 36) fields.push({ id: 'termMonths', label: 'plazo del crédito (mínimo 36 meses)' });
+    return fields;
+  });
+
+  isInvalid(id: string): boolean {
+    return this.submitted() && this.invalidFields().some((field) => field.id === id);
+  }
+
   onSubmit(): void {
     if (!this.isFormValid()) {
-      if (!this.isDocumentNumberValid()) {
-        this.errorMessage.set(
-          'El número de documento solo debe contener dígitos numéricos (entre 5 y 20 dígitos).',
-        );
-      } else if (this.isFutureDate()) {
+      this.submitted.set(true);
+      const age = this.calculatedAge();
+      if (this.isFutureDate()) {
         this.errorMessage.set('La fecha de nacimiento no puede ser una fecha futura.');
-      } else if (!this.isAgeValid()) {
-        this.errorMessage.set(
-          `El solicitante tiene ${this.calculatedAge()} años. Debe tener entre 18 y 75 años para ser asegurable.`,
-        );
+      } else if (age !== null && !this.isAgeValid()) {
+        this.errorMessage.set(`El solicitante tiene ${age} años. Debe tener entre 18 y 75 años para ser asegurable.`);
       } else {
-        this.errorMessage.set('Por favor complete todos los campos obligatorios del formulario.');
+        const labels = this.invalidFields().map((field) => field.label);
+        this.errorMessage.set(`Revise estos campos: ${labels.join(', ')}.`);
       }
+      const first = this.invalidFields()[0];
+      if (first) document.getElementById(first.id)?.focus();
       return;
     }
 

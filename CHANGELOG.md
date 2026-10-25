@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
 ### Added
+- **Motivo del rechazo de suscripción (HU-WEB-07):** la cotización aplica cupos de aprobación directa por perfil crediticio y por edad; si se superan, el portal muestra el motivo en lenguaje de negocio y permite recotizar con la suma máxima aprobable en un clic. Los rechazos quedan en `underwriting_rejections`, que la base no deja modificar ni borrar.
 - **HU-WEB-14 · Emisión de póliza embebida B2B (#113, #181, #182, #183):**
   - Backend: Extensión del modelo relacional `PolicyDB` (tabla `policies`) con clave foránea indexada `partner_id`, y definición de esquemas Pydantic `PartnerPolicyIssueRequest` y `PartnerPolicyResponse` para emisión y consultas CQRS de socios B2B.
   - Servicio de Políticas (`PolicyService`): Incorporación de `issue_partner_policy` con validación estricta de pertenencia y vigencia de cotización, emisión atómica e idempotente (`insert ... on_conflict_do_nothing`) y encolado de evento `PolicyIssued` en outbox; adición de `get_partner_policy` con aislamiento multi-tenant y `list_partner_policies` con proyección de lectura CQRS.

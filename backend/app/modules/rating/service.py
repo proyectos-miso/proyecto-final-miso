@@ -1,4 +1,5 @@
-"""Motor actuarial: desglose de la prima, degradación por latencia del buró y registro de cotizaciones (HU-WEB-03 a 05, HU-WEB-10)."""
+"""Motor actuarial: desglose de la prima, degradación por latencia del buró, reglas de suscripción,
+canal de socios B2B e idempotencia (HU-WEB-03 a 05, HU-WEB-07, HU-WEB-10, HU-WEB-11)."""
 import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import get_password_hash
+from app.modules.underwriting import rules as underwriting_rules
+from app.modules.underwriting.service import new_rejection_id, record_rejection
 from app.modules.rating.models import (
     Coverage,
     PartnerDB,
@@ -141,6 +144,21 @@ class RatingService:
         except TimeoutError:
             score, degradation_reason = NEUTRAL_SCORE, "TIMEOUT_EXCEEDED"
         age = age_on(date.fromisoformat(request.birth_date), self._today())
+        created_at = datetime.now(timezone.utc)
+
+        decision = underwriting_rules.evaluate(request.insured_amount, age, score)
+        if decision is not None:
+            return QuoteResponse(
+                quote_id=new_rejection_id(),
+                document_number=request.document_number,
+                status="review_required",
+                degradation_reason=degradation_reason,
+                score_applied=score,
+                tiers=[],
+                created_at=created_at.isoformat(),
+                expires_at=created_at.isoformat(),
+                underwriting=decision,
+            )
 
         tiers = []
         for tier in PlanTier:
@@ -158,7 +176,6 @@ class RatingService:
                 )
             )
 
-        created_at = datetime.now(timezone.utc)
         return QuoteResponse(
             quote_id=f"QUO-{uuid.uuid4().hex[:12].upper()}",
             document_number=request.document_number,
@@ -178,8 +195,20 @@ class RatingService:
         partner_id: Optional[str] = None,
         commit: bool = True,
     ) -> QuoteResponse:
-        """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HU-WEB-10, HA-17)."""
+        """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HU-WEB-10, HA-17).
+        Un rechazo de suscripción se registra aparte y no deja cotización emitible (HU-WEB-07)."""
         quote = await self.calculate_quote(request, simulated_bureau_delay)
+        if quote.underwriting is not None:
+            await record_rejection(
+                session,
+                rejection_id=quote.quote_id,
+                document_number=quote.document_number,
+                requested_amount=request.insured_amount,
+                decision=quote.underwriting,
+                created_at=datetime.fromisoformat(quote.created_at),
+                commit=commit,
+            )
+            return quote
         session.add(
             QuoteDB(
                 quote_id=quote.quote_id,

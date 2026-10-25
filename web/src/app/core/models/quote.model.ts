@@ -32,13 +32,22 @@ export interface QuoteTier {
   breakdown: PremiumFactor[];
 }
 
+/** Rechazo de suscripción (HU-WEB-07): motivo en lenguaje de negocio y suma máxima aprobable en COP. */
+export interface UnderwritingDecision {
+  decision: 'REVIEW_REQUIRED';
+  rule_id: string;
+  reason: string;
+  max_approvable_amount: number;
+}
+
 export interface QuoteResponse {
   quote_id: string;
   document_number: string;
-  status: 'active' | 'degraded';
+  status: 'active' | 'degraded' | 'review_required';
   degradation_reason?: 'TIMEOUT_EXCEEDED' | null;
   score_applied: number;
   tiers: QuoteTier[];
   created_at: string;
   expires_at: string;
+  underwriting?: UnderwritingDecision | null;
 }

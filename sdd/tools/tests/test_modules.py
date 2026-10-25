@@ -82,6 +82,18 @@ class Paths(unittest.TestCase):
         self.assertTrue(paths.overlap("**/identity/**", "backend/app/modules/identity/service.py"))
         self.assertFalse(paths.overlap("backend/app/modules/identity/**", "web/src/app/core/auth.ts"))
 
+    def test_overlap_de_un_archivo_concreto_exige_que_el_patron_lo_cubra(self):
+        session = "movil/app/src/main/java/**/data/session/**"
+        self.assertFalse(paths.overlap(session, "movil/app/src/main/java/com/solventa/app/domain/policies/PolicyCard.kt"))
+        self.assertTrue(paths.overlap(session, "movil/app/src/main/java/com/solventa/app/data/session/SessionCrypto.kt"))
+        self.assertFalse(paths.overlap("**/AndroidManifest.xml", "movil/app/src/main/res/values/strings.xml"))
+
+    def test_overlap_de_una_carpeta_concreta_cubre_lo_que_contiene(self):
+        session = "movil/app/src/main/java/**/data/session/**"
+        self.assertTrue(paths.overlap(session, "movil/app/src/main/java"))
+        self.assertTrue(paths.overlap(session, "movil/app/src/main/java/"))
+        self.assertFalse(paths.overlap(session, "web/src"))
+
 
 class Dependencies(unittest.TestCase):
     def test_poetry_and_changes(self):
