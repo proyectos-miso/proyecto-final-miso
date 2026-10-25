@@ -27,9 +27,12 @@ sealed interface PoliciesResult {
     data object Unavailable : PoliciesResult
 }
 
+/** Copia de la billetera con la hora de la sincronización que la trajo (HU-MOV-06). */
+data class WalletCopy(val policies: List<PolicyCard>, val syncedAt: Instant)
+
 /** Copia local por cuenta; null al leer significa que la cuenta aún no tiene copia. */
 interface PolicyStore {
-    suspend fun save(accountEmail: String, policies: List<PolicyCard>)
-    suspend fun read(accountEmail: String): List<PolicyCard>?
+    suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant)
+    suspend fun read(accountEmail: String): WalletCopy?
     suspend fun delete(accountEmail: String)
 }

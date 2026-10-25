@@ -149,9 +149,9 @@ fun StatusChip(text: String, tone: ChipTone, modifier: Modifier = Modifier, @Dra
     }
 }
 
-/** Aviso de sin conexión del mockup, anunciado por TalkBack al aparecer. */
+/** Aviso del mockup (sin conexión, información vieja), anunciado por TalkBack al aparecer. */
 @Composable
-fun WarningBanner(text: String, modifier: Modifier = Modifier) {
+fun WarningBanner(text: String, modifier: Modifier = Modifier, @DrawableRes icon: Int = R.drawable.ic_cloud_off) {
     Surface(
         color = SolventaTheme.colors.warningSoft,
         contentColor = SolventaTheme.colors.warning,
@@ -165,7 +165,7 @@ fun WarningBanner(text: String, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(12.dp),
         ) {
-            Icon(painterResource(R.drawable.ic_cloud_off), contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(18.dp))
             Text(text, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
         }
     }

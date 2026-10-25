@@ -5,12 +5,12 @@ import androidx.room.Room
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
+import com.solventa.app.domain.policies.WalletCopy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Clock
 import java.time.Instant
 
 /**
@@ -20,21 +20,20 @@ import java.time.Instant
 class EncryptedPolicyStore(
     private val context: Context,
     private val vault: PassphraseVault,
-    private val clock: Clock = Clock.systemUTC(),
 ) : PolicyStore {
 
-    override suspend fun save(accountEmail: String, policies: List<PolicyCard>) = withContext(Dispatchers.IO) {
+    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) = withContext(Dispatchers.IO) {
         val accountId = PassphraseVault.accountId(accountEmail)
         val passphrase = vault.existing(accountId) ?: run {
             discard(accountId)
             vault.create(accountId)
         }
         withDatabase(accountId, passphrase) { db ->
-            db.policyCards().replace(policies.map(PolicyCard::toEntity), clock.millis())
+            db.policyCards().replace(policies.map(PolicyCard::toEntity), syncedAt.toEpochMilli())
         }
     }
 
-    override suspend fun read(accountEmail: String): List<PolicyCard>? = withContext(Dispatchers.IO) {
+    override suspend fun read(accountEmail: String): WalletCopy? = withContext(Dispatchers.IO) {
         val accountId = PassphraseVault.accountId(accountEmail)
         if (!context.getDatabasePath(fileName(accountId)).exists()) return@withContext null
         val passphrase = vault.existing(accountId) ?: run {
@@ -43,7 +42,9 @@ class EncryptedPolicyStore(
         }
         try {
             withDatabase(accountId, passphrase) { db ->
-                if (db.policyCards().hasCopy() == 0) null else db.policyCards().all().map(PolicyCardEntity::toCard)
+                db.policyCards().syncedAt()?.let { millis ->
+                    WalletCopy(db.policyCards().all().map(PolicyCardEntity::toCard), Instant.ofEpochMilli(millis))
+                }
             }
         } catch (e: RuntimeException) {
             discard(accountId)

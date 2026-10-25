@@ -84,6 +84,8 @@
     <string name="wallet_face_front">Frente del carné</string>
     <string name="wallet_face_back">Coberturas del carné</string>
     <string name="wallet_select_policy">mostrar en el carné</string>
+    <string name="wallet_last_sync">Última sincronización: %1$s</string>
+    <string name="wallet_stale">La información puede no estar actualizada: la última sincronización fue hace más de 24 horas.</string>
     <string name="wallet_row_detail">%1$s • %2$s</string>
     <plurals name="wallet_policy_count">
         <item quantity="one">%d registrada</item>

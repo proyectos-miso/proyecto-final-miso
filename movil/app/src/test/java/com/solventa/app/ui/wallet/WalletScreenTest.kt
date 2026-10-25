@@ -6,6 +6,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -133,6 +134,31 @@ class WalletScreenTest {
         show(WalletUiState(loading = false))
 
         compose.onNodeWithText(s(R.string.wallet_empty)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `TC-01 muestra la ultima sincronizacion con fecha y hora`() {
+        val syncedAt = java.time.Instant.parse("2026-10-24T15:30:00Z")
+        show(WalletUiState(loading = false, policies = listOf(WalletCard(samplePolicy(), false)), lastSync = syncedAt))
+
+        compose.onNodeWithText(s(R.string.wallet_last_sync, formatDateTime(syncedAt))).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.wallet_stale)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `TC-02 una copia desactualizada muestra el aviso, anunciado por TalkBack`() {
+        show(
+            WalletUiState(
+                loading = false,
+                offline = true,
+                policies = listOf(WalletCard(samplePolicy(), false)),
+                lastSync = java.time.Instant.parse("2026-10-20T15:30:00Z"),
+                stale = true,
+            )
+        )
+
+        compose.onNode(hasAnyDescendant(hasText(s(R.string.wallet_stale))) and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion), useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Test

@@ -32,8 +32,8 @@ interface PolicyCardDao {
     @Query("SELECT * FROM policy_cards ORDER BY validUntilEpochMillis")
     suspend fun all(): List<PolicyCardEntity>
 
-    @Query("SELECT COUNT(*) FROM wallet_meta")
-    suspend fun hasCopy(): Int
+    @Query("SELECT savedAtEpochMillis FROM wallet_meta WHERE id = 0")
+    suspend fun syncedAt(): Long?
 
     @Transaction
     suspend fun replace(cards: List<PolicyCardEntity>, savedAtEpochMillis: Long) {

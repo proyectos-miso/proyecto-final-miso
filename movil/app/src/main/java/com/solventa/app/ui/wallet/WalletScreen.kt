@@ -87,6 +87,9 @@ fun WalletScreen(
         if (uiState.offline && !uiState.needsConnection) {
             item { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
+        if (uiState.stale) {
+            item { WarningBanner(stringResource(R.string.wallet_stale), icon = R.drawable.ic_clock) }
+        }
         when {
             uiState.loading -> item { Loading() }
             uiState.needsConnection -> item { Message(R.string.wallet_needs_connection, R.drawable.ic_cloud_off) }
@@ -135,6 +138,9 @@ fun WalletScreen(
                 }
             }
         }
+        uiState.lastSync?.let { lastSync ->
+            item { LastSync(lastSync) }
+        }
         item {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -157,6 +163,30 @@ fun WalletScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LastSync(lastSync: Instant) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+    ) {
+        Icon(
+            painterResource(R.drawable.ic_clock),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            text = stringResource(R.string.wallet_last_sync, formatDateTime(lastSync)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
