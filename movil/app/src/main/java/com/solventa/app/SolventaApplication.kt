@@ -18,10 +18,16 @@ import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import net.zetetic.database.Logger
 import net.zetetic.database.NoopTarget
 
 class SolventaApplication : Application(), PolicySyncHost {
+
+    // Trabajo que debe terminar aunque se cierre la pantalla, como borrar la copia al cerrar sesión (HU-MOV-07).
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val sessionRepository: SecureSessionRepository by lazy {
         SecureSessionRepository(KeystoreSessionCrypto(), SharedPreferencesSessionStore(this))

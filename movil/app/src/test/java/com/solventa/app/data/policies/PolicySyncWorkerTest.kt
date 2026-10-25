@@ -15,11 +15,8 @@ import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
-import com.solventa.app.domain.policies.PolicySync
 import com.solventa.app.domain.policies.SessionEndReason
 import com.solventa.app.domain.policies.SyncOutcome
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,20 +30,6 @@ import org.robolectric.annotation.Config
 /** Aplicación de prueba que entrega un sincronizador doble al trabajo. */
 class SyncTestApplication : Application(), PolicySyncHost {
     override val policySync = FakePolicySync()
-}
-
-class FakePolicySync : PolicySync {
-    var next: suspend () -> SyncOutcome = { SyncOutcome.NoSession }
-    val onlineCalls = mutableListOf<Boolean>()
-    override val outcomes: SharedFlow<SyncOutcome> = MutableSharedFlow()
-
-    override suspend fun sync(online: Boolean): SyncOutcome {
-        onlineCalls += online
-        return next()
-    }
-
-    override fun schedule() = Unit
-    override fun cancel() = Unit
 }
 
 // Trabajo en segundo plano de la sincronización (HU-MOV-07: TC-03, TC-10, TC-11).

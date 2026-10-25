@@ -13,8 +13,12 @@ import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
+import com.solventa.app.domain.policies.PolicySync
+import com.solventa.app.domain.policies.SyncOutcome
 import com.solventa.app.domain.policies.SyncScheduler
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import java.time.Instant
 
 /** Llaves que envuelven con XOR; la prueba puede perderlas, negar el envoltorio o volverlas no disponibles. */
@@ -52,6 +56,9 @@ class InMemoryPolicyStore : PolicyStore {
     /** false simula una copia que no se puede escribir, como con el teléfono bloqueado (HU-MOV-07). */
     var canWrite = true
 
+    /** Si existe, el borrado espera a que la prueba lo complete (HU-MOV-07). */
+    var deleteGate: CompletableDeferred<Unit>? = null
+
     fun put(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) {
         copies[accountEmail] = policies
         syncTimes[accountEmail] = syncedAt
@@ -67,6 +74,7 @@ class InMemoryPolicyStore : PolicyStore {
         ?: StoredCopy.Missing
 
     override suspend fun delete(accountEmail: String) {
+        deleteGate?.await()
         copies.remove(accountEmail)
         syncTimes.remove(accountEmail)
     }
@@ -74,8 +82,10 @@ class InMemoryPolicyStore : PolicyStore {
 
 class FakePoliciesApi(var result: PoliciesResult = PoliciesResult.Loaded(emptyList())) : PoliciesApi {
     var lastToken: String? = null
+    var calls = 0
 
     override suspend fun activePolicies(accessToken: String): PoliciesResult {
+        calls++
         lastToken = accessToken
         return result
     }
@@ -128,6 +138,29 @@ class ScriptedPoliciesApi : PoliciesApi {
     override suspend fun activePolicies(accessToken: String): PoliciesResult {
         calls += accessToken
         return respond(accessToken)
+    }
+}
+
+/** Sincronizador doble para las pantallas y el trabajo: responde lo que la prueba indique y cuenta las llamadas. */
+class FakePolicySync : PolicySync {
+    var next: suspend () -> SyncOutcome = { SyncOutcome.NoSession }
+    val onlineCalls = mutableListOf<Boolean>()
+    var schedules = 0
+    var cancels = 0
+    val results = MutableSharedFlow<SyncOutcome>(extraBufferCapacity = 1)
+    override val outcomes: SharedFlow<SyncOutcome> = results
+
+    override suspend fun sync(online: Boolean): SyncOutcome {
+        onlineCalls += online
+        return next()
+    }
+
+    override fun schedule() {
+        schedules++
+    }
+
+    override fun cancel() {
+        cancels++
     }
 }
 

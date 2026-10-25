@@ -1,6 +1,16 @@
 package com.solventa.app.ui.auth
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.solventa.app.data.policies.FakePolicySync
+import com.solventa.app.data.policies.FakeScheduler
+import com.solventa.app.data.policies.FakeSyncAuthApi
 import com.solventa.app.data.policies.InMemoryPolicyStore
+import com.solventa.app.data.policies.ScriptedPoliciesApi
+import com.solventa.app.data.policies.SessionPolicySync
+import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.data.session.BoundAccount
 import com.solventa.app.data.session.FakeSessionCrypto
 import com.solventa.app.data.session.InMemorySessionStore
@@ -15,7 +25,15 @@ import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
+import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.PolicySync
+import com.solventa.app.domain.policies.SessionEndReason
+import com.solventa.app.domain.policies.SyncOutcome
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestDispatcher
@@ -44,6 +62,8 @@ class AuthViewModelTest {
     private lateinit var repository: SecureSessionRepository
     private lateinit var authApi: FakeAuthApi
     private lateinit var policyStore: InMemoryPolicyStore
+    private lateinit var sync: FakePolicySync
+    private lateinit var appScope: CoroutineScope
     private lateinit var viewModel: AuthViewModel
 
     @Before
@@ -52,17 +72,25 @@ class AuthViewModelTest {
         Dispatchers.setMain(dispatcher)
         crypto = FakeSessionCrypto()
         store = InMemorySessionStore()
-        repository = SecureSessionRepository(crypto, store)
+        repository = SecureSessionRepository(crypto, store) { 0L }
         repository.save(credential, repository.encryptionCipher(), EMAIL, "María Ruiz")
         authApi = FakeAuthApi()
         policyStore = InMemoryPolicyStore()
-        viewModel = AuthViewModel(repository, authApi, policyStore)
+        sync = FakePolicySync()
+        appScope = CoroutineScope(dispatcher)
+        viewModel = newViewModel()
     }
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
     }
+
+    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope)
+
+    /** El ViewModel dentro de una pantalla, para poder terminarla como Android cuando termina la actividad. */
+    private fun inScreen(screen: ViewModelStore, policySync: PolicySync = sync): AuthViewModel =
+        ViewModelProvider.create(screen, viewModelFactory { initializer { newViewModel(policySync) } })[AuthViewModel::class.java]
 
     private fun advanceSeconds(seconds: Int) {
         dispatcher.scheduler.advanceTimeBy(seconds * 1_000L)
@@ -71,7 +99,7 @@ class AuthViewModelTest {
 
     private fun withoutBoundAccounts() {
         store.clear()
-        viewModel = AuthViewModel(repository, authApi, policyStore)
+        viewModel = newViewModel()
     }
 
     @Test
@@ -203,7 +231,7 @@ class AuthViewModelTest {
         assertTrue(state.offline)
         assertEquals(EMAIL, state.currentAccountEmail)
         assertEquals("María Ruiz", state.fullName)
-        assertNull(viewModel.accessToken())
+        assertNull(repository.activeSession)
         assertTrue(repository.isBound(EMAIL))
     }
 
@@ -231,18 +259,152 @@ class AuthViewModelTest {
         assertTrue(OTHER_EMAIL in policyStore.copies)
     }
 
+    // HU-MOV-04 TC-07: con un 401 que la renovación no salva, la sincronización borra la copia y se pide ingresar.
     @Test
-    fun `TC-07 sesion vencida borra la copia, cierra la sesion y pide ingresar`() {
+    fun `TC-07 sesion vencida borra la copia, cierra la sesion y pide ingresar`() = kotlinx.coroutines.runBlocking {
+        val auth = FakeSyncAuthApi().apply { refreshResult = { RefreshResult.Rejected } }
+        val policies = ScriptedPoliciesApi().apply { respond = { PoliciesResult.Unauthorized } }
+        val realSync = SessionPolicySync(repository, auth, policies, policyStore, FakeScheduler())
+        viewModel = newViewModel(realSync)
         viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
         policyStore.copies[EMAIL] = emptyList()
 
-        viewModel.onSessionExpired()
+        val outcome = realSync.sync() as SyncOutcome.SessionEnded
+        viewModel.onSessionEnded(outcome.reason)
 
         val state = viewModel.uiState.value
         assertFalse(state.isAuthenticated)
         assertEquals(AuthStatus.SESSION_EXPIRED, state.status)
         assertNull(repository.activeSession)
         assertFalse(EMAIL in policyStore.copies)
+    }
+
+    // HU-MOV-07 TC-07: la sincronización terminó la sesión; se cancela y se pide ingresar con el aviso del motivo.
+    @Test
+    fun `una sesion terminada por la sincronizacion pide ingresar con el aviso del motivo`() {
+        val expected = mapOf(
+            SessionEndReason.EXPIRED to AuthStatus.SESSION_EXPIRED,
+            SessionEndReason.DEVICE_REJECTED to AuthStatus.SESSION_RESET,
+            SessionEndReason.RELOGIN to AuthStatus.RELOGIN,
+        )
+        expected.forEach { (reason, status) ->
+            viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+            viewModel.onSessionEnded(reason)
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isAuthenticated)
+            assertEquals(status, state.status)
+            assertNull(repository.openSession)
+        }
+        assertEquals(3, sync.cancels)
+    }
+
+    // HU-MOV-07 TC-06: la credencial del ingreso sin red vive solo en memoria y se suelta a los 15 minutos.
+    @Test
+    fun `el ingreso sin red guarda la credencial solo en memoria y la suelta a los 15 minutos`() {
+        authApi.biometricResult = LoginResult.NetworkError
+        val stored = store.readAll().map { it.ciphertext.toList() }
+
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        assertEquals(credential, repository.openSession?.credential)
+        assertNull(repository.activeSession)
+        assertEquals(stored, store.readAll().map { it.ciphertext.toList() })
+
+        advanceSeconds(15 * 60 - 1)
+        assertEquals(credential, repository.openSession?.credential)
+        advanceSeconds(1)
+        assertNull(repository.openSession?.credential)
+        assertEquals(EMAIL, repository.openSession?.email)
+    }
+
+    @Test
+    fun `cerrar sesion o desactivar la huella sueltan la credencial`() {
+        authApi.biometricResult = LoginResult.NetworkError
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.disableBiometrics()
+        assertNull(repository.openSession?.credential)
+
+        repository.save(credential, repository.encryptionCipher(), EMAIL, "María Ruiz")
+        viewModel = newViewModel()
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+        assertNull(repository.openSession)
+        assertEquals(1, sync.cancels)
+    }
+
+    // HU-MOV-07 TC-08: al terminar la actividad se cierra y revoca solo la sesión de esa pantalla, sin borrar la copia.
+    @Test
+    fun `al terminar la actividad termina y revoca solo su sesion`() {
+        val screen = ViewModelStore()
+        inScreen(screen).authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = emptyList()
+
+        screen.clear()
+
+        assertNull(repository.openSession)
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+        assertTrue(EMAIL in policyStore.copies)
+        assertEquals(1, sync.cancels)
+
+        val old = ViewModelStore()
+        inScreen(old).authenticateWithBiometrics(FakeBiometricAuthenticator())
+        val current = repository.start(OTHER_EMAIL, SessionTokens("a-otra", "r-otra"))
+        authApi.lastRevokedToken = null
+
+        old.clear()
+
+        assertEquals(current, repository.openSession)
+        assertNull(authApi.lastRevokedToken)
+    }
+
+    // HU-MOV-07 TC-09: el borrado y la revocación terminan aunque la pantalla se cierre mientras ocurren.
+    @Test
+    fun `el borrado y la revocacion terminan aunque la pantalla se cierre`() {
+        val screen = ViewModelStore()
+        val vm = inScreen(screen)
+        vm.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = emptyList()
+        val gate = CompletableDeferred<Unit>()
+        policyStore.deleteGate = gate
+
+        vm.requestLogout()
+        vm.confirmLogout()
+        screen.clear()
+        gate.complete(Unit)
+
+        assertFalse(EMAIL in policyStore.copies)
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+    }
+
+    // HU-MOV-07 TC-09: cerrar sesión mientras el trabajo descarga borra la copia enseguida y nada guarda después.
+    @Test
+    fun `cerrar sesion durante la descarga del trabajo no deja copia`() {
+        val gate = CompletableDeferred<PoliciesResult>()
+        val policies = ScriptedPoliciesApi().apply { respond = { withContext(NonCancellable) { gate.await() } } }
+        val scheduler = FakeScheduler()
+        val realSync = SessionPolicySync(repository, FakeSyncAuthApi(), policies, policyStore, scheduler)
+        val screen = ViewModelStore()
+        val vm = inScreen(screen, realSync)
+        vm.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = listOf(samplePolicy())
+        val worker = CoroutineScope(dispatcher)
+        val first = worker.launch { realSync.sync(online = true) }
+        val second = worker.launch { realSync.sync(online = true) }
+
+        vm.requestLogout()
+        vm.confirmLogout()
+        screen.clear()
+
+        assertFalse(EMAIL in policyStore.copies)
+        gate.complete(PoliciesResult.Loaded(listOf(samplePolicy("POL-2026-00009"))))
+        assertTrue(first.isCompleted && second.isCompleted)
+        assertFalse(EMAIL in policyStore.copies)
+        assertEquals(1, policies.calls.size)
+        assertTrue(scheduler.cancels >= 1)
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
     }
 
     @Test
@@ -340,7 +502,7 @@ class AuthViewModelTest {
     fun `elegir otra cuenta entra con la huella de esa cuenta`() {
         val pedroCredential = DeviceCredential("device-pedro", "secreto-pedro")
         repository.save(pedroCredential, repository.encryptionCipher(), PEDRO, "Pedro Gómez")
-        viewModel = AuthViewModel(repository, authApi, policyStore)
+        viewModel = newViewModel()
         assertEquals(PEDRO, viewModel.uiState.value.selectedAccountEmail)
 
         viewModel.selectAccount(EMAIL)
@@ -353,7 +515,7 @@ class AuthViewModelTest {
     @Test
     fun `cerrar sesion deja elegida la cuenta que estaba adentro`() {
         repository.save(DeviceCredential("device-pedro", "s"), repository.encryptionCipher(), PEDRO, "Pedro Gómez")
-        viewModel = AuthViewModel(repository, authApi, policyStore)
+        viewModel = newViewModel()
         viewModel.selectAccount(EMAIL)
         viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
 
@@ -367,7 +529,7 @@ class AuthViewModelTest {
     @Test
     fun `desactivar la huella de una cuenta conserva la de la otra`() {
         repository.save(DeviceCredential("device-pedro", "s"), repository.encryptionCipher(), PEDRO, "Pedro Gómez")
-        viewModel = AuthViewModel(repository, authApi, policyStore)
+        viewModel = newViewModel()
         authApi.biometricResult = LoginResult.Success(newTokens, "Pedro Gómez")
         viewModel.selectAccount(PEDRO)
         viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
