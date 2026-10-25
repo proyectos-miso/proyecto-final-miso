@@ -132,8 +132,8 @@
 | Tool or method | TalkBack; en pruebas, el aviso tiene región en vivo (WalletScreenTest) |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Prueba manual de Juan Camilo Peña en su celular, 2026-10-25: fecha visible, aviso al adelantar y al atrasar la fecha al volver a la app, sincronización que lo quita y TalkBack que lo anuncia |
+| Status | PASS |
 
 ### TC-07 · Recalcular al volver a la app
 

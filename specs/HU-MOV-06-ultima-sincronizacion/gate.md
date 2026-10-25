@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
+| Security status | SECURITY_REVIEW_PENDING |
 | Evaluated on | 2026-10-24 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-MOV-06-ultima-sincronizacion |
 
