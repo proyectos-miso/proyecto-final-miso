@@ -23,6 +23,7 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
 .venv/
 venv/
 ENV/

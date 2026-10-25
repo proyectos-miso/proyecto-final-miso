@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Solo lectura: ningún trabajo del CI necesita escribir en el repositorio.
+permissions:
+  contents: read
+
 jobs:
   # 1. Pruebas automatizadas del Monolito Modular Backend
   backend-ci:
@@ -60,7 +64,19 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Ejecutar pruebas unitarias y cobertura (pytest)
-        run: poetry run pytest
+        run: poetry run pytest --junitxml=test-results/junit.xml
+
+      - name: Resumen de pruebas
+        if: always()
+        run: python3 ../scripts/ci/junit_summary.py "Backend (pytest)" test-results/junit.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar reporte de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-backend
+          path: backend/test-results/
+          if-no-files-found: warn
 
       - name: Publicar reporte de cobertura
         uses: actions/upload-artifact@v4
@@ -90,7 +106,21 @@ jobs:
         run: npm ci
 
       - name: Ejecutar pruebas unitarias con Vitest y cobertura
-        run: npm test -- --watch=false --coverage --coverage-reporters=lcov --coverage-reporters=text-summary
+        run: >-
+          npm test -- --watch=false --coverage --coverage-reporters=lcov --coverage-reporters=text-summary
+          --reporters=junit --reporters=default --output-file=test-results/junit.xml
+
+      - name: Resumen de pruebas
+        if: always()
+        run: python3 ../scripts/ci/junit_summary.py "Web (Vitest)" test-results/junit.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar reporte de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-web
+          path: web/test-results/
+          if-no-files-found: warn
 
       - name: Publicar reporte de cobertura
         uses: actions/upload-artifact@v4
@@ -126,6 +156,18 @@ jobs:
 
       - name: Ejecutar pruebas unitarias de depuración y cobertura (Kover)
         run: ./gradlew testDebugUnitTest koverXmlReportDebug
+
+      - name: Resumen de pruebas
+        if: always()
+        run: python3 ../scripts/ci/junit_summary.py "Móvil (JUnit, Robolectric y Compose)" app/build/test-results/testDebugUnitTest/*.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar reporte de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-movil
+          path: movil/app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
 
       - name: Publicar reporte de cobertura
         uses: actions/upload-artifact@v4
@@ -213,6 +255,9 @@ jobs:
 
       - name: Probar el validador y los gates
         run: python -m unittest discover -s sdd/tools/tests -t sdd/tools/tests
+
+      - name: Probar los scripts del CI
+        run: python -m unittest discover -s scripts/ci -t scripts/ci
 
       - name: Validar specs, secretos, rutas críticas y dependencias
         env:
