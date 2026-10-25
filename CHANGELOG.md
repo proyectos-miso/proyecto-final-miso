@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
 ### Added
+- **Última sincronización (HU-MOV-06):** la billetera muestra la fecha y hora local de la última sincronización, guardada por cuenta en la copia cifrada, y avisa cuando tiene más de 24 horas o cuando el reloj del teléfono quedó atrás.
 - **Pólizas sin conexión (HU-MOV-04):** `GET /api/v1/insured/policies` con las pólizas vigentes del asegurado del token y su suma asegurada; billetera en la app con carné que se voltea a las coberturas, copia cifrada por cuenta con Room y SQLCipher (llave en el Android Keystore), entrada sin red con huella y borrado de la copia al cerrar sesión o con 401. ADR 0021 y ajuste de la ADR 0015.
 - **Framework SDD con seguridad obligatoria (`AGENTS.md`, `sdd/`):**
   - Paquetes de especificación en `specs/` (Requirements → Design → Tasks, evaluación de seguridad, casos de prueba y gate) con plantillas en `sdd/templates/`.
