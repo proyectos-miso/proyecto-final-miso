@@ -2,26 +2,24 @@ package com.solventa.app
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -33,7 +31,10 @@ import com.solventa.app.ui.auth.BiometricEnrollmentDialog
 import com.solventa.app.ui.auth.BiometricLoginScreen
 import com.solventa.app.ui.auth.LogoutConfirmationDialog
 import com.solventa.app.ui.auth.PasswordRecoveryScreen
+import com.solventa.app.ui.theme.BrandTopBar
 import com.solventa.app.ui.theme.SolventaTheme
+import com.solventa.app.ui.wallet.WalletScreen
+import com.solventa.app.ui.wallet.WalletViewModel
 
 // BiometricPrompt requiere una FragmentActivity para mostrar el diálogo del sistema.
 class MainActivity : FragmentActivity() {
@@ -42,7 +43,16 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi)
+                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore)
+            }
+        }
+    }
+
+    private val walletViewModel: WalletViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                val app = application as SolventaApplication
+                WalletViewModel(app.policiesApi, app.policyStore)
             }
         }
     }
@@ -50,11 +60,31 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val biometricAuthenticator = AndroidBiometricAuthenticator(this)
+        val themeStore = (application as SolventaApplication).themeStore
         setContent {
-            SolventaTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+            val systemDark = isSystemInDarkTheme()
+            var darkTheme by rememberSaveable { mutableStateOf(themeStore.darkTheme() ?: systemDark) }
+            // Barras del sistema transparentes y con íconos que contrastan con el tema elegido.
+            DisposableEffect(darkTheme) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                val style = if (darkTheme) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
+            }
+            SolventaTheme(darkTheme = darkTheme) {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets.safeDrawing,
+                    topBar = {
+                        BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
+                            darkTheme = !darkTheme
+                            themeStore.saveDarkTheme(darkTheme)
+                        })
+                    },
+                ) { innerPadding ->
                     SolventaMobileRoot(
                         viewModel = authViewModel,
+                        walletViewModel = walletViewModel,
                         biometricAuthenticator = biometricAuthenticator,
                         modifier = Modifier.padding(innerPadding),
                     )
@@ -67,6 +97,7 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun SolventaMobileRoot(
     viewModel: AuthViewModel,
+    walletViewModel: WalletViewModel,
     biometricAuthenticator: BiometricAuthenticator,
     modifier: Modifier = Modifier,
 ) {
@@ -88,13 +119,25 @@ fun SolventaMobileRoot(
     }
 
     when {
-        uiState.isAuthenticated -> HomePlaceholder(
-            fullName = uiState.fullName,
-            biometricEnabled = uiState.biometricEnabled,
-            onDisableBiometrics = viewModel::disableBiometrics,
-            onLogout = viewModel::requestLogout,
-            modifier = modifier,
-        )
+        uiState.isAuthenticated -> {
+            val walletState by walletViewModel.uiState.collectAsState()
+            LaunchedEffect(uiState.currentAccountEmail, uiState.offline) {
+                uiState.currentAccountEmail?.let {
+                    walletViewModel.open(it, if (uiState.offline) null else viewModel.accessToken())
+                }
+            }
+            LaunchedEffect(walletState.sessionExpired) {
+                if (walletState.sessionExpired) viewModel.onSessionExpired()
+            }
+            WalletScreen(
+                uiState = walletState,
+                fullName = uiState.fullName,
+                biometricEnabled = uiState.biometricEnabled,
+                onDisableBiometrics = viewModel::disableBiometrics,
+                onLogout = viewModel::requestLogout,
+                modifier = modifier,
+            )
+        }
         uiState.showPasswordRecovery -> PasswordRecoveryScreen(
             uiState = uiState,
             onRequestCode = viewModel::requestRecoveryCode,
@@ -119,49 +162,5 @@ fun SolventaMobileRoot(
             onSelectAccount = viewModel::selectAccount,
             modifier = modifier,
         )
-    }
-}
-
-// Se reemplaza por la billetera de pólizas en HU-MOV-04.
-@Composable
-private fun HomePlaceholder(
-    fullName: String?,
-    biometricEnabled: Boolean,
-    onDisableBiometrics: () -> Unit,
-    onLogout: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = fullName?.let { stringResource(R.string.home_title_named, it) } ?: stringResource(R.string.home_title),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = stringResource(R.string.home_subtitle),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(32.dp))
-        OutlinedButton(onClick = onLogout) {
-            Text(stringResource(R.string.logout_button))
-        }
-        Spacer(Modifier.height(8.dp))
-        if (biometricEnabled) {
-            TextButton(onClick = onDisableBiometrics) {
-                Text(stringResource(R.string.biometric_disable))
-            }
-        } else {
-            Text(
-                text = stringResource(R.string.biometric_disabled),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }

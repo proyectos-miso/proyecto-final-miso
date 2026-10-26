@@ -4,12 +4,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { PaymentReceipt } from '../../../core/models/payment.model';
 import { PolicyRecord } from '../../../core/models/policy.model';
 import { PaymentStepComponent } from './payment-step.component';
+import { COP } from '../../../core/money';
 
-const COP = new Intl.NumberFormat('es-CO', {
-  style: 'currency',
-  currency: 'COP',
-  maximumFractionDigits: 0,
-});
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DECLINED = 'Pago rechazado: fondos insuficientes. Intente con otro medio de pago.';
 

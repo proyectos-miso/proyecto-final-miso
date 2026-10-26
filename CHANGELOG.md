@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Changed
+- Montos del portal y de la app en pesos con el código de la moneda (`$ 250.000.000 COP`) para que el símbolo $ no se lea como dólares (HU-MOV-04).
+- App móvil con el diseño del mockup: barra de la marca, ingreso con huella y acceso alterno, tema claro u oscuro que se cambia desde la barra e ícono con el escudo de Solventa (HU-MOV-04).
 - Validación y restricciones en el formulario de captura de datos (`ClientDataStepComponent`): restricción del campo de número de documento a valores numéricos y restricción de la fecha de nacimiento para impedir fechas futuras.
 - Ajuste de maquetación en el formulario de consentimiento (`ConsentStepComponent`). Reorganización de campos en filas de dos columnas.
 - Habilitación del disparador manual `workflow_dispatch` en el workflow de despliegue continuo (`.github/workflows/deploy.yml`) permitiendo aprovisionar y desplegar la plataforma bajo demanda sin requerir commits vacíos en `main`.
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
 ### Added
+- **Pólizas sin conexión (HU-MOV-04):** `GET /api/v1/insured/policies` con las pólizas vigentes del asegurado del token y su suma asegurada; billetera en la app con carné que se voltea a las coberturas, copia cifrada por cuenta con Room y SQLCipher (llave en el Android Keystore), entrada sin red con huella y borrado de la copia al cerrar sesión o con 401. ADR 0021 y ajuste de la ADR 0015.
 - **Motivo del rechazo de suscripción (HU-WEB-07):** la cotización aplica cupos de aprobación directa por perfil crediticio y por edad; si se superan, el portal muestra el motivo en lenguaje de negocio y permite recotizar con la suma máxima aprobable en un clic. Los rechazos quedan en `underwriting_rejections`, que la base no deja modificar ni borrar.
 - **HU-WEB-14 · Emisión de póliza embebida B2B (#113, #181, #182, #183):**
   - Backend: Extensión del modelo relacional `PolicyDB` (tabla `policies`) con clave foránea indexada `partner_id`, y definición de esquemas Pydantic `PartnerPolicyIssueRequest` y `PartnerPolicyResponse` para emisión y consultas CQRS de socios B2B.

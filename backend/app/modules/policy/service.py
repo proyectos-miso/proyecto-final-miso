@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.outbox import OutboxMessageDB
 from app.modules.policy.models import (
     POLICY_NUMBER_SEQ,
+    CardCoverage,
+    InsuredPolicyCard,
     PartnerPolicyIssueRequest,
     PartnerPolicyResponse,
     PolicyDB,
@@ -178,6 +180,39 @@ class PolicyService:
             .order_by(PolicyDB.issued_at.desc())
         )
         return [PartnerPolicyResponse.model_validate(p) for p in result.all()]
+
+
+    async def active_for_holder(
+        self, session: AsyncSession, document_number: str, holder_name: str
+    ) -> List[InsuredPolicyCard]:
+        """Pólizas pagadas y vigentes del titular, como tarjetas de la billetera (HU-MOV-04)."""
+        policies = await session.scalars(
+            select(PolicyDB)
+            .where(
+                PolicyDB.insured_document == document_number,
+                PolicyDB.status == "ACTIVE",
+                PolicyDB.valid_until > self.now(),
+            )
+            .order_by(PolicyDB.issued_at)
+        )
+        return [self.card(policy, holder_name) for policy in policies]
+
+    @staticmethod
+    def card(policy: PolicyDB, holder_name: str) -> InsuredPolicyCard:
+        included = [c for c in policy.conditions["coverages"] if c.get("included", True)]
+        # La suma asegurada es el límite de la cobertura de muerte, que la tarifa iguala al monto cotizado.
+        insured_amount = next(
+            (c["limit"] for c in included if c.get("id") == "death"), max((c["limit"] for c in included), default=0.0)
+        )
+        return InsuredPolicyCard(
+            policy_number=policy.policy_number,
+            plan=policy.conditions["tier"],
+            insured_amount=insured_amount,
+            holder_name=holder_name,
+            coverages=[CardCoverage(name=c["name"], limit=c["limit"]) for c in included],
+            valid_from=policy.issued_at,
+            valid_until=policy.valid_until,
+        )
 
 
 policy_service = PolicyService()

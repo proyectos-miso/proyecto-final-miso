@@ -8,11 +8,16 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import com.solventa.app.data.policies.FakePoliciesApi
+import com.solventa.app.data.policies.InMemoryPolicyStore
+import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.data.session.FakeSessionCrypto
 import com.solventa.app.data.session.InMemorySessionStore
 import com.solventa.app.data.session.SecureSessionRepository
@@ -25,15 +30,19 @@ import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
+import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.ui.auth.AuthViewModel
+import com.solventa.app.ui.wallet.WalletViewModel
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import javax.crypto.Cipher
 
 // Recorrido completo de las pantallas de acceso con el ViewModel real (HU-MOV-01, 02, 03 y 12).
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = PHONE)
 class SolventaMobileRootTest {
 
     @get:Rule
@@ -63,10 +72,13 @@ class SolventaMobileRootTest {
 
     private fun inDialog(text: String) = hasText(text) and hasAnyAncestor(isDialog())
 
+    private val policyStore = InMemoryPolicyStore()
+    private val wallet = WalletViewModel(FakePoliciesApi(PoliciesResult.Loaded(listOf(samplePolicy()))), policyStore)
+
     @Test
     fun `ingresar, activar la huella, cerrar sesion, volver con huella y desactivarla`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api)
-        compose.setContent { SolventaMobileRoot(viewModel = viewModel, biometricAuthenticator = authenticator) }
+        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
         compose.onNodeWithText(s(R.string.auth_email)).performTextInput("maria.ruiz@correo.co")
@@ -76,7 +88,8 @@ class SolventaMobileRootTest {
         compose.onNodeWithText(s(R.string.auth_submit)).performClick()
 
         compose.onNodeWithText(s(R.string.auth_enroll_confirm)).performClick()
-        compose.onNodeWithText(s(R.string.home_title_named, "María Ruiz")).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
+        compose.onAllNodesWithText("POL-2026-00001", substring = true).onFirst().assertIsDisplayed()
         compose.onNodeWithText(s(R.string.biometric_disable)).assertIsDisplayed()
 
         compose.onNodeWithText(s(R.string.logout_button)).performClick()
@@ -85,7 +98,7 @@ class SolventaMobileRootTest {
 
         compose.onNodeWithText(s(R.string.auth_biometric_account, "María Ruiz")).assertIsDisplayed()
         compose.onNodeWithContentDescription(s(R.string.auth_sensor_description)).performClick()
-        compose.onNodeWithText(s(R.string.home_title_named, "María Ruiz")).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
 
         compose.onNodeWithText(s(R.string.biometric_disable)).performClick()
         compose.onNodeWithText(s(R.string.biometric_disabled)).assertIsDisplayed()
@@ -93,8 +106,8 @@ class SolventaMobileRootTest {
 
     @Test
     fun `desde el ingreso se abre la recuperacion y se vuelve`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api)
-        compose.setContent { SolventaMobileRoot(viewModel = viewModel, biometricAuthenticator = authenticator) }
+        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
         compose.onNodeWithText(s(R.string.auth_forgot_password)).performScrollTo().performClick()
@@ -106,8 +119,8 @@ class SolventaMobileRootTest {
 
     @Test
     fun `ahora no entra sin activar la huella`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api)
-        compose.setContent { SolventaMobileRoot(viewModel = viewModel, biometricAuthenticator = authenticator) }
+        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
         compose.onNodeWithText(s(R.string.auth_email)).performTextInput("maria.ruiz@correo.co")
@@ -129,6 +142,8 @@ class MainActivityTest {
     @Test
     fun `la app abre en la pantalla de ingreso con huella`() {
         compose.onNodeWithText(compose.activity.getString(R.string.auth_biometric_title)).assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.app_name)).assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.auth_device_protected)).assertIsDisplayed()
         compose.onNodeWithText(compose.activity.getString(R.string.auth_use_alternative)).assertIsDisplayed()
     }
 }

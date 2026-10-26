@@ -65,3 +65,23 @@ class PartnerPolicyResponse(BaseModel):
     issued_at: datetime = Field(..., description="Fecha y hora de emisión")
     valid_until: datetime = Field(..., description="Fecha y hora de fin de vigencia (1 año)")
     pdf_s3_key: Optional[str] = Field(None, description="Clave S3 del certificado PDF (HU-WEB-16)")
+
+
+class CardCoverage(BaseModel):
+    name: str
+    limit: float
+
+
+class InsuredPolicyCard(BaseModel):
+    """Tarjeta de la billetera: sin documento, beneficiarios ni prima (HU-MOV-04)."""
+    policy_number: str
+    plan: PlanTier
+    insured_amount: float
+    holder_name: str
+    coverages: List[CardCoverage]
+    valid_from: datetime
+    valid_until: datetime
+
+
+class InsuredPolicies(BaseModel):
+    policies: List[InsuredPolicyCard]

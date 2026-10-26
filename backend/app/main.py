@@ -10,6 +10,7 @@ from app.core.middleware import TenantContextMiddleware
 from app.bff.experience.router import router as experience_router
 from app.bff.quote_edge.router import router as quote_edge_router
 from app.bff.auth.router import router as auth_router
+from app.bff.insured.router import router as insured_router
 from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.policy.models import PolicyDB  # noqa: F401 - registrar tablas en Base.metadata
@@ -87,6 +88,7 @@ async def health_check():
 app.include_router(experience_router, prefix=settings.API_V1_STR)
 app.include_router(quote_edge_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(insured_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["Root"])
