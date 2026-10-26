@@ -200,6 +200,9 @@ jobs:
       - name: Validar integridad de la configuración
         run: terraform validate
 
+      - name: Probar el plan sin infraestructura creada
+        run: terraform test
+
   # 5. Análisis estático y cobertura en SonarCloud (requiere el secreto SONAR_TOKEN)
   sonarcloud:
     name: SonarCloud (Cobertura y calidad)

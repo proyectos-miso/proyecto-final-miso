@@ -63,9 +63,10 @@ module "ecs" {
 module "web_hosting" {
   source = "./modules/web_hosting"
 
-  project_name = var.project_name
-  environment  = var.environment
-  alb_dns_name = module.alb.alb_dns_name
-  alb_arn      = module.alb.alb_arn
+  project_name       = var.project_name
+  environment        = var.environment
+  api_origin_enabled = true
+  alb_dns_name       = module.alb.alb_dns_name
+  alb_arn            = module.alb.alb_arn
 }
 
