@@ -5,19 +5,27 @@ import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
+import com.solventa.app.domain.policies.WalletCopy
 import java.time.Instant
 
 class InMemoryPolicyStore : PolicyStore {
     val copies = mutableMapOf<String, List<PolicyCard>>()
+    val syncTimes = mutableMapOf<String, Instant>()
 
-    override suspend fun save(accountEmail: String, policies: List<PolicyCard>) {
+    fun put(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) {
         copies[accountEmail] = policies
+        syncTimes[accountEmail] = syncedAt
     }
 
-    override suspend fun read(accountEmail: String): List<PolicyCard>? = copies[accountEmail]
+    override suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant) =
+        put(accountEmail, policies, syncedAt)
+
+    override suspend fun read(accountEmail: String): WalletCopy? =
+        copies[accountEmail]?.let { WalletCopy(it, syncTimes[accountEmail] ?: Instant.EPOCH) }
 
     override suspend fun delete(accountEmail: String) {
         copies.remove(accountEmail)
+        syncTimes.remove(accountEmail)
     }
 }
 

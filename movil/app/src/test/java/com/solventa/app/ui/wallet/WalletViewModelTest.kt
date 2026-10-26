@@ -17,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -137,6 +138,130 @@ class WalletViewModelTest {
         viewModel.open(OTHER_EMAIL, null)
 
         assertEquals(listOf(other), viewModel.uiState.value.policies.map { it.policy })
+    }
+
+    // HU-MOV-06: última sincronización y aviso de desactualización (TC-01, TC-02, TC-03).
+
+    @Test
+    fun `TC-01 sin red muestra la hora de la copia sin aviso si tiene menos de 24 horas`() {
+        val syncedAt = now.minus(Duration.ofHours(2))
+        store.put(EMAIL, listOf(active), syncedAt)
+
+        viewModel.open(EMAIL, null)
+
+        assertEquals(syncedAt, viewModel.uiState.value.lastSync)
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-01 una sincronizacion exitosa guarda y muestra la hora actual y quita el aviso`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(30)))
+        api.result = PoliciesResult.Loaded(listOf(active, other))
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertEquals(now, state.lastSync)
+        assertFalse(state.stale)
+        assertEquals(now, store.syncTimes[EMAIL])
+    }
+
+    @Test
+    fun `TC-01 sin red y sin copia no hay hora`() {
+        viewModel.open(EMAIL, null)
+
+        assertNull(viewModel.uiState.value.lastSync)
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 una copia de mas de 24 horas se marca desactualizada`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(25)))
+
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 con exactamente 24 horas todavia no hay aviso`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(24)))
+
+        viewModel.open(EMAIL, null)
+
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 con el servidor caido se conserva la hora de la ultima sincronizacion exitosa`() {
+        val syncedAt = now.minus(Duration.ofHours(30))
+        store.put(EMAIL, listOf(active), syncedAt)
+        api.result = PoliciesResult.Unavailable
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertEquals(syncedAt, state.lastSync)
+        assertTrue(state.stale)
+        assertEquals(syncedAt, store.syncTimes[EMAIL])
+    }
+
+    @Test
+    fun `TC-03 una hora guardada en el futuro por un reloj atrasado se marca desactualizada`() {
+        store.put(EMAIL, listOf(active), now.plus(Duration.ofDays(2)))
+
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.stale)
+    }
+
+    // AC-08: al volver a la app se recalcula con la hora actual (TC-07).
+
+    private class MovableClock(var now: Instant) : Clock() {
+        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+        override fun withZone(zone: java.time.ZoneId?): Clock = this
+        override fun instant(): Instant = now
+    }
+
+    @Test
+    fun `TC-07 al volver a la app despues de 25 horas aparece el aviso sin cambiar la fecha mostrada`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        api.result = PoliciesResult.Loaded(listOf(active))
+        vm.open(EMAIL, "token")
+
+        clock.now = now.plus(Duration.ofHours(25))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+        assertEquals(now, vm.uiState.value.lastSync)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app con el reloj atrasado aparece el aviso`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(1)))
+        vm.open(EMAIL, null)
+        assertFalse(vm.uiState.value.stale)
+
+        clock.now = now.minus(Duration.ofDays(2))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app una poliza que vencio se marca vencida`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now)
+        vm.open(EMAIL, null)
+
+        clock.now = active.validUntil.plusSeconds(1)
+        vm.refreshClock()
+
+        assertEquals(listOf(true), vm.uiState.value.policies.map { it.expired })
     }
 
     private companion object {
