@@ -73,6 +73,7 @@ fun WalletScreen(
     onDisableBiometrics: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    onRetry: () -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -84,7 +85,7 @@ fun WalletScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Greeting(fullName, uiState) }
-        if (uiState.offline && !uiState.needsConnection) {
+        if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
             item { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
         if (uiState.stale) {
@@ -92,6 +93,11 @@ fun WalletScreen(
         }
         when {
             uiState.loading -> item { Loading() }
+            uiState.copyUnavailable -> item {
+                WarningBanner(stringResource(R.string.wallet_copy_unavailable))
+                SecondaryButton(stringResource(R.string.wallet_retry), onRetry, Modifier.padding(top = 12.dp))
+            }
+            uiState.copyDiscarded -> item { WarningBanner(stringResource(R.string.wallet_copy_discarded), icon = R.drawable.ic_lock) }
             uiState.needsConnection -> item { Message(R.string.wallet_needs_connection, R.drawable.ic_cloud_off) }
             uiState.empty -> item { Message(R.string.wallet_empty, R.drawable.ic_shield) }
             current != null -> {

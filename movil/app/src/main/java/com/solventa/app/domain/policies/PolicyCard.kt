@@ -30,9 +30,23 @@ sealed interface PoliciesResult {
 /** Copia de la billetera con la hora de la sincronización que la trajo (HU-MOV-06). */
 data class WalletCopy(val policies: List<PolicyCard>, val syncedAt: Instant)
 
-/** Copia local por cuenta; null al leer significa que la cuenta aún no tiene copia. */
+/** Lectura de la copia local de una cuenta (HU-MOV-05). */
+sealed interface StoredCopy {
+    data class Found(val copy: WalletCopy) : StoredCopy
+
+    /** La cuenta no tiene copia. */
+    data object Missing : StoredCopy
+
+    /** Se borró una copia que existía porque su llave, su frase o su base ya no servían. */
+    data object Discarded : StoredCopy
+
+    /** El teléfono está bloqueado o hubo una falla pasajera; la copia se conserva. */
+    data object Unavailable : StoredCopy
+}
+
+/** Copia local por cuenta. Ninguna operación lanza por la llave ni por la base, salvo la cancelación. */
 interface PolicyStore {
     suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant)
-    suspend fun read(accountEmail: String): WalletCopy?
+    suspend fun read(accountEmail: String): StoredCopy
     suspend fun delete(accountEmail: String)
 }

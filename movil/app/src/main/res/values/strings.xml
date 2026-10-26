@@ -62,6 +62,9 @@
     <string name="wallet_loading">Cargando sus pólizas</string>
     <string name="wallet_offline">Sin conexión. Está viendo la copia guardada en este teléfono.</string>
     <string name="wallet_needs_connection">Necesita conexión a internet para descargar sus pólizas por primera vez.</string>
+    <string name="wallet_copy_discarded">Por seguridad se borró la copia de sus pólizas en este teléfono. Se descargará de nuevo cuando tenga conexión a internet.</string>
+    <string name="wallet_copy_unavailable">No se pudo abrir la copia de sus pólizas en este teléfono. Intente de nuevo.</string>
+    <string name="wallet_retry">Reintentar</string>
     <string name="wallet_empty">No tiene pólizas vigentes.</string>
     <string name="wallet_plan">Plan %1$s</string>
     <string name="wallet_plan_basic">Básico</string>

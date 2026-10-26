@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.data.policies.FakePoliciesApi
 import com.solventa.app.data.policies.InMemoryPolicyStore
+import com.solventa.app.data.policies.PendingPoliciesApi
 import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.data.session.FakeSessionCrypto
 import com.solventa.app.data.session.InMemorySessionStore
@@ -33,6 +34,7 @@ import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.ui.auth.AuthViewModel
 import com.solventa.app.ui.wallet.WalletViewModel
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -81,7 +83,7 @@ class SolventaMobileRootTest {
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
-        compose.onNodeWithText(s(R.string.auth_email)).performTextInput("maria.ruiz@correo.co")
+        compose.onNodeWithText(s(R.string.auth_email)).performTextInput("asegurada@example.com")
         compose.onNodeWithText(s(R.string.auth_otp_send)).performClick()
         compose.onNodeWithText(s(R.string.auth_password)).performTextInput("Solventa2026!")
         compose.onNodeWithText(s(R.string.auth_otp)).performTextInput("417902")
@@ -123,13 +125,36 @@ class SolventaMobileRootTest {
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
-        compose.onNodeWithText(s(R.string.auth_email)).performTextInput("maria.ruiz@correo.co")
+        compose.onNodeWithText(s(R.string.auth_email)).performTextInput("asegurada@example.com")
         compose.onNodeWithText(s(R.string.auth_password)).performTextInput("Solventa2026!")
         compose.onNodeWithText(s(R.string.auth_otp)).performTextInput("417902")
         compose.onNodeWithText(s(R.string.auth_submit)).performClick()
         compose.onNodeWithText(s(R.string.auth_enroll_skip)).performClick()
 
         compose.onNodeWithText(s(R.string.biometric_disabled)).assertIsDisplayed()
+    }
+
+    // HU-MOV-05 TC-12: confirmar el cierre de sesión con la descarga pendiente no deja copia (AC-12).
+    @Test
+    fun `cerrar sesion con la descarga pendiente no deja copia de la cuenta`() {
+        val pending = PendingPoliciesApi()
+        val store = InMemoryPolicyStore()
+        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, store)
+        compose.setContent { SolventaMobileRoot(viewModel, WalletViewModel(pending, store), authenticator) }
+
+        compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
+        compose.onNodeWithText(s(R.string.auth_email)).performTextInput("asegurada@example.com")
+        compose.onNodeWithText(s(R.string.auth_password)).performTextInput("Solventa2026!")
+        compose.onNodeWithText(s(R.string.auth_otp)).performTextInput("417902")
+        compose.onNodeWithText(s(R.string.auth_submit)).performClick()
+        compose.onNodeWithText(s(R.string.auth_enroll_skip)).performClick()
+
+        compose.onNodeWithText(s(R.string.logout_button)).performClick()
+        compose.onNode(inDialog(s(R.string.logout_confirm))).performClick()
+        pending.response.complete(PoliciesResult.Loaded(listOf(samplePolicy())))
+        compose.waitForIdle()
+
+        assertTrue(store.copies.isEmpty())
     }
 }
 

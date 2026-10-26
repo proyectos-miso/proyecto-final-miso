@@ -35,7 +35,8 @@ Known gaps, each checked in the code, tracked for their own spec:
 1. Password, one-time code, recovery code, new password and confirmation are in `rememberSaveable`
    (`ui/auth/AlternativeLoginScreen.kt`, `ui/auth/PasswordRecoveryScreen.kt`).
 2. No `FLAG_SECURE` on any window.
-3. No `android:dataExtractionRules`.
+3. No `android:dataExtractionRules`. Closed by HU-MOV-05: every storage domain is excluded from backups and
+   transfers.
 4. The server's `debug_code` is shown on screen without a `BuildConfig.DEBUG` guard.
 5. The release build has `isMinifyEnabled = false`.
 6. No `src/androidTest`: the Keystore and the biometric prompt are not tested on a device.
@@ -76,8 +77,8 @@ Option A, as today, following `sdd/rules/mobile.md`.
 ## Security and privacy impact
 
 - Email and full name of each bound account are stored in plain text in app-private preferences, to show
-  the account picker. They are out of cloud backup. On Android 12 and later, `allowBackup="false"` does
-  not stop device-to-device transfer, so they can be copied until gap 3 is fixed. The ciphertext is useless
+  the account picker. On Android 12 and later, `allowBackup="false"` does not stop device-to-device
+  transfer; since HU-MOV-05 the extraction rules keep them, like all app data, on the phone. The ciphertext is useless
   without the key, which never leaves the Keystore.
 - Zeroing covers byte arrays only. The secret and the tokens are also Kotlin `String`s, which cannot be
   wiped.

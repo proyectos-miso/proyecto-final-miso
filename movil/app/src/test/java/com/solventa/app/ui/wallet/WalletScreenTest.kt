@@ -20,6 +20,7 @@ import com.solventa.app.PHONE
 import com.solventa.app.R
 import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.ui.theme.SolventaTheme
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,7 +41,7 @@ class WalletScreenTest {
 
     private val carne = SemanticsMatcher.keyIsDefined(SemanticsProperties.StateDescription) and hasClickAction()
 
-    private fun show(state: WalletUiState, biometricEnabled: Boolean = true) {
+    private fun show(state: WalletUiState, biometricEnabled: Boolean = true, onRetry: () -> Unit = {}) {
         compose.setContent {
             SolventaTheme {
                 WalletScreen(
@@ -49,6 +50,7 @@ class WalletScreenTest {
                     biometricEnabled = biometricEnabled,
                     onDisableBiometrics = {},
                     onLogout = {},
+                    onRetry = onRetry,
                 )
             }
         }
@@ -159,6 +161,29 @@ class WalletScreenTest {
 
         compose.onNode(hasAnyDescendant(hasText(s(R.string.wallet_stale))) and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion), useUnmergedTree = true)
             .assertIsDisplayed()
+    }
+
+    // HU-MOV-05 TC-07 y TC-13: avisos de copia descartada y no disponible, anunciados por TalkBack.
+    @Test
+    fun `la copia descartada muestra su aviso en lugar del de primera descarga`() {
+        show(WalletUiState(loading = false, offline = true, needsConnection = true, copyDiscarded = true))
+
+        compose.onNode(hasAnyDescendant(hasText(s(R.string.wallet_copy_discarded))) and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion), useUnmergedTree = true)
+            .assertIsDisplayed()
+        compose.onAllNodesWithText(s(R.string.wallet_needs_connection)).assertCountEquals(0)
+    }
+
+    @Test
+    fun `la copia no disponible muestra su aviso y reintenta con el boton`() {
+        var retried = false
+        show(WalletUiState(loading = false, offline = true, copyUnavailable = true), onRetry = { retried = true })
+
+        compose.onNode(hasAnyDescendant(hasText(s(R.string.wallet_copy_unavailable))) and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion), useUnmergedTree = true)
+            .assertIsDisplayed()
+        compose.onAllNodesWithText(s(R.string.wallet_offline)).assertCountEquals(0)
+        compose.onAllNodesWithText(s(R.string.wallet_empty)).assertCountEquals(0)
+        compose.onNodeWithText(s(R.string.wallet_retry)).performClick()
+        assertTrue(retried)
     }
 
     @Test
