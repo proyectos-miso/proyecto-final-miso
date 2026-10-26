@@ -8,10 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Corrección de enrutamiento en CloudFront (`terraform/modules/web_hosting`): configuración del Application Load Balancer (ALB) como origen dinámico y definición de comportamiento de caché prioritario para `/api/*` (con todos los métodos HTTP, reenvío de cabeceras `Authorization`, `Content-Type`, `Idempotency-Key` y bypass de caché) y `/health`, permitiendo que el portal web en producción se comunique exitosamente con el backend BFF.
+- Corrección de conexión a la base de datos PostgreSQL en ECS Fargate: inyección explícita de `DATABASE_URL` hacia la instancia Multi-AZ de RDS en la definición de la tarea Terraform (`terraform/modules/ecs`) y soporte de ensamblado dinámico en `Settings` (`app/core/config.py`) ante la presencia de variables `DB_HOST`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`, corrigiendo el intento de conexión fallido a `localhost:5432` en producción.
+- Corrección de la organización y clave de proyecto en SonarCloud (`sonar-project.properties`) para asegurar la vinculación del análisis de calidad y cobertura de código.
 - Corrección en el asistente del cotizador web (`CotizadorComponent`) para iniciar en el Paso 1 (Identificación) con estado activo.
 - Corrección en `.github/workflows/destroy.yml` asignando `working-directory: terraform` exclusivamente a los pasos que invocan Terraform, evitando errores de inicialización de shell previos al paso de `checkout` del repositorio.
 - `get_password_hash` y `verify_password` usan `bcrypt` directamente: `passlib` 1.7.4 fallaba con `bcrypt` 5.0.0 (versión del lock).
 - Corrección en `backend/Dockerfile` aislando las dependencias en un entorno virtual (`/opt/venv`), configurando el directorio de inicio del usuario `appuser` y adaptando el sondeo de salud (`healthcheck`) para resolver el error `ModuleNotFoundError: No module named 'uvicorn'` al iniciar el backend mediante Docker Compose.
+
 
 ### Changed
 - Montos del portal y de la app en pesos con el código de la moneda (`$ 250.000.000 COP`) para que el símbolo $ no se lea como dólares (HU-MOV-04).
@@ -30,6 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Última sincronización (HU-MOV-06):** la billetera muestra la fecha y hora local de la última sincronización, guardada por cuenta en la copia cifrada, y avisa cuando tiene más de 24 horas o cuando el reloj del teléfono quedó atrás.
 - **Pólizas sin conexión (HU-MOV-04):** `GET /api/v1/insured/policies` con las pólizas vigentes del asegurado del token y su suma asegurada; billetera en la app con carné que se voltea a las coberturas, copia cifrada por cuenta con Room y SQLCipher (llave en el Android Keystore), entrada sin red con huella y borrado de la copia al cerrar sesión o con 401. ADR 0021 y ajuste de la ADR 0015.
+- **Motivo del rechazo de suscripción (HU-WEB-07):** la cotización aplica cupos de aprobación directa por perfil crediticio y por edad; si se superan, el portal muestra el motivo en lenguaje de negocio y permite recotizar con la suma máxima aprobable en un clic. Los rechazos quedan en `underwriting_rejections`, que la base no deja modificar ni borrar.
+- **HU-WEB-14 · Emisión de póliza embebida B2B (#113, #181, #182, #183):**
+  - Backend: Extensión del modelo relacional `PolicyDB` (tabla `policies`) con clave foránea indexada `partner_id`, y definición de esquemas Pydantic `PartnerPolicyIssueRequest` y `PartnerPolicyResponse` para emisión y consultas CQRS de socios B2B.
+  - Servicio de Políticas (`PolicyService`): Incorporación de `issue_partner_policy` con validación estricta de pertenencia y vigencia de cotización, emisión atómica e idempotente (`insert ... on_conflict_do_nothing`) y encolado de evento `PolicyIssued` en outbox; adición de `get_partner_policy` con aislamiento multi-tenant y `list_partner_policies` con proyección de lectura CQRS.
+  - Endpoints Quote Edge B2B: Rutas `POST /api/v1/quote-edge/policies`, `GET /api/v1/quote-edge/policies/{policy_number}` y `GET /api/v1/quote-edge/policies` gobernadas por autenticación OAuth2 Bearer (`role: partner`), retornando `404 Not Found` ante recursos ajenos para evitar enumeración y `409 Conflict` ante cotizaciones expiradas.
+  - Pruebas Automatizadas: Cobertura unitaria en `tests/unit/test_partner_policy.py` e integración en `tests/integration/test_partner_policy_api.py` verificando emisión atómica, rechazo cross-tenant, idempotencia, consulta CQRS y rendimiento.
+- **HU-WEB-11 · Reintentar una cotización sin crear registros duplicados (#179, #180):**
+  - Backend e Idempotencia B2B: Validación del encabezado `Idempotency-Key` en `POST /api/v1/quote-edge/quotes` con rechazo inmediato `400 Bad Request` ante valor vacío.
+  - Persistencia y Aislamiento por Socio: Persistencia atómica de cotizaciones B2B calculadas en la tabla `idempotency_records` bajo clave primaria compuesta `(partner_id, idempotency_key)`, garantizando que dos socios no colisionen aunque utilicen la misma clave.
+  - Reintentos Idempotentes: Devolución directa de la respuesta previa con status `200 OK` ante reenvíos con misma clave y payload idéntico, sin recalcular primas, sin generar registros duplicados en `quotes` y sin incrementar la cuota mensual de consumo (`quota_used`).
+  - Detección de Conflictos: Cálculo de hash canónico SHA-256 del cuerpo JSON de la petición y rechazo con `409 Conflict` ante discrepancias de contenido para una clave activa.
+  - Expiración Temporal de 24 Horas: Lógica de vigencia en `app.core.idempotency` que expira registros con más de 24 horas de antigüedad y los trata automáticamente como nuevas cotizaciones.
+  - Pruebas Automatizadas: Suite integral en `backend/tests/unit/test_quote_edge_idempotency.py` con 100% de cobertura en los módulos de idempotencia y router de Quote Edge, validando clave requerida, reintentos exitosos, detección de conflictos 409, expiración a 24 horas, aislamiento multi-tenant y concurrencia sin duplicados.
+- **HU-WEB-10 · Cotización desde el canal del socio con credenciales propias (#175, #176, #177, #178):**
+  - Backend: Modelo relacional `PartnerDB` (tabla `partners`) con hash `bcrypt`, control de estado (`ACTIVE` / `REVOKED`), `quota_limit` y `quota_used`, y extensión de `QuoteDB` con columna indexada `partner_id`.
+  - Seguridad y Auditoría: Flujo OAuth2 *Client Credentials* en `POST /api/v1/quote-edge/auth/token`, dependencia `get_current_partner` con sincronización de `tenant_context`, y emisión de logs JSON estructurados con severidad `WARNING` hacia `stdout`/CloudWatch ante rechazos HTTP 401 (`PARTNER_AUTH_FAILED`, `PARTNER_REVOKED`, `PARTNER_TOKEN_MISSING`, `PARTNER_TOKEN_EXPIRED`, `PARTNER_TOKEN_INVALID`, `PARTNER_ROLE_MISMATCH`).
+  - Endpoints B2B y Aislamiento Multi-Tenant: Refactorización de `POST /api/v1/quote-edge/quotes` con incremento transaccional atómico de `quota_used`, e incorporación de `GET /api/v1/quote-edge/quotes/{quote_id}` (`404 Not Found` ante cotizaciones de otros socios o del canal asesor) y `GET /api/v1/quote-edge/quotes` confinado al socio autenticado.
+  - Siembra y Documentación: Inicialización idempotente en `lifespan` de socios semilla (`banco_aliado` activo y `socio_inactivo` revocado), enriquecimiento de esquemas OpenAPI y actualización de `README.md` y `backend/README.md`.
+  - Pruebas: Suites unitarias (`tests/unit/test_partner_auth.py`) y de integración (`tests/integration/test_partner_quote_api.py`) validando emisión de tokens, auditoría de rechazos, cuota atómica y aislamiento estricto entre socios.
 - **Framework SDD con seguridad obligatoria (`AGENTS.md`, `sdd/`):**
   - Paquetes de especificación en `specs/` (Requirements → Design → Tasks, evaluación de seguridad, casos de prueba y gate) con plantillas en `sdd/templates/`.
   - Roles, skills y reglas en Markdown, independientes de la herramienta de IA.
