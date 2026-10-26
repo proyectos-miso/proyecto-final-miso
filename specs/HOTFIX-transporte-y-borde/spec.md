@@ -21,6 +21,8 @@ Reporte del incidente (revisión de cumplimiento del 2026-10-22):
 - CloudFront no envía encabezados de seguridad y el portal no tiene Content Security Policy.
 - CloudFront convierte los 403 y 404 de toda la distribución, incluida `/api/*`, en `index.html` con 200.
 
+Incidente del 2026-10-25: el despliegue del PR #218 falló en el plan de Terraform. Con la infraestructura apagada, el `count` del VPC origin dependía del ARN del balanceador, que solo se conoce al aplicar.
+
 Decisión del equipo (Juan Camilo Peña, 2026-10-22): sin dominio propio por ahora; el balanceador pasa a ser interno y CloudFront llega a él con un VPC origin.
 
 ### Problem and outcome
@@ -40,6 +42,8 @@ Fuera de alcance: dominio propio con certificado ACM y TLS 1.2 mínimo para los 
 | terraform/main.tf | El balanceador recibe las subredes privadas; CloudFront recibe su ARN |
 | terraform/modules/alb/** | Balanceador interno y entrada solo desde la lista de prefijos de CloudFront |
 | terraform/modules/web_hosting/** | VPC origin, política de encabezados, función de rutas del portal, sin conversión de errores |
+| terraform/tests/** | Prueba del plan sin infraestructura creada |
+| .github/workflows/ci.yml | El job de Terraform corre terraform test |
 | web/angular.json | Build de producción sin CSS crítico inline, para que la CSP no bloquee scripts |
 | docs/adr/** | ADR 0020 y notas en la ADR 0018 y el índice |
 | AGENTS.md | Rango de ADR de Terraform |
@@ -70,6 +74,7 @@ Fuera de alcance: dominio propio con certificado ACM y TLS 1.2 mínimo para los 
 | AC-04 | WHEN la API responde un error, THE CloudFront SHALL entregar ese código y ese cuerpo sin reemplazarlos por index.html | STATED |
 | AC-05 | WHEN se pide una ruta del portal sin extensión o se recarga, THE CloudFront SHALL servir index.html | DERIVED: quitar la conversión global de errores rompería los enlaces directos del portal |
 | AC-06 | THE build de producción del portal SHALL no tener scripts inline | DERIVED: la CSP estricta bloquearía el script que Angular inserta para el CSS crítico y el portal quedaría sin estilos |
+| AC-07 | WHEN la infraestructura no existe, THE plan de Terraform SHALL calcularse sin errores | DERIVED: el despliegue recrea todo después de cada apagado y el plan falló el 2026-10-25 |
 
 ### Quality requirements
 
@@ -112,7 +117,9 @@ N/A: no cambia latencia, disponibilidad esperada ni pantallas; el despliegue dej
   - `aws_cloudfront_vpc_origin` hacia el balanceador;
   - `aws_cloudfront_response_headers_policy` en los tres comportamientos;
   - `aws_cloudfront_function` (`spa-routing.js`) en el comportamiento de S3;
-  - se eliminan los `custom_error_response`.
+  - se eliminan los `custom_error_response`;
+  - `api_origin_enabled` decide si se crean el VPC origin y las rutas `/api/*` y `/health`. Es un booleano que se conoce en el plan; el ARN del balanceador solo se usa dentro del recurso.
+- `terraform/tests/plan_desde_cero.tftest.hcl`: plan con el proveedor de AWS simulado, sin credenciales, en el CI.
 - `web/angular.json`: `inlineCritical: false` en producción.
 
 ### Data flows
@@ -157,3 +164,4 @@ docs/adr/0020-private-load-balancer-behind-cloudfront.md
 | T-04 | Función de rutas del portal y fin de la conversión global de errores | AC-04, AC-05, SR-05 | CTL-05 | DONE | terraform/modules/web_hosting/spa-routing.js |
 | T-05 | Build de producción del portal sin scripts inline | AC-06, SR-03 | CTL-03 | DONE | web/angular.json |
 | T-06 | ADR 0020 | AC-01, AC-02 | — | DONE | docs/adr/0020-private-load-balancer-behind-cloudfront.md |
+| T-07 | VPC origin decidido por un booleano conocido en el plan y prueba del plan en el CI | AC-07 | — | DONE | terraform/modules/web_hosting/main.tf, terraform/tests/plan_desde_cero.tftest.hcl |

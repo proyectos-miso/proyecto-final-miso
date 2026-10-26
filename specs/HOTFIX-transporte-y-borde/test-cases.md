@@ -15,6 +15,7 @@
 | SC-09 | UC-03 | Dada la configuración, cuando se valida con Terraform, entonces el balanceador es interno y el origen es un VPC origin | TC-01 |
 | SC-10 | UC-02 | Dadas varias tareas de ECS, cuando se recrea el balanceador, entonces todas se registran en el nuevo | OUT OF SCOPE: el grupo de destino no se recrea y ECS lo mantiene; se observa en TC-04 |
 | SC-11 | UC-01 | Dado un navegador que visitó el portal, cuando vuelve a escribir la URL con http, entonces usa HTTPS | TC-05 |
+| SC-13 | UC-03 | Dada la infraestructura apagada, cuando el despliegue calcula el plan, entonces Terraform no falla por valores que solo se conocen al aplicar | TC-09 |
 | SC-12 | UC-01 | Dada una visita sin conexión estable, cuando falla una solicitud a la API, entonces el portal muestra su error y no una página en blanco | OUT OF SCOPE: depende del manejo de errores del portal, que no cambia aquí |
 
 ## Scenario coverage
@@ -25,7 +26,7 @@
 | Alternate flows | YES | SC-04 | — |
 | Invalid input and errors | YES | SC-03, SC-05 | — |
 | Limits and boundaries | YES | SC-02, SC-07 | — |
-| Related flows before and after | YES | SC-08, SC-09 | — |
+| Related flows before and after | YES | SC-08, SC-09, SC-13 | — |
 | Several users, sessions, devices or roles | YES | SC-10 | — |
 | State and time (expiry, retries, interruptions, going back, offline) | YES | SC-08, SC-11, SC-12 | — |
 
@@ -165,6 +166,23 @@
 | Automation | AUTOMATED |
 | Environment | LOCAL |
 | Evidence | Corrida local del 2026-10-22: 0 posibles secretos |
+| Status | PASS |
+
+### TC-09 · Plan sin infraestructura creada
+
+| Field | Value |
+|---|---|
+| Covers | AC-07 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | INTEGRATION |
+| Preconditions | terraform init -backend=false |
+| Procedure | 1. terraform test, que calcula el plan completo con el proveedor de AWS simulado |
+| Expected result | El plan se calcula sin errores |
+| Tool or method | terraform test con mock_provider |
+| Automation | AUTOMATED |
+| Environment | CI |
+| Evidence | Corrida local del 2026-10-25 con Terraform 1.14.9: antes del cambio falla con Invalid count argument en terraform/modules/web_hosting/main.tf:31; después, 1 passed, 0 failed. En el CI corre en el job de Terraform |
 | Status | PASS |
 
 ## Security test coverage

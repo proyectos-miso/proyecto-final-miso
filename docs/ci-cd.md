@@ -45,7 +45,7 @@ sobre el repositorio.
 | Backend CI | Pruebas unitarias y de integración con pytest contra PostgreSQL 16 | Resumen de pruebas en la ejecución, reporte JUnit `junit-backend` y cobertura `coverage-backend` |
 | Web CI | Pruebas con Vitest y compilación de producción del portal | Resumen de pruebas, reporte JUnit `junit-web` y cobertura `coverage-web` |
 | Mobile CI | Pruebas de la app: unitarias, Robolectric, Compose UI y MockWebServer | Resumen de pruebas, reporte JUnit `junit-movil` y cobertura Kover `coverage-movil` |
-| Terraform CI | Formato y validez de la infraestructura | Resultado de `terraform fmt -check` y `terraform validate` |
+| Terraform CI | Formato y validez de la infraestructura, y que el plan se calcule aunque la infraestructura esté apagada | Resultado de `terraform fmt -check`, `terraform validate` y `terraform test` |
 | SonarCloud | Calidad, seguridad y cobertura del código nuevo con el quality gate «Sonar way» (cobertura ≥ 80 %, duplicación ≤ 3 %, calificaciones A) | Análisis por rama y por pull request en SonarCloud |
 | SDD gate | Paquetes de spec, secretos, rutas críticas y dependencias | Resultado del validador `sdd/tools/sdd.py gate` |
 

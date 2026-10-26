@@ -28,7 +28,7 @@ resource "aws_cloudfront_origin_access_control" "oac" {
 
 # VPC origin: CloudFront llega al balanceador interno por la red privada de AWS
 resource "aws_cloudfront_vpc_origin" "alb" {
-  count = var.alb_arn != "" ? 1 : 0
+  count = var.api_origin_enabled ? 1 : 0
 
   vpc_origin_endpoint_config {
     name                   = "${var.project_name}-alb-${var.environment}"
@@ -98,7 +98,7 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   dynamic "origin" {
-    for_each = var.alb_arn != "" ? [1] : []
+    for_each = var.api_origin_enabled ? [1] : []
     content {
       domain_name = var.alb_dns_name
       origin_id   = "ALBOrigin"
@@ -110,7 +110,7 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   dynamic "ordered_cache_behavior" {
-    for_each = var.alb_arn != "" ? [1] : []
+    for_each = var.api_origin_enabled ? [1] : []
     content {
       path_pattern     = "/api/*"
       allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
@@ -134,7 +134,7 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   dynamic "ordered_cache_behavior" {
-    for_each = var.alb_arn != "" ? [1] : []
+    for_each = var.api_origin_enabled ? [1] : []
     content {
       path_pattern     = "/health"
       allowed_methods  = ["GET", "HEAD", "OPTIONS"]
