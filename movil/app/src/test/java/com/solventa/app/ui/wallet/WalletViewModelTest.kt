@@ -1,0 +1,344 @@
+package com.solventa.app.ui.wallet
+
+import com.solventa.app.data.policies.FakePoliciesApi
+import com.solventa.app.data.policies.InMemoryPolicyStore
+import com.solventa.app.data.policies.PendingPoliciesApi
+import com.solventa.app.data.policies.samplePolicy
+import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.StoredCopy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneOffset
+
+// Billetera de pólizas con y sin conexión (HU-MOV-04: TC-04, TC-05, TC-07).
+@OptIn(ExperimentalCoroutinesApi::class)
+class WalletViewModelTest {
+
+    private val now = Instant.parse("2026-10-22T12:00:00Z")
+    private val active = samplePolicy("POL-2026-00001", "2027-01-01T00:00:00Z")
+    private val other = samplePolicy("POL-2026-00002", "2027-03-01T00:00:00Z")
+
+    private lateinit var api: FakePoliciesApi
+    private lateinit var store: InMemoryPolicyStore
+    private lateinit var viewModel: WalletViewModel
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        api = FakePoliciesApi()
+        store = InMemoryPolicyStore()
+        viewModel = WalletViewModel(api, store, Clock.fixed(now, ZoneOffset.UTC))
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `TC-04 con red muestra las polizas del servidor y guarda la copia de la cuenta`() {
+        api.result = PoliciesResult.Loaded(listOf(active, other))
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertEquals(listOf(active, other), state.policies.map { it.policy })
+        assertFalse(state.offline)
+        assertFalse(state.loading)
+        assertEquals("token", api.lastToken)
+        assertEquals(listOf(active, other), store.copies[EMAIL])
+    }
+
+    @Test
+    fun `TC-04 sin polizas vigentes lo indica y la copia queda vacia`() {
+        api.result = PoliciesResult.Loaded(emptyList())
+
+        viewModel.open(EMAIL, "token")
+
+        assertTrue(viewModel.uiState.value.empty)
+        assertEquals(emptyList<Any>(), store.copies[EMAIL])
+    }
+
+    @Test
+    fun `TC-05 sin red y con copia muestra la copia con el aviso de sin conexion`() {
+        store.copies[EMAIL] = listOf(active)
+
+        viewModel.open(EMAIL, null)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.offline)
+        assertFalse(state.needsConnection)
+        assertEquals(listOf(active), state.policies.map { it.policy })
+        assertNull(api.lastToken)
+    }
+
+    @Test
+    fun `TC-05 sin red y sin copia indica que necesita conexion para la primera descarga`() {
+        viewModel.open(EMAIL, null)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.needsConnection)
+        assertFalse(state.empty)
+    }
+
+    @Test
+    fun `TC-05 con el servidor caido usa la copia con el aviso de sin conexion`() {
+        api.result = PoliciesResult.Unavailable
+        store.copies[EMAIL] = listOf(active)
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertTrue(state.offline)
+        assertEquals(listOf(active), state.policies.map { it.policy })
+        assertEquals(listOf(active), store.copies[EMAIL])
+    }
+
+    @Test
+    fun `TC-05 una poliza de la copia que vencio sin red aparece como vencida`() {
+        val expired = samplePolicy("POL-2025-00009", "2026-10-22T12:00:00Z")
+        store.copies[EMAIL] = listOf(expired, active)
+
+        viewModel.open(EMAIL, null)
+
+        assertEquals(listOf(true, false), viewModel.uiState.value.policies.map { it.expired })
+    }
+
+    @Test
+    fun `TC-07 un 401 borra la copia de la cuenta y marca la sesion vencida`() {
+        api.result = PoliciesResult.Unauthorized
+        store.copies[EMAIL] = listOf(active)
+        store.copies[OTHER_EMAIL] = listOf(other)
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertTrue(state.sessionExpired)
+        assertTrue(state.policies.isEmpty())
+        assertFalse(EMAIL in store.copies)
+        assertTrue(OTHER_EMAIL in store.copies)
+    }
+
+    @Test
+    fun `TC-07 cada cuenta ve solo su copia`() {
+        store.copies[EMAIL] = listOf(active)
+        store.copies[OTHER_EMAIL] = listOf(other)
+
+        viewModel.open(OTHER_EMAIL, null)
+
+        assertEquals(listOf(other), viewModel.uiState.value.policies.map { it.policy })
+    }
+
+    // HU-MOV-06: última sincronización y aviso de desactualización (TC-01, TC-02, TC-03).
+
+    @Test
+    fun `TC-01 sin red muestra la hora de la copia sin aviso si tiene menos de 24 horas`() {
+        val syncedAt = now.minus(Duration.ofHours(2))
+        store.put(EMAIL, listOf(active), syncedAt)
+
+        viewModel.open(EMAIL, null)
+
+        assertEquals(syncedAt, viewModel.uiState.value.lastSync)
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-01 una sincronizacion exitosa guarda y muestra la hora actual y quita el aviso`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(30)))
+        api.result = PoliciesResult.Loaded(listOf(active, other))
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertEquals(now, state.lastSync)
+        assertFalse(state.stale)
+        assertEquals(now, store.syncTimes[EMAIL])
+    }
+
+    @Test
+    fun `TC-01 sin red y sin copia no hay hora`() {
+        viewModel.open(EMAIL, null)
+
+        assertNull(viewModel.uiState.value.lastSync)
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 una copia de mas de 24 horas se marca desactualizada`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(25)))
+
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 con exactamente 24 horas todavia no hay aviso`() {
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(24)))
+
+        viewModel.open(EMAIL, null)
+
+        assertFalse(viewModel.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-02 con el servidor caido se conserva la hora de la ultima sincronizacion exitosa`() {
+        val syncedAt = now.minus(Duration.ofHours(30))
+        store.put(EMAIL, listOf(active), syncedAt)
+        api.result = PoliciesResult.Unavailable
+
+        viewModel.open(EMAIL, "token")
+
+        val state = viewModel.uiState.value
+        assertEquals(syncedAt, state.lastSync)
+        assertTrue(state.stale)
+        assertEquals(syncedAt, store.syncTimes[EMAIL])
+    }
+
+    @Test
+    fun `TC-03 una hora guardada en el futuro por un reloj atrasado se marca desactualizada`() {
+        store.put(EMAIL, listOf(active), now.plus(Duration.ofDays(2)))
+
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.stale)
+    }
+
+    // AC-08: al volver a la app se recalcula con la hora actual (TC-07).
+
+    private class MovableClock(var now: Instant) : Clock() {
+        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+        override fun withZone(zone: java.time.ZoneId?): Clock = this
+        override fun instant(): Instant = now
+    }
+
+    @Test
+    fun `TC-07 al volver a la app despues de 25 horas aparece el aviso sin cambiar la fecha mostrada`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        api.result = PoliciesResult.Loaded(listOf(active))
+        vm.open(EMAIL, "token")
+
+        clock.now = now.plus(Duration.ofHours(25))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+        assertEquals(now, vm.uiState.value.lastSync)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app con el reloj atrasado aparece el aviso`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now.minus(Duration.ofHours(1)))
+        vm.open(EMAIL, null)
+        assertFalse(vm.uiState.value.stale)
+
+        clock.now = now.minus(Duration.ofDays(2))
+        vm.refreshClock()
+
+        assertTrue(vm.uiState.value.stale)
+    }
+
+    @Test
+    fun `TC-07 al volver a la app una poliza que vencio se marca vencida`() {
+        val clock = MovableClock(now)
+        val vm = WalletViewModel(api, store, clock)
+        store.put(EMAIL, listOf(active), now)
+        vm.open(EMAIL, null)
+
+        clock.now = active.validUntil.plusSeconds(1)
+        vm.refreshClock()
+
+        assertEquals(listOf(true), vm.uiState.value.policies.map { it.expired })
+    }
+
+    // HU-MOV-05: copia descartada, copia no disponible y cierre de la billetera (TC-02, TC-05, TC-07, TC-12).
+
+    @Test
+    fun `sin red o con el servidor caido y la copia descartada pide conexion con su aviso`() {
+        store.readAs = StoredCopy.Discarded
+
+        viewModel.open(EMAIL, null)
+        assertTrue(viewModel.uiState.value.needsConnection)
+        assertTrue(viewModel.uiState.value.copyDiscarded)
+
+        api.result = PoliciesResult.Unavailable
+        viewModel.open(EMAIL, "token")
+        assertTrue(viewModel.uiState.value.copyDiscarded)
+    }
+
+    @Test
+    fun `sin red y sin copia pide conexion sin el aviso de copia descartada`() {
+        viewModel.open(EMAIL, null)
+
+        assertTrue(viewModel.uiState.value.needsConnection)
+        assertFalse(viewModel.uiState.value.copyDiscarded)
+    }
+
+    @Test
+    fun `tras una copia descartada, con red guarda las polizas y quita el aviso`() {
+        store.readAs = StoredCopy.Discarded
+        viewModel.open(EMAIL, null)
+
+        api.result = PoliciesResult.Loaded(listOf(active))
+        viewModel.open(EMAIL, "token")
+
+        assertFalse(viewModel.uiState.value.copyDiscarded)
+        assertEquals(listOf(active), store.copies[EMAIL])
+    }
+
+    @Test
+    fun `una copia no disponible muestra su aviso y al reintentar o volver a la app muestra la copia`() {
+        store.readAs = StoredCopy.Unavailable
+        viewModel.open(EMAIL, null)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.copyUnavailable)
+        assertFalse(state.needsConnection)
+        assertFalse(state.copyDiscarded)
+        assertFalse(state.empty)
+
+        store.readAs = null
+        store.copies[EMAIL] = listOf(active)
+        viewModel.retry()
+        assertEquals(listOf(active), viewModel.uiState.value.policies.map { it.policy })
+
+        store.readAs = StoredCopy.Unavailable
+        viewModel.open(EMAIL, null)
+        store.readAs = null
+        viewModel.refreshClock()
+        assertEquals(listOf(active), viewModel.uiState.value.policies.map { it.policy })
+    }
+
+    @Test
+    fun `cerrar la billetera antes de que responda el servidor no guarda la copia`() {
+        val pending = PendingPoliciesApi()
+        val vm = WalletViewModel(pending, store, Clock.fixed(now, ZoneOffset.UTC))
+        vm.open(EMAIL, "token")
+
+        vm.close()
+        pending.response.complete(PoliciesResult.Loaded(listOf(active)))
+
+        assertNull(store.copies[EMAIL])
+        assertTrue(vm.uiState.value.loading)
+    }
+
+    private companion object {
+        const val EMAIL = "asegurada@example.com"
+        const val OTHER_EMAIL = "otra.cuenta@example.com"
+    }
+}

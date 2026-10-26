@@ -143,6 +143,7 @@ describe('ClientDataStepComponent (HU-WEB-02 / TC-S1-03)', () => {
     fixture.detectChanges();
 
     expect(component.formattedAmount()).toContain('200.000.000');
+    expect(component.formattedAmount()).toMatch(/COP$/);
   });
 
   it('debe validar con ClientService y emitir clientDataSubmitted al completar con éxito', () => {
@@ -283,6 +284,34 @@ describe('ClientDataStepComponent (HU-WEB-02 / TC-S1-03)', () => {
     fixture.detectChanges();
 
     expect(component.errorMessage()).toContain('dígitos numéricos');
+  });
+
+  it('TC-08 con datos incompletos el botón sigue habilitado y al enviar dice qué falta, marca los campos y enfoca el primero', () => {
+    component.documentNumber.set('1020304050');
+    component.firstName.set('Carlos');
+    component.lastName.set('Rodríguez');
+    component.birthDate.set('1988-04-12');
+    component.phone.set('300');
+    component.email.set('carlos@correo.co');
+    component.insuredAmount.set(180_000_000);
+    fixture.detectChanges();
+    const submit = fixture.nativeElement.querySelector('button.submit-button') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+
+    submit.click();
+    fixture.detectChanges();
+
+    expect(component.errorMessage()).toContain('teléfono celular');
+    expect(component.errorMessage()).toContain('plazo del crédito');
+    expect(component.errorMessage()).not.toContain('nombres');
+    const phone = fixture.nativeElement.querySelector('#phone') as HTMLInputElement;
+    const term = fixture.nativeElement.querySelector('#termMonths') as HTMLInputElement;
+    expect(phone.getAttribute('aria-invalid')).toBe('true');
+    expect(term.getAttribute('aria-invalid')).toBe('true');
+    expect(fixture.nativeElement.querySelector('#firstName').getAttribute('aria-invalid')).toBeNull();
+    expect(document.activeElement).toBe(phone);
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
+    http.expectNone('/api/v1/experience/clients/validate');
   });
 });
 

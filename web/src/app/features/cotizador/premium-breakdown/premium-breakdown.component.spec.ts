@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { QuoteTier } from '../../../core/models/quote.model';
 import { PremiumBreakdownComponent } from './premium-breakdown.component';
+import { COP } from '../../../core/money';
 
-const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 const TIER: QuoteTier = {
   tier: 'standard',

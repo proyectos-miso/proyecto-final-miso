@@ -6,6 +6,7 @@ import { PolicyRecord } from '../../core/models/policy.model';
 import { QuoteResponse, QuoteTier } from '../../core/models/quote.model';
 import { CotizadorComponent } from './cotizador.component';
 import { CatalogService } from '../../core/catalogs/catalog.service';
+import { COP } from '../../core/money';
 
 describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
   let component: CotizadorComponent;
@@ -356,6 +357,74 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
 
       expect(page().querySelector('[role="status"]')).toBeNull();
       expect(button('Emitir póliza')).toBeDefined();
+    });
+  });
+
+  describe('rechazo de suscripción (HU-WEB-07)', () => {
+    const review: QuoteResponse = {
+      quote_id: 'UWR-1',
+      document_number: '1020304050',
+      status: 'review_required',
+      score_applied: 700,
+      tiers: [],
+      created_at: '2026-10-25T00:00:00Z',
+      expires_at: '2026-10-25T00:00:00Z',
+      underwriting: {
+        decision: 'REVIEW_REQUIRED',
+        rule_id: 'UW-01',
+        reason: 'La suma asegurada solicitada supera el cupo de aprobación directa para el perfil crediticio del cliente.',
+        max_approvable_amount: 700_000_000,
+      },
+    };
+    const notice = () => fixture.nativeElement.querySelector('[data-testid="underwriting-review"]') as HTMLElement | null;
+    const plain = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ');
+
+    beforeEach(() => {
+      component.client.set({
+        document_type: 'CC',
+        document_number: '1020304050',
+        first_name: 'Carlos',
+        last_name: 'Rodríguez',
+        birth_date: '1988-04-12',
+        email: 'carlos@correo.co',
+        phone: '3001234567',
+      });
+      component.risk.set({
+        financial_entity: 'Davivienda',
+        insured_amount: 900_000_000,
+        term_months: 180,
+        occupation_risk: 2,
+        city: 'Medellín',
+      });
+      component.requestQuote();
+      http.expectOne('/api/v1/experience/quotes').flush(review);
+      fixture.detectChanges();
+    });
+
+    it('TC-06 muestra el motivo y la suma máxima en COP como alerta, sin planes ni códigos internos', () => {
+      expect(notice()).not.toBeNull();
+      expect(notice()!.getAttribute('role')).toBe('alert');
+      expect(plain(notice()!.textContent)).toContain('La suscripción automática requiere revisión');
+      expect(plain(notice()!.textContent)).toContain(review.underwriting!.reason);
+      expect(plain(notice()!.textContent)).toContain(plain(COP.format(700_000_000)));
+      expect(notice()!.textContent).not.toContain('UW-01');
+      expect(notice()!.textContent).not.toContain('700 ');
+      expect(fixture.nativeElement.querySelector('app-premium-breakdown')).toBeNull();
+    });
+
+    it('TC-06 recotiza en un clic con la suma sugerida y luego muestra los planes sin aviso', () => {
+      const button = notice()!.querySelector('button') as HTMLButtonElement;
+      expect(plain(button.textContent)).toContain(plain(COP.format(700_000_000)));
+
+      button.click();
+      const call = http.expectOne('/api/v1/experience/quotes');
+      expect(call.request.body.insured_amount).toBe(700_000_000);
+      call.flush(quote);
+      fixture.detectChanges();
+
+      expect(notice()).toBeNull();
+      expect(component.risk()!.insured_amount).toBe(700_000_000);
+      expect(fixture.nativeElement.querySelector('app-premium-breakdown')).not.toBeNull();
     });
   });
 });

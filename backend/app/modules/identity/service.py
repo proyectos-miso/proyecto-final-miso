@@ -146,7 +146,7 @@ class InsuredAuthService:
         return account
 
     async def seed_default_account(self, session: AsyncSession, seed_file: Path = SEED_FILE) -> None:
-        if settings.ENVIRONMENT == "production" or not seed_file.exists():
+        if not settings.debug_enabled or not seed_file.exists():
             return
         for seed in json.loads(seed_file.read_text(encoding="utf-8")):
             if await self._find(session, seed["email"]) is None:
@@ -288,6 +288,13 @@ class InsuredAuthService:
         tokens = self._issue_tokens(account)
         await session.commit()
         return tokens
+
+    async def account_for_access(self, session: AsyncSession, claims: dict) -> InsuredAccountDB:
+        """Cuenta del token de acceso; una sesión revocada con token_version deja de valer (HU-MOV-04)."""
+        account = await session.get(InsuredAccountDB, claims["sub"])
+        if account is None or claims.get("ver", 0) != account.token_version:
+            raise InvalidTokenError()
+        return account
 
     async def revoke_device(self, session: AsyncSession, user_id: str, device_id: str) -> None:
         await session.execute(
@@ -471,7 +478,7 @@ class InsuredAuthService:
     @staticmethod
     def _code_hash(user_id: str, purpose: str, code: str) -> str:
         message = f"{user_id}:{purpose}:{code}".encode()
-        return hmac.new(settings.JWT_SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
+        return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
 
     @staticmethod
     def _sms_body(code: str, purpose: str) -> str:

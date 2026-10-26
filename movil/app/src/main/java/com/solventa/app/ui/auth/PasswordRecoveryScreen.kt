@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +30,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.solventa.app.R
 import com.solventa.app.ui.theme.SolventaTheme
+import com.solventa.app.ui.theme.PrimaryButton
+import com.solventa.app.ui.theme.SecondaryButton
+import androidx.compose.foundation.layout.heightIn
 
 private const val CODE_LENGTH = 6
 
@@ -65,9 +67,7 @@ fun PasswordRecoveryScreen(
         if (recovery.completed) {
             Text(text = stringResource(R.string.recovery_done))
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onClose, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Text(stringResource(R.string.recovery_back))
-            }
+            PrimaryButton(stringResource(R.string.recovery_back), onClose)
             return@Column
         }
 
@@ -77,6 +77,7 @@ fun PasswordRecoveryScreen(
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
+                shape = MaterialTheme.shapes.small,
                 value = email,
                 onValueChange = { email = it },
                 label = { Text(stringResource(R.string.auth_email)) },
@@ -86,6 +87,8 @@ fun PasswordRecoveryScreen(
             )
             OutlinedButton(
                 onClick = { onRequestCode(email) },
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.heightIn(min = 56.dp),
                 enabled = email.isNotBlank() && uiState.canRequestOtp(email),
             ) {
                 Text(
@@ -106,6 +109,7 @@ fun PasswordRecoveryScreen(
             )
         }
         OutlinedTextField(
+            shape = MaterialTheme.shapes.small,
             value = code,
             onValueChange = { value -> code = value.filter(Char::isDigit).take(CODE_LENGTH) },
             label = { Text(stringResource(R.string.recovery_code)) },
@@ -145,17 +149,13 @@ fun PasswordRecoveryScreen(
         }
 
         Spacer(Modifier.height(8.dp))
-        Button(
+        PrimaryButton(
+            text = stringResource(if (recovery.isSubmitting) R.string.auth_submitting else R.string.recovery_submit),
             onClick = { onSubmit(email, code, newPassword, confirmation) },
             enabled = email.isNotBlank() && code.length == CODE_LENGTH &&
                 passwordRulesMet(newPassword, confirmation) && !recovery.isSubmitting,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-        ) {
-            Text(stringResource(if (recovery.isSubmitting) R.string.auth_submitting else R.string.recovery_submit))
-        }
-        OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-            Text(stringResource(R.string.recovery_back))
-        }
+        )
+        SecondaryButton(stringResource(R.string.recovery_back), onClose)
     }
 }
 
