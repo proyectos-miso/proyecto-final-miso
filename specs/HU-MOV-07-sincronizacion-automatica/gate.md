@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
+| Security status | SECURITY_REVIEW_PENDING |
 | Evaluated on | 2026-10-25 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-MOV-07-sincronizacion-automatica |
 
@@ -41,10 +41,10 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas de la app en Robolectric: 242 de 242 | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, SR-08, SR-09, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-07, CTL-08, CTL-09, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-09, TC-10, TC-11, TC-13, TC-19 | movil/app/src/test/java/com/solventa/app/ | AVAILABLE |
+| EV-01 | Pruebas de la app en Robolectric: 243 de 243 | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, SR-08, SR-09, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-07, CTL-08, CTL-09, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-09, TC-10, TC-11, TC-13, TC-19 | movil/app/src/test/java/com/solventa/app/ | AVAILABLE |
 | EV-02 | Pruebas del backend con PostgreSQL: 204 de 204 | SR-10, CTL-10, TC-17 | backend/tests/ | AVAILABLE |
 | EV-03 | Teléfono (Galaxy S22 Ultra con Android 16), build de release y revisión, 2026-10-25 | SR-02, SR-11, CTL-02, CTL-11, TC-12, TC-14, TC-15, TC-18 | Resultado en cada caso de prueba | AVAILABLE |
-| EV-04 | Prueba con TalkBack del foco al actualizarse | TC-16 | Pendiente de una prueba manual de David | PENDING |
+| EV-04 | Prueba con TalkBack del foco al actualizarse, con David en el teléfono, 2026-10-25 | TC-16 | Resultado en TC-16 y WalletScreenTest.kt | AVAILABLE |
 
 ## Closeout
 
