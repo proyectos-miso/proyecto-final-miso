@@ -13,14 +13,20 @@ concurrency:
   group: production-deployment
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   destroy-infra:
     name: Destrucción de Infraestructura (Terraform Destroy)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Validar confirmación de seguridad
+        env:
+          CONFIRM_INPUT: ${{ github.event.inputs.confirm }}
         run: |
-          CONFIRM_VAL=$(echo "${{ github.event.inputs.confirm }}" | tr '[:lower:]' '[:upper:]' | xargs)
+          CONFIRM_VAL=$(echo "$CONFIRM_INPUT" | tr '[:lower:]' '[:upper:]' | xargs)
           if [ "$CONFIRM_VAL" != "DESTRUIR" ] && [ "$CONFIRM_VAL" != "YES" ] && [ "$CONFIRM_VAL" != "TRUE" ]; then
             echo "::error::Confirmación no válida. Para proceder debe ingresar 'DESTRUIR'."
             exit 1
@@ -41,6 +47,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.10.5
+          terraform_wrapper: false
 
       - name: Conectar al Backend Remoto de Terraform (S3)
         working-directory: terraform
@@ -55,7 +62,7 @@ jobs:
             exit 1
           fi
 
-          terraform init \
+          terraform init -input=false \
             -backend-config="bucket=${STATE_BUCKET}" \
             -backend-config="key=production/terraform.tfstate" \
             -backend-config="region=${REGION}"
@@ -133,11 +140,28 @@ jobs:
 
       - name: Destruir recursos de infraestructura con Terraform
         working-directory: terraform
+        env:
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_jwt_secret_key: ${{ secrets.JWT_SECRET_KEY }}
+          TF_VAR_otp_secret_key: ${{ secrets.OTP_SECRET_KEY }}
         run: |
-          terraform destroy -auto-approve || {
-            echo "Detectada latencia de desasociación en AWS. Reintentando terraform destroy tras breve pausa..."
-            sleep 15
-            terraform destroy -auto-approve
+          terraform destroy -auto-approve -input=false || {
+            echo "Detectada latencia de desasociación en AWS o dependencias residuales."
+            echo "Verificando y liberando posibles Security Groups huérfanos de VPC Origins (CloudFront)..."
+            REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+            VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=tag:Name,Values=solventa-vpc-production" --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              CF_SGS=$(aws ec2 describe-security-groups --region "$REGION" --filters "Name=vpc-id,Values=$VPC_ID" "Name=group-name,Values=CloudFront-VPCOrigins-Service-SG" --query "SecurityGroups[*].GroupId" --output text 2>/dev/null || true)
+              for SG in $CF_SGS; do
+                if [ -n "$SG" ] && [ "$SG" != "None" ]; then
+                  echo "Eliminando security group residual de CloudFront VPC Origin: $SG"
+                  aws ec2 delete-security-group --region "$REGION" --group-id "$SG" 2>/dev/null || true
+                fi
+              done
+            fi
+            echo "Pausa de 20s para permitir convergencia de red en AWS..."
+            sleep 20
+            terraform destroy -auto-approve -input=false
           }
 
       - name: Limpieza de recursos no gestionados por Terraform (CloudWatch)
