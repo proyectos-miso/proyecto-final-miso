@@ -6,7 +6,7 @@
 | Title | Ultima sincronizacion |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/72 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-24 |
 | Security profile | HIGH |
 
