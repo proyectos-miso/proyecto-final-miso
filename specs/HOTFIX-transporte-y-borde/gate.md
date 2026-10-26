@@ -36,6 +36,7 @@
 | EV-01 | Balanceador interno y entrada solo desde CloudFront | SR-02, CTL-02, TC-01 | terraform/modules/alb/main.tf | AVAILABLE |
 | EV-02 | VPC origin, encabezados y función de rutas | SR-01, CTL-01, CTL-03, TC-01 | terraform/modules/web_hosting/main.tf | AVAILABLE |
 | EV-03 | Build sin scripts inline | SR-03, CTL-03, TC-03 | web/angular.json | AVAILABLE |
+| EV-05 | Prueba del plan sin infraestructura | TC-09 | terraform/tests/plan_desde_cero.tftest.hcl | AVAILABLE |
 | EV-04 | Verificación tras el despliegue | SR-01, SR-02, TC-04 | URL de CloudFront después de fusionar a main | PENDING |
 
 ## Closeout
