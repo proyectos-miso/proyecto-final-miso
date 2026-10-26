@@ -220,8 +220,8 @@ N/A: canal del asegurado, sin inquilinos.
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-01 | La credencial vive en memoria hasta 15 minutos tras la huella: con root se puede copiar, sus cadenas no se pueden poner en cero y se usa sin una huella nueva, una desviación de "biometría en cada uso" | THR-04 | LOW | HIGH | MEDIUM | ACCEPT | Nunca en disco y con tope (CTL-04). Aceptado por David Gutiérrez el 2026-10-25 (DEC-01), vence el 2026-12-31 | ACCEPTED |
-| RISK-02 | Si se pierde la respuesta de una renovación, el backend ya rotó el token y la siguiente cierra la sesión | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Con CTL-06 la copia se conserva y solo hay que volver a ingresar | OPEN |
-| RISK-03 | Un par descartado tras el cierre queda válido si falla su revocación | THR-05 | LOW | LOW | LOW | MITIGATE | La revocación siempre se intenta (CTL-05); si falla, nadie guarda el token y vence a los 7 días si no se usa | OPEN |
+| RISK-02 | Si se pierde la respuesta de una renovación, el backend ya rotó el token y la siguiente cierra la sesión | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Con CTL-06 la copia se conserva y solo hay que volver a ingresar | MITIGATED |
+| RISK-03 | Un par descartado tras el cierre queda válido si falla su revocación | THR-05 | LOW | LOW | LOW | MITIGATE | La revocación siempre se intenta (CTL-05); si falla, nadie guarda el token y vence a los 7 días si no se usa | MITIGATED |
 | RISK-04 | El backend no fija vida máxima ni revoca por familia; un refresh token robado se renueva sin fin | THR-12 | LOW | HIGH | MEDIUM | ACCEPT | Tokens solo en memoria y sin registros; el cierre revoca el actual; la corrección va en otra historia (DEC-07). Aceptado por David Gutiérrez el 2026-10-25 (DEC-01), vence el 2026-12-31 | ACCEPTED |
 
 ## 16. Pending decisions

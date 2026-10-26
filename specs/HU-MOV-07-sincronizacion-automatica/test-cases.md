@@ -63,8 +63,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest, SessionPolicySyncTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al sincronizar en segundo plano la billetera muestra las polizas sin el aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al sincronizar en segundo plano una billetera que pedia conexion muestra las polizas"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"si la copia no se pudo guardar la billetera conserva la fecha anterior"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"si la copia no se guarda responde Failed y no publica"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-02 · La copia se reemplaza sin duplicar
 
@@ -80,8 +80,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (EncryptedPolicyStoreFlowTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/EncryptedPolicyStoreFlowTest.kt::"reemplaza sin duplicar, quita repetidas e informa si escribio"; movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_poliza_repetida_se_guarda_una_vez_y_save_informa_que_escribio; Galaxy S22 Ultra con Android 16, 2026-10-25: 22 de 22 instrumentadas; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-03 · Un solo trabajo, solo con red y con espera exponencial
 
@@ -97,8 +97,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (PolicySyncWorkerTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"un solo trabajo que espera la red y luego sincroniza"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"el trabajo exige red y reintenta con espera exponencial"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"una falla o una excepcion se reintentan y lo demas termina"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"cancelar quita el trabajo pendiente"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-04 · Una sincronización a la vez, una renovación y sin revivir la sesión
 
@@ -114,8 +114,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (SessionPolicySyncTest, HttpAuthApiTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"un 401 renueva una vez y repite con el token nuevo"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"dos sincronizaciones a la vez van en orden con una sola renovacion"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"cerrar sesion durante la renovacion no revive la sesion y revoca el par nuevo"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"cerrar sesion durante el ingreso con la credencial revoca el par nuevo"; movil/app/src/test/java/com/solventa/app/data/auth/HttpAuthApiTest.kt::"renovar traduce cada respuesta del servidor"; movil/app/src/test/java/com/solventa/app/data/auth/HttpAuthApiTest.kt::"la renovacion va con longitud fija y no se reenvia si se corta la respuesta"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"la sesion solo cambia desde la instantanea vigente"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-05 · Solo un rechazo del servidor termina la sesión
 
@@ -131,8 +131,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (SessionPolicySyncTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la renovacion rechazada borra la copia y termina la sesion"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"un segundo 401 despues de renovar borra la copia"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la credencial rechazada desvincula la huella siempre"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"las fallas pasajeras se reintentan sin borrar ni cerrar"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"tras una renovacion sin respuesta el 401 siguiente conserva la copia"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"una renovacion exitosa limpia la marca y un rechazo posterior borra"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-06 · La credencial vive solo en memoria y a lo sumo 15 minutos
 
@@ -148,8 +148,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (AuthViewModelTest, SessionPolicySyncTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"el ingreso sin red guarda la credencial solo en memoria y la suelta a los 15 minutos"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"cerrar sesion o desactivar la huella sueltan la credencial"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"con la credencial vigente entra sin pedir la huella y la suelta"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la credencial vencida no se usa y con red pide el ingreso sin borrar"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"una llave invalidada o no disponible no usa la credencial"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"la credencial vence a los 15 minutos o si el reloj retrocede"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"el estado de la llave no lanza y una falla pasajera no borra las cuentas"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-07 · Vencida la credencial, al volver la red se pide el ingreso sin borrar
 
@@ -165,8 +165,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (SessionPolicySyncTest, AuthViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la credencial vencida no se usa y con red pide el ingreso sin borrar"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"una sesion terminada por la sincronizacion pide ingresar con el aviso del motivo"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthScreensTest.kt::"cada estado de la huella muestra su mensaje y bloquea el sensor cuando corresponde"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-08 · Sin sesión no se llama al servidor y la actividad cierra solo la suya
 
@@ -182,8 +182,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (SessionPolicySyncTest, AuthViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"sin sesion no llama al servidor ni escribe"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"al terminar la actividad termina y revoca solo su sesion"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"endSession termina solo su sesion y devuelve sus tokens vigentes"; en el teléfono, al terminar la actividad la sesión terminó y la copia cifrada siguió en databases/, 2026-10-25; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-09 · Cerrar sesión durante la descarga del trabajo no deja copia
 
@@ -199,8 +199,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (AuthViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"cerrar sesion durante la descarga del trabajo no deja copia"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"el borrado y la revocacion terminan aunque la pantalla se cierre"; movil/app/src/test/java/com/solventa/app/MainActivityTest.kt::"cerrar sesion con la descarga pendiente no deja copia de la cuenta"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-10 · El trabajo no lleva datos de la cuenta ni deja escapar excepciones
 
@@ -216,8 +216,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (PolicySyncWorkerTest, SecureSessionRepositoryTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"el trabajo no lleva datos de entrada ni etiquetas propias"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"una falla o una excepcion se reintentan y lo demas termina"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"la sesion abierta no expone el correo ni los secretos al imprimirse"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-11 · El manifiesto final no pide ni exporta de más
 
@@ -233,8 +233,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (PolicySyncWorkerTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"el manifiesto final no pide ni exporta de mas"; en el teléfono, dumpsys package pide solo INTERNET, ACCESS_NETWORK_STATE, USE_FINGERPRINT, USE_BIOMETRIC y WAKE_LOCK, 2026-10-25; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-12 · En el teléfono, la billetera se actualiza al volver la red
 
@@ -250,8 +250,8 @@
 | Tool or method | Cronómetro y `adb shell dumpsys jobscheduler` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Galaxy S22 Ultra con Android 16 y backend local por adb reverse, 2026-10-25: en primer plano la billetera se actualizó sola a los 6,4 s, 6,4 s y 6,5 s de quitar el modo avión; tras 16 minutos sin red renovó el token (401, POST auth/refresh 200 y consulta 200) y se actualizó a los 8,0 s sin cerrar la sesión; con el trabajo esperando su reintento, al volver a la app se actualizó a los 2,3 s (5 de 5 en primer plano dentro de 60 s). En segundo plano el trabajo consultó el backend a los 2 s de volver la red y al regresar ya estaba actualizada. La variante con el teléfono bloqueado no se corrió porque no se puede desbloquear por adb; la cubren WalletViewModelTest y SessionPolicySyncTest |
+| Status | PASS |
 
 ### TC-13 · La sincronización solo afecta a su cuenta y su sesión
 
@@ -267,8 +267,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (SessionPolicySyncTest, WalletViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la sincronizacion solo afecta a su cuenta y su sesion"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"el resultado de otra cuenta no cambia la billetera"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-14 · En el teléfono, WorkManager y logcat sin datos de la cuenta
 
@@ -284,8 +284,8 @@
 | Tool or method | `adb shell run-as`, `sqlite3`, `strings` y `adb logcat` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Galaxy S22 Ultra, 2026-10-25: con el trabajo pendiente, androidx.work.workdb y sus archivos -wal y -shm no tienen el correo, el titular, los números de póliza ni la palabra token (0 coincidencias); el trabajo policy_sync tiene la entrada vacía, red CONNECTED y espera EXPONENTIAL de 10 000 ms. Logcat de la app durante una sincronización fallida y una exitosa: 0 coincidencias |
+| Status | PASS |
 
 ### TC-15 · Revisión de registros, secretos y dependencias
 
@@ -301,8 +301,8 @@
 | Tool or method | grep, revisión de código, `sdd.py scan secrets`, `sdd.py scan deps` y OSV.dev |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | revisión del 2026-10-25: sin Log., println ni printStackTrace en el diff; refresh usa setFixedLengthStreamingMode; sdd.py scan secrets --diff sin hallazgos; OSV.dev sin vulnerabilidades conocidas para DEP-01 a DEP-04; sdd.py scan deps con las 2 dependencias nuevas evaluadas |
+| Status | PASS |
 
 ### TC-16 · La actualización con TalkBack
 
@@ -318,7 +318,7 @@
 | Tool or method | TalkBack en el teléfono |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
+| Evidence | Parcial, Galaxy S22 Ultra 2026-10-25: con TalkBack activo y la fuente en 2.0, la billetera se actualizó sola y la fecha nueva se lee completa, en dos líneas y sin cortes. Falta confirmar que el foco de TalkBack no salte al actualizarse: TalkBack no se puede manejar por adb y su aviso de permisos de llamadas tapaba la app; queda para una prueba manual de David |
 | Status | PENDING |
 
 ### TC-17 · Con el ingreso suspendido la renovación responde 423 sin rotar
@@ -335,8 +335,8 @@
 | Tool or method | `poetry run pytest` (test_insured_logout.py, test_insured_auth_errors.py) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/unit/test_insured_logout.py::test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar; backend/tests/unit/test_insured_logout.py::test_refresh_revocado_con_ingreso_suspendido_sigue_rechazado; backend/tests/integration/test_insured_auth_errors.py::test_ingreso_suspendido_responde_423_con_tiempo_restante; 204 de 204 con PostgreSQL; en vivo contra el backend local, 423 con Retry-After 879 y 401 con un token inválido, 2026-10-25 |
+| Status | PASS |
 
 ### TC-18 · La release solo usa HTTPS
 
@@ -352,8 +352,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (NetworkSecurityConfigTest) y `./gradlew assembleRelease` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/NetworkSecurityConfigTest.kt::"la configuracion de release no permite HTTP sin TLS a ningun host"; movil/app/src/test/java/com/solventa/app/data/NetworkSecurityConfigTest.kt::"la de debug solo permite HTTP sin TLS hacia el backend local"; assembleRelease sin -PapiBaseUrl falla con "La release necesita -PapiBaseUrl=https://…"; con https compila y el APK de release solo trae base-config cleartextTrafficPermitted=false (aapt2), 2026-10-25; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ### TC-19 · Al volver a la app se sincroniza sin ocultar la copia
 
@@ -369,8 +369,8 @@
 | Tool or method | ./gradlew testDebugUnitTest (WalletViewModelTest) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al rotar o volver a la app sigue la copia mientras otra sincronizacion ocupa el turno"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al volver a la app sin conexion sincroniza a lo sumo cada 30 s y con conexion no llama"; 242 de 242 unitarias, 2026-10-25 |
+| Status | PASS |
 
 ## Security test coverage
 
