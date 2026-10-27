@@ -202,7 +202,7 @@
 | Tool or method | Narrador o NVDA, teclado |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING: el teclado ya se verificó con Chrome el 2026-10-27 (el número abre el panel, el foco va al título, Escape cierra y el foco vuelve al número, la página no se desborda a 390 px); falta la pasada con lector de pantalla |
+| Evidence | PENDING: auditoría automática con Chrome el 2026-10-27. axe-core 4.12.1 (WCAG 2.2 AA) sin violaciones con el detalle abierto, sin siniestros, con una póliza no encontrada y a 320 px; se corrigieron el contraste de la fila abierta (1.4.3) y el alto del botón del número (2.5.8). Árbol de accesibilidad: botón «Ver detalle de la póliza POL-…», región «Póliza POL-…», título h2 y secciones h3, fila abierta con aria-current, «No encontramos la póliza» como alerta. Teclado: Enter abre y lleva el foco al título, Tab llega a «Cerrar detalle», Escape cierra y devuelve el foco al número. Falta la pasada con lector de pantalla |
 | Status | PENDING |
 
 ### TC-11 · Datos de la póliza como texto
