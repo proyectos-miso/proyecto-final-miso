@@ -202,7 +202,7 @@ N/A: reutiliza la arquitectura hexagonal (ADR 0004) y la estructura por funciona
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Tabla mínima de siniestros de solo lectura | AC-04, AC-09, SR-06 | CTL-03 | TODO | — |
-| T-02 | Endpoint de detalle con alcance, enmascarado, pagos y siniestros (#172) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07, AC-08, AC-10, SR-01, SR-02, SR-03, SR-04 | CTL-01, CTL-02, CTL-03, CTL-04 | TODO | — |
-| T-03 | Panel de detalle en Gestión, con enlace y foco (#173) | AC-01, AC-03, AC-04, AC-10, AC-11, AC-12, QR-02, SR-05 | CTL-05 | TODO | — |
-| T-04 | Pruebas unitarias, de integración y de tiempo de respuesta (#174) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07, AC-08, QR-01 | CTL-01, CTL-02, CTL-03, CTL-04 | TODO | — |
+| T-01 | Tabla mínima de siniestros de solo lectura | AC-04, AC-09, SR-06 | CTL-03 | DONE | backend/app/modules/claims/models.py; backend/tests/integration/test_policy_detail_api.py::test_tc_04_poliza_b2b_sin_titular_sin_pagos_ni_siniestros |
+| T-02 | Endpoint de detalle con alcance, enmascarado, pagos y siniestros (#172) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07, AC-08, AC-10, SR-01, SR-02, SR-03, SR-04 | CTL-01, CTL-02, CTL-03, CTL-04 | DONE | backend/app/modules/policy/detail.py; backend/app/bff/experience/router.py |
+| T-03 | Panel de detalle en Gestión, con enlace y foco (#173) | AC-01, AC-03, AC-04, AC-10, AC-11, AC-12, QR-02, SR-05 | CTL-05 | DONE | web/src/app/features/gestion/policy-detail.component.ts; web/src/app/features/gestion/gestion.component.ts |
+| T-04 | Pruebas unitarias, de integración y de tiempo de respuesta (#174) | AC-01, AC-02, AC-03, AC-05, AC-06, AC-07, AC-08, QR-01 | CTL-01, CTL-02, CTL-03, CTL-04 | DONE | backend/tests/integration/test_policy_detail_api.py; backend/tests/unit/test_policy_detail.py; backend/tests/integration/test_policy_search_performance.py; web/src/app/features/gestion/policy-detail.component.spec.ts; web/src/app/features/gestion/gestion.component.spec.ts |

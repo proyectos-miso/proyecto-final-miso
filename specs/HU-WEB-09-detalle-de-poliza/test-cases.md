@@ -49,8 +49,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_01_el_detalle_trae_titular_plan_coberturas_primas_pagos_y_siniestros |
+| Status | PASS |
 
 ### TC-02 · Datos del titular enmascarados
 
@@ -66,8 +66,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py; pytest backend/tests/unit/test_policy_detail.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_02_documento_correo_y_telefono_salen_enmascarados; backend/tests/unit/test_policy_detail.py::test_tc_02_el_correo_deja_ver_la_primera_letra_y_el_dominio; backend/tests/unit/test_policy_detail.py::test_tc_02_el_telefono_deja_ver_los_ultimos_cuatro_digitos |
+| Status | PASS |
 
 ### TC-03 · Póliza inexistente y número inválido
 
@@ -83,8 +83,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_03_una_poliza_inexistente_responde_404_sin_detalles_tecnicos; backend/tests/integration/test_policy_detail_api.py::test_tc_03_un_numero_con_otro_formato_responde_422 |
+| Status | PASS |
 
 ### TC-04 · Sin siniestros y sin titular
 
@@ -100,8 +100,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_04_poliza_b2b_sin_titular_sin_pagos_ni_siniestros |
+| Status | PASS |
 
 ### TC-05 · Aislamiento por socio
 
@@ -117,8 +117,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_05_el_usuario_de_un_socio_solo_ve_el_detalle_de_su_socio; backend/tests/integration/test_policy_detail_api.py::test_tc_05_el_usuario_de_un_socio_revocado_recibe_403 |
+| Status | PASS |
 
 ### TC-06 · Solo el rol analyst
 
@@ -134,8 +134,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_06_solo_el_rol_analyst_ve_el_detalle |
+| Status | PASS |
 
 ### TC-07 · Historial de pagos
 
@@ -151,8 +151,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_detail_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_detail_api.py::test_tc_07_pagos_del_mas_reciente_al_mas_antiguo_sin_datos_del_medio |
+| Status | PASS |
 
 ### TC-08 · Panel de detalle en el portal
 
@@ -168,8 +168,8 @@
 | Tool or method | npm test (policy-detail.component.spec.ts, gestion.component.spec.ts) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 muestra titular enmascarado, plan, coberturas, primas, pagos y siniestros"; web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 sin siniestros ni pagos lo dice, y sin titular no muestra contacto"; web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 una póliza que no existe o con otro formato dice que no se encontró, sin errores técnicos"; web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 al abrir lleva el foco al título; Cerrar y Escape avisan que se cierra"; web/src/app/features/gestion/gestion.component.spec.ts::"TC-08 el número de cada póliza es un botón que abre el detalle con ?poliza="; web/src/app/features/gestion/gestion.component.spec.ts::"TC-08 con ?poliza= en la dirección abre el panel y al cerrarlo el foco vuelve al número"; prueba de punta a punta local con Chrome el 2026-10-27 (analista de operaciones, analista de Banco Aliado y asesor contra el backend con PostgreSQL): 34 de 34 verificaciones |
+| Status | PASS |
 
 ### TC-09 · Tiempo de respuesta del detalle
 
@@ -185,8 +185,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_performance.py |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_performance.py::test_tc_09_el_p95_del_detalle_queda_por_debajo_de_150_ms; 10.000 pólizas con cobros y siniestros, 100 detalles: p50 21,8 ms y p95 27,5 ms el 2026-10-27 |
+| Status | PASS |
 
 ### TC-10 · Accesibilidad del panel
 
@@ -202,7 +202,7 @@
 | Tool or method | Narrador o NVDA, teclado |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
+| Evidence | PENDING: el teclado ya se verificó con Chrome el 2026-10-27 (el número abre el panel, el foco va al título, Escape cierra y el foco vuelve al número, la página no se desborda a 390 px); falta la pasada con lector de pantalla |
 | Status | PENDING |
 
 ### TC-11 · Datos de la póliza como texto
@@ -219,8 +219,8 @@
 | Tool or method | npm test (policy-detail.component.spec.ts) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-11 muestra como texto el HTML guardado en el nombre del titular" |
+| Status | PASS |
 
 ## Security test coverage
 

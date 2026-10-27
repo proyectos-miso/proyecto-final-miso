@@ -39,9 +39,9 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas del detalle, del alcance por socio, de roles y del enmascarado | SR-01, SR-02, SR-03, SR-04, SR-06, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07 | backend/tests/integration/test_policy_detail_api.py | PENDING |
-| EV-02 | Prueba de tiempo de respuesta del detalle | QR-01, TC-09 | backend/tests/integration/test_policy_search_performance.py | PENDING |
-| EV-03 | Pruebas del panel de detalle | SR-05, CTL-05, TC-08, TC-11 | web/src/app/features/gestion/ | PENDING |
+| EV-01 | Pruebas del detalle, del alcance por socio, de roles y del enmascarado | SR-01, SR-02, SR-03, SR-04, SR-06, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07 | backend/tests/integration/test_policy_detail_api.py | AVAILABLE |
+| EV-02 | Prueba de tiempo de respuesta del detalle | QR-01, TC-09 | backend/tests/integration/test_policy_search_performance.py | AVAILABLE |
+| EV-03 | Pruebas del panel de detalle | SR-05, CTL-05, TC-08, TC-11 | web/src/app/features/gestion/ | AVAILABLE |
 
 ## Closeout
 

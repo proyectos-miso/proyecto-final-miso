@@ -109,11 +109,11 @@ N/A: la historia no usa servicios externos.
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
-| CTL-01 | El socio del usuario se lee en la base y filtra la consulta; fuera del alcance responde 404 como una póliza inexistente; un socio revocado no consulta | API, DATA | MISSING | THR-01, THR-04 | TC-05 | T-02 | API1:2023, CWE-639 | — |
-| CTL-02 | Rol analyst y la dependencia de alcance compartida con la búsqueda | API | MISSING | THR-02 | TC-06 | T-02 | API5:2023, CWE-285 | — |
-| CTL-03 | Documento, correo y teléfono enmascarados en el backend; sin beneficiarios, token ni cuenta; siniestro sin descripción ni ubicación | API | MISSING | THR-03 | TC-02, TC-07 | T-01, T-02 | API3:2023, CWE-359 | — |
-| CTL-04 | Patrón del número de póliza en la ruta y consulta parametrizada | BACKEND | MISSING | THR-04 | TC-03 | T-02 | CWE-20, CWE-89 | — |
-| CTL-05 | El panel usa interpolación de Angular, sin innerHTML | WEB | MISSING | THR-05 | TC-11 | T-03 | CWE-79 | — |
+| CTL-01 | El socio del usuario se lee en la base y filtra la consulta; fuera del alcance responde 404 como una póliza inexistente; un socio revocado no consulta | API, DATA | EXISTING | THR-01, THR-04 | TC-05 | T-02 | API1:2023, CWE-639 | — |
+| CTL-02 | Rol analyst y la dependencia de alcance compartida con la búsqueda | API | EXISTING | THR-02 | TC-06 | T-02 | API5:2023, CWE-285 | — |
+| CTL-03 | Documento, correo y teléfono enmascarados en el backend; sin beneficiarios, token ni cuenta; siniestro sin descripción ni ubicación | API | EXISTING | THR-03 | TC-02, TC-07 | T-01, T-02 | API3:2023, CWE-359 | — |
+| CTL-04 | Patrón del número de póliza en la ruta y consulta parametrizada | BACKEND | EXISTING | THR-04 | TC-03 | T-02 | CWE-20, CWE-89 | — |
+| CTL-05 | El panel usa interpolación de Angular, sin innerHTML | WEB | EXISTING | THR-05 | TC-11 | T-03 | CWE-79 | — |
 
 ## 10. Cryptography
 
@@ -179,7 +179,7 @@ N/A: la historia no agrega secretos ni llaves.
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | HU-MOV-10 puede necesitar otra forma para la tabla de siniestros | THR-03 | MEDIUM | LOW | LOW | MITIGATE | Bajo: la tabla es mínima y solo se lee; HU-MOV-10 la amplía con columnas nuevas | OPEN |
+| RISK-01 | HU-MOV-10 puede necesitar otra forma para la tabla de siniestros | THR-03 | MEDIUM | LOW | LOW | MITIGATE | Bajo: la tabla es mínima y solo se lee; HU-MOV-10 la amplía con columnas nuevas y el PR deja la nota para David | MITIGATED |
 
 ## 16. Pending decisions
 
