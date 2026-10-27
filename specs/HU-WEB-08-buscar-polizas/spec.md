@@ -64,6 +64,7 @@ Decisiones de Juan Camilo Peña (2026-10-27): los datos del titular se guardan a
 | web/src/app/features/gestion/** | Pantalla de consulta de pólizas |
 | web/src/app/features/cotizador/cotizador.component.ts | Envía el titular al emitir |
 | web/src/app/app.component.html | Nombre del rol en el encabezado |
+| web/src/app/app.component.css | El encabezado se acomoda en pantallas de 320 px (WCAG 1.4.10) |
 
 ### Use cases
 
