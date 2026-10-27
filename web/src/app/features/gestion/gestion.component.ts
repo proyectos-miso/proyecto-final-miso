@@ -126,8 +126,8 @@ import { PLAN_LABELS, POLICY_STATUS_OPTIONS, policyStatusLabel } from './policy-
     .with-detail .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 24px; align-items: start; }
     @media (max-width: 1023px) { .with-detail .layout { grid-template-columns: minmax(0, 1fr); } }
     .aside { display: block; }
-    .btn-policy { padding: 0; border: none; background: none; color: var(--marca-600); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; white-space: nowrap; }
-    tr.selected { background: var(--n-50); }
+    .btn-policy { display: inline-flex; align-items: center; min-height: 24px; padding: 0; border: none; background: none; color: var(--marca-600); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+    tr.selected th { box-shadow: inset 4px 0 0 var(--marca-600); }
     h1 { font-size: var(--t-xl); margin: 0 0 4px; color: var(--texto); }
     .subtitle { color: var(--texto-sec); margin: 0 0 24px; }
     .search { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
