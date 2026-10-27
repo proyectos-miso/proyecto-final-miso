@@ -51,8 +51,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_01_por_documento_trae_sus_polizas_con_los_campos_de_la_lista; backend/tests/integration/test_policy_search_api.py::test_tc_01_por_prefijo_de_numero_por_socio_y_por_titular; backend/tests/integration/test_policy_search_api.py::test_tc_01_filtra_por_estado_y_la_poliza_b2b_no_trae_titular |
+| Status | PASS |
 
 ### TC-02 · Titular guardado al emitir
 
@@ -68,8 +68,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_02_al_emitir_desde_el_portal_se_guarda_el_titular; web/src/app/features/cotizador/cotizador.component.spec.ts::"emite el plan elegido y confirma el número y la vigencia" |
+| Status | PASS |
 
 ### TC-03 · Aislamiento por socio
 
@@ -85,8 +85,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_03_el_usuario_de_un_socio_solo_ve_las_de_su_socio; backend/tests/integration/test_policy_search_api.py::test_tc_03_el_usuario_de_un_socio_revocado_recibe_403 |
+| Status | PASS |
 
 ### TC-04 · Solo el rol analyst
 
@@ -102,8 +102,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_api.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_04_solo_el_rol_analyst_busca |
+| Status | PASS |
 
 ### TC-05 · Enmascarado, tope y texto literal
 
@@ -119,8 +119,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_api.py; pytest backend/tests/unit/test_policy_search.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_05_maximo_50_resultados_los_mas_recientes_y_sin_contacto; backend/tests/integration/test_policy_search_api.py::test_tc_05_comodines_y_comillas_se_buscan_literales; backend/tests/integration/test_policy_search_api.py::test_tc_05_texto_de_mas_de_80_caracteres_o_estado_invalido_responde_422; backend/tests/unit/test_policy_search.py::test_tc_05_el_documento_solo_deja_ver_los_ultimos_cuatro_digitos |
+| Status | PASS |
 
 ### TC-06 · Pantalla de gestión y acceso por rol
 
@@ -136,8 +136,8 @@
 | Tool or method | npm test (gestion.component.spec.ts, role.guard.spec.ts, login.component.spec.ts) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 avisa cuando hay más de 50 resultados"; web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 al abrir trae las pólizas más recientes y las muestra en la tabla"; web/src/app/core/guards/role.guard.spec.ts::"TC-06 devuelve al asesor al cotizador y al analista a gestión"; web/src/app/features/auth/login.component.spec.ts::"HU-WEB-08: el analista de operaciones entra a Gestión" |
+| Status | PASS |
 
 ### TC-07 · Usuarios de prueba solo en desarrollo
 
@@ -153,8 +153,8 @@
 | Tool or method | pytest backend/tests/unit/test_policy_search.py |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_api.py::test_tc_07_los_analistas_de_prueba_quedan_con_su_rol_y_su_socio |
+| Status | PASS |
 
 ### TC-08 · Tiempo de respuesta
 
@@ -170,8 +170,8 @@
 | Tool or method | pytest backend/tests/integration/test_policy_search_performance.py |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_policy_search_performance.py::test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms; 10.000 pólizas, 200 búsquedas: p50 16,2 ms y p95 22,7 ms el 2026-10-27 |
+| Status | PASS |
 
 ### TC-09 · Accesibilidad de la consulta
 

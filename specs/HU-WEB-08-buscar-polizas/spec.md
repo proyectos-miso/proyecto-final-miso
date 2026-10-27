@@ -49,6 +49,8 @@ Decisiones de Juan Camilo Peña (2026-10-27): los datos del titular se guardan a
 | backend/app/modules/policy/service.py | Guardar el titular al emitir y buscar con alcance |
 | backend/app/modules/policy/search.py | Consulta de búsqueda y enmascarado del documento |
 | backend/app/bff/experience/router.py | Endpoint de búsqueda y titular en la emisión |
+| backend/app/main.py | Columnas nuevas en bases existentes y siembra de usuarios después de los socios |
+| backend/tests/integration/policy_search_fixtures.py | Datos de prueba de la búsqueda |
 | backend/tests/integration/test_policy_search_api.py | Pruebas de la búsqueda y del alcance por socio |
 | backend/tests/integration/test_policy_search_performance.py | Prueba de tiempo de respuesta |
 | backend/tests/unit/test_policy_search.py | Pruebas del enmascarado y del filtro |
@@ -206,18 +208,17 @@ N/A: reutiliza la arquitectura hexagonal (ADR 0004) y la estructura por funciona
 
 ### Configuration and deployment
 
-- **Columnas nuevas** en tablas existentes: `users.partner_id`, y `holder_name`, `holder_document_type`, `holder_email` y `holder_phone` en `policies`. El proyecto no tiene migraciones: una base nueva las crea al arrancar, pero en una base existente hay que recrearla o ejecutar:
-  - `ALTER TABLE users ADD COLUMN partner_id VARCHAR(64) REFERENCES partners(partner_id);`
-  - `ALTER TABLE policies ADD COLUMN holder_name VARCHAR(150), ADD COLUMN holder_document_type VARCHAR(8), ADD COLUMN holder_email VARCHAR(254), ADD COLUMN holder_phone VARCHAR(20);`
-- **Índice** en `policies.insured_document`, creado con la tabla.
+- **Columnas nuevas** en tablas existentes: `users.partner_id`, y `holder_name`, `holder_document_type`, `holder_email` y `holder_phone` en `policies`. El proyecto no tiene migraciones; el arranque las agrega con `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, el mismo patrón que dejó HU-WEB-10 para `quotes.partner_id`, así que las bases existentes no hay que recrearlas.
+- **Índice** `ix_policies_insured_document`, creado con la tabla o con `CREATE INDEX IF NOT EXISTS` al arrancar.
+- **Siembra:** en desarrollo, los usuarios se siembran después de los socios, para que el analista de Banco Aliado encuentre a su socio.
 - **Variables:** ninguna nueva.
 
 ## 3. Tasks
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Datos del titular en la póliza y en la emisión del portal | AC-05, AC-12 | — | TODO | — |
-| T-02 | Rol analyst, usuario ligado a socio y usuarios de prueba | AC-04, AC-09, AC-10, AC-11, SR-06 | CTL-01, CTL-02, CTL-05 | TODO | — |
-| T-03 | Endpoint de búsqueda con filtros, índice, alcance y enmascarado (#169) | AC-01, AC-02, AC-04, AC-06, AC-07, AC-08, SR-01, SR-02, SR-03, SR-04, SR-05 | CTL-01, CTL-02, CTL-03, CTL-04 | TODO | — |
-| T-04 | Pantalla de consulta, guardia por rol y redirección al entrar (#170) | AC-01, AC-03, AC-11, QR-02 | CTL-02 | TODO | — |
-| T-05 | Pruebas unitarias, de integración y de tiempo de respuesta (#171) | AC-01, AC-02, AC-03, AC-04, AC-09, AC-10, QR-01 | CTL-01, CTL-02, CTL-03, CTL-04 | TODO | — |
+| T-01 | Datos del titular en la póliza y en la emisión del portal | AC-05, AC-12 | — | DONE | backend/tests/integration/test_policy_search_api.py::test_tc_02_al_emitir_desde_el_portal_se_guarda_el_titular; web/src/app/features/cotizador/cotizador.component.spec.ts |
+| T-02 | Rol analyst, usuario ligado a socio y usuarios de prueba | AC-04, AC-09, AC-10, AC-11, SR-06 | CTL-01, CTL-02, CTL-05 | DONE | backend/tests/integration/test_policy_search_api.py::test_tc_07_los_analistas_de_prueba_quedan_con_su_rol_y_su_socio; backend/app/main.py |
+| T-03 | Endpoint de búsqueda con filtros, índice, alcance y enmascarado (#169) | AC-01, AC-02, AC-04, AC-06, AC-07, AC-08, SR-01, SR-02, SR-03, SR-04, SR-05 | CTL-01, CTL-02, CTL-03, CTL-04 | DONE | backend/app/modules/policy/search.py; backend/app/bff/experience/router.py |
+| T-04 | Pantalla de consulta, guardia por rol y redirección al entrar (#170) | AC-01, AC-03, AC-11, QR-02 | CTL-02 | DONE | web/src/app/features/gestion/gestion.component.ts; web/src/app/core/guards/role.guard.ts |
+| T-05 | Pruebas unitarias, de integración y de tiempo de respuesta (#171) | AC-01, AC-02, AC-03, AC-04, AC-09, AC-10, QR-01 | CTL-01, CTL-02, CTL-03, CTL-04 | DONE | backend/tests/integration/test_policy_search_api.py; backend/tests/integration/test_policy_search_performance.py; backend/tests/unit/test_policy_search.py; web/src/app/features/gestion/gestion.component.spec.ts; web/src/app/core/guards/role.guard.spec.ts |

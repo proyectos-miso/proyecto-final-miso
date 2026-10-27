@@ -76,11 +76,11 @@ N/A: la historia no usa servicios externos.
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
-| CTL-01 | El socio del usuario se lee en la base en cada búsqueda y filtra la consulta; un socio revocado no consulta | API, DATA | MISSING | THR-01 | TC-03 | T-02, T-03 | API1:2023, CWE-639 | — |
-| CTL-02 | Rol analyst en el endpoint y guardia por rol en el portal | API, WEB | MISSING | THR-02 | TC-04 | T-02, T-04 | API5:2023, CWE-285 | — |
-| CTL-03 | Documento enmascarado, sin correo ni teléfono, tope de 50 resultados | API | MISSING | THR-03 | TC-05 | T-03 | API3:2023, CWE-359 | — |
-| CTL-04 | Consulta parametrizada, comodines escapados y texto de 80 caracteres como máximo | BACKEND | MISSING | THR-04 | TC-05 | T-03 | CWE-89, API8:2023 | — |
-| CTL-05 | Usuarios de prueba sembrados solo con ENVIRONMENT distinto de production, con la credencial del asesor semilla | BACKEND | MISSING | THR-05 | TC-07 | T-02 | CWE-798 | — |
+| CTL-01 | El socio del usuario se lee en la base en cada búsqueda y filtra la consulta; un socio revocado no consulta | API, DATA | EXISTING | THR-01 | TC-03 | T-02, T-03 | API1:2023, CWE-639 | — |
+| CTL-02 | Rol analyst en el endpoint y guardia por rol en el portal | API, WEB | EXISTING | THR-02 | TC-04 | T-02, T-04 | API5:2023, CWE-285 | — |
+| CTL-03 | Documento enmascarado, sin correo ni teléfono, tope de 50 resultados | API | EXISTING | THR-03 | TC-05 | T-03 | API3:2023, CWE-359 | — |
+| CTL-04 | Consulta parametrizada, comodines escapados y texto de 80 caracteres como máximo | BACKEND | EXISTING | THR-04 | TC-05 | T-03 | CWE-89, API8:2023 | — |
+| CTL-05 | Usuarios de prueba sembrados solo con ENVIRONMENT distinto de production, con la credencial del asesor semilla | BACKEND | EXISTING | THR-05 | TC-07 | T-02 | CWE-798 | — |
 
 ## 10. Cryptography
 
@@ -148,7 +148,7 @@ N/A: la historia no usa servicios externos.
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | Las bases existentes necesitan las columnas nuevas antes de desplegar, porque no hay migraciones | THR-01 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Bajo: el spec trae el SQL; en AWS la base se crea desde cero | OPEN |
+| RISK-01 | Las bases existentes necesitan las columnas nuevas antes de desplegar, porque no hay migraciones | THR-01 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Bajo: el arranque las agrega con ADD COLUMN IF NOT EXISTS | MITIGATED |
 | RISK-02 | La búsqueda por contenido del nombre recorre la tabla; con millones de pólizas haría falta un índice de trigramas | THR-03 | LOW | LOW | LOW | ACCEPT | Bajo: 10.000 pólizas responden muy por debajo de 150 ms | ACCEPTED |
 
 ## 16. Pending decisions

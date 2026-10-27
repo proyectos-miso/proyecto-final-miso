@@ -39,9 +39,9 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas de búsqueda, alcance por socio, roles y enmascarado | SR-01, SR-02, SR-03, SR-04, SR-05, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05 | backend/tests/integration/test_policy_search_api.py | PENDING |
-| EV-02 | Prueba de tiempo de respuesta | QR-01, TC-08 | backend/tests/integration/test_policy_search_performance.py | PENDING |
-| EV-03 | Pruebas del portal | CTL-02, TC-06 | web/src/app/features/gestion/ | PENDING |
+| EV-01 | Pruebas de búsqueda, alcance por socio, roles y enmascarado | SR-01, SR-02, SR-03, SR-04, SR-05, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05 | backend/tests/integration/test_policy_search_api.py | AVAILABLE |
+| EV-02 | Prueba de tiempo de respuesta | QR-01, TC-08 | backend/tests/integration/test_policy_search_performance.py | AVAILABLE |
+| EV-03 | Pruebas del portal | CTL-02, TC-06 | web/src/app/features/gestion/ | AVAILABLE |
 
 ## Closeout
 
