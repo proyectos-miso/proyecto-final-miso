@@ -165,12 +165,12 @@
 | Risk covered | — |
 | Level | PERFORMANCE |
 | Preconditions | PostgreSQL local con 10.000 pólizas de dos socios y del portal |
-| Procedure | 1. Ejecutar 200 búsquedas mezcladas (documento, número, socio y titular) contra el endpoint. 2. Calcular el p95 |
-| Expected result | p95 por debajo de 150 ms |
+| Procedure | 1. Ejecutar 200 búsquedas mezcladas (documento, número, socio y titular) contra el endpoint. 2. Calcular el p95. 3. Revisar con EXPLAIN que la búsqueda por titular y por documento usa los índices de trigramas |
+| Expected result | p95 por debajo de 150 ms y el plan usa los índices |
 | Tool or method | pytest backend/tests/integration/test_policy_search_performance.py |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_policy_search_performance.py::test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms; 10.000 pólizas, 200 búsquedas: p50 16,2 ms y p95 22,7 ms el 2026-10-27 |
+| Evidence | backend/tests/integration/test_policy_search_performance.py::test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms; backend/tests/integration/test_policy_search_performance.py::test_tc_08_la_busqueda_por_titular_y_por_documento_usa_los_indices_de_trigramas; 10.000 pólizas, 200 búsquedas con los índices de trigramas: p50 24,3 ms y p95 31,2 ms el 2026-10-27 |
 | Status | PASS |
 
 ### TC-09 · Accesibilidad de la consulta

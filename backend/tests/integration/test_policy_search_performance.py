@@ -5,6 +5,9 @@ import time
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
+
+from app.modules.policy.search import create_search_indexes
 
 from tests.integration.policy_search_fixtures import ALIADO, OTRO, add_policies, headers, policy_row, seed_partners_and_users
 
@@ -31,6 +34,9 @@ async def test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms(async_clie
     ]
     for start in range(0, POLICIES, 2_000):
         await add_policies(postgres_session, rows[start:start + 2_000])
+    await create_search_indexes(await postgres_session.connection())
+    await postgres_session.execute(text("ANALYZE policies"))
+    await postgres_session.commit()
 
     rng = random.Random(7)
     queries = [
@@ -56,3 +62,26 @@ async def test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms(async_clie
     p95 = statistics.quantiles(timings, n=100)[94]
     print(f"\nBúsqueda con {POLICIES} pólizas: p50 {statistics.median(timings):.1f} ms, p95 {p95:.1f} ms")
     assert p95 < P95_LIMIT_MS
+
+
+async def test_tc_08_la_busqueda_por_titular_y_por_documento_usa_los_indices_de_trigramas(postgres_session):
+    await seed_partners_and_users(postgres_session)
+    rows = [
+        policy_row(f"POL-2026-{i:05d}", f"{1_000_000_000 + i}", holder=f"Titular {i:05d} Prueba", age_days=i % 365)
+        for i in range(POLICIES)
+    ]
+    for start in range(0, POLICIES, 2_000):
+        await add_policies(postgres_session, rows[start:start + 2_000])
+    await create_search_indexes(await postgres_session.connection())
+    await postgres_session.execute(text("ANALYZE policies"))
+    await postgres_session.commit()
+
+    for column, pattern, index in [
+        ("holder_name", "%titular 01234%", "ix_policies_holder_name_trgm"),
+        ("insured_document", "1000001234%", "ix_policies_insured_document_trgm"),
+    ]:
+        operator = "ILIKE" if column == "holder_name" else "LIKE"
+        plan = (await postgres_session.execute(
+            text(f"EXPLAIN SELECT * FROM policies WHERE {column} {operator} :pattern"), {"pattern": pattern}
+        )).scalars().all()
+        assert any(index in line for line in plan), plan

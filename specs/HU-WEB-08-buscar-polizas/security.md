@@ -149,7 +149,7 @@ N/A: la historia no usa servicios externos.
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-01 | Las bases existentes necesitan las columnas nuevas antes de desplegar, porque no hay migraciones | THR-01 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Bajo: el arranque las agrega con ADD COLUMN IF NOT EXISTS | MITIGATED |
-| RISK-02 | La búsqueda por contenido del nombre recorre la tabla; con millones de pólizas haría falta un índice de trigramas | THR-03 | LOW | LOW | LOW | ACCEPT | Bajo: 10.000 pólizas responden muy por debajo de 150 ms | ACCEPTED |
+| RISK-02 | La búsqueda por contenido del nombre recorre la tabla; con millones de pólizas haría falta un índice de trigramas | THR-03 | LOW | LOW | LOW | MITIGATE | Bajo: índices GIN de trigramas sobre número, documento y titular; la prueba verifica que el plan los usa | MITIGATED |
 
 ## 16. Pending decisions
 

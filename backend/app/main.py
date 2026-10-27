@@ -23,6 +23,7 @@ from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
+from app.modules.policy.search import create_search_indexes
 
 
 @asynccontextmanager
@@ -50,6 +51,11 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
             ))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
+        try:
+            async with engine.begin() as conn:
+                await create_search_indexes(conn)
+        except Exception as exc:
+            print(f"Aviso: sin índices de trigramas para la búsqueda de pólizas: {exc}")
         async with AsyncSessionLocal() as session:
             await profile_service.seed_default_catalogs(session)
             await rating_service.seed_default_partners(session)

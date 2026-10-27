@@ -1,13 +1,27 @@
 """Búsqueda de pólizas para operaciones, con alcance por socio y documento enmascarado (HU-WEB-08)."""
 from typing import Optional
 
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import or_, select, text as sql
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.modules.policy.models import PolicyDB, PolicySearchItem, PolicySearchResponse
 from app.modules.rating.models import PartnerDB
 
 SEARCH_LIMIT = 50
+
+# Índices de trigramas para LIKE e ILIKE sobre número, documento y titular, y el orden por fecha de emisión.
+SEARCH_INDEXES = (
+    "CREATE EXTENSION IF NOT EXISTS pg_trgm",
+    "CREATE INDEX IF NOT EXISTS ix_policies_policy_number_trgm ON policies USING gin (policy_number gin_trgm_ops)",
+    "CREATE INDEX IF NOT EXISTS ix_policies_insured_document_trgm ON policies USING gin (insured_document gin_trgm_ops)",
+    "CREATE INDEX IF NOT EXISTS ix_policies_holder_name_trgm ON policies USING gin (holder_name gin_trgm_ops)",
+    "CREATE INDEX IF NOT EXISTS ix_policies_issued_at ON policies (issued_at DESC, policy_number DESC)",
+)
+
+
+async def create_search_indexes(conn: AsyncConnection) -> None:
+    for statement in SEARCH_INDEXES:
+        await conn.execute(sql(statement))
 
 
 def escape_like(text: str) -> str:
@@ -40,7 +54,9 @@ async def search_policies(
             or_(
                 PolicyDB.policy_number.ilike(f"{like}%", escape="\\"),
                 PolicyDB.insured_document.like(f"{like}%", escape="\\"),
-                PartnerDB.name.ilike(f"%{like}%", escape="\\"),
+                PolicyDB.partner_id.in_(
+                    select(PartnerDB.partner_id).where(PartnerDB.name.ilike(f"%{like}%", escape="\\"))
+                ),
                 PolicyDB.holder_name.ilike(f"%{like}%", escape="\\"),
             )
         )

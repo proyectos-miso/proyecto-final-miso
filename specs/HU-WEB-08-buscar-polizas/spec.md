@@ -210,7 +210,7 @@ N/A: reutiliza la arquitectura hexagonal (ADR 0004) y la estructura por funciona
 ### Configuration and deployment
 
 - **Columnas nuevas** en tablas existentes: `policies.partner_id` (HU-WEB-14 la agregó al modelo, pero no al arranque, y las bases creadas antes fallaban al leer o emitir pólizas), `users.partner_id`, y `holder_name`, `holder_document_type`, `holder_email` y `holder_phone` en `policies`. El proyecto no tiene migraciones; el arranque las agrega con `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, el mismo patrón que dejó HU-WEB-10 para `quotes.partner_id`, así que las bases existentes no hay que recrearlas.
-- **Índice** `ix_policies_insured_document`, creado con la tabla o con `CREATE INDEX IF NOT EXISTS` al arrancar.
+- **Índices:** `ix_policies_insured_document`, creado con la tabla o con `CREATE INDEX IF NOT EXISTS` al arrancar. Además, `search.create_search_indexes` crea al arrancar la extensión `pg_trgm` y los índices GIN de trigramas sobre número, documento y titular, que sirven para `LIKE` e `ILIKE` con o sin prefijo, más `ix_policies_issued_at` para el orden. El nombre del socio se busca con una subconsulta sobre `partners`, para que PostgreSQL combine los índices. Si la extensión no se puede crear, el arranque deja un aviso y la búsqueda sigue funcionando sin esos índices.
 - **Siembra:** en desarrollo, los usuarios se siembran después de los socios, para que el analista de Banco Aliado encuentre a su socio.
 - **Variables:** ninguna nueva.
 
