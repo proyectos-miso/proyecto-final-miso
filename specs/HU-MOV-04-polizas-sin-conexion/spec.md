@@ -6,7 +6,7 @@
 | Title | Polizas sin conexion |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/70 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-22 |
 | Security profile | HIGH |
 
