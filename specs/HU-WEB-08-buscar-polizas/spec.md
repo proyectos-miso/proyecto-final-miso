@@ -60,6 +60,7 @@ Decisiones de Juan Camilo Peña (2026-10-27): los datos del titular se guardan a
 | web/src/app/core/policies/policy.service.ts | Búsqueda y titular en la emisión |
 | web/src/app/core/models/policy.model.ts | Contratos de la búsqueda y del titular |
 | web/src/app/features/auth/login.component.ts | Al entrar, cada rol va a su pestaña |
+| web/src/app/features/auth/login.component.spec.ts | Prueba de la entrada del analista a Gestión |
 | web/src/app/features/gestion/** | Pantalla de consulta de pólizas |
 | web/src/app/features/cotizador/cotizador.component.ts | Envía el titular al emitir |
 | web/src/app/app.component.html | Nombre del rol en el encabezado |
