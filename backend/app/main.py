@@ -34,7 +34,12 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_partner_id ON quotes (partner_id)"))
-            # HU-WEB-08: usuarios ligados a un socio y titular de la póliza en bases ya creadas.
+            # HU-WEB-08: socio de la póliza (faltaba desde HU-WEB-14), usuarios ligados a un socio y titular
+            # de la póliza en bases ya creadas.
+            await conn.execute(text(
+                "ALTER TABLE policies ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
+            ))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_partner_id ON policies (partner_id)"))
             await conn.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
             ))

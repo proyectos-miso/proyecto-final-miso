@@ -52,11 +52,23 @@ class AuthService:
         partner_id: Optional[str] = None,
     ) -> UserDB:
         """Registra un nuevo usuario con contraseña hasheada y secreto TOTP."""
-        clean_username = username.strip().lower()
-        hashed_pwd = get_password_hash(password)
+        return await self._add_user(
+            session, username, get_password_hash(password), full_name, role, totp_secret, partner_id
+        )
+
+    async def _add_user(
+        self,
+        session: AsyncSession,
+        username: str,
+        hashed_password: str,
+        full_name: str,
+        role: str,
+        totp_secret: str,
+        partner_id: Optional[str],
+    ) -> UserDB:
         user = UserDB(
-            username=clean_username,
-            hashed_password=hashed_pwd,
+            username=username.strip().lower(),
+            hashed_password=hashed_password,
             totp_secret=totp_secret.strip().upper(),
             role=role,
             partner_id=partner_id,
@@ -73,21 +85,20 @@ class AuthService:
     async def seed_default_users(self, session: AsyncSession) -> UserDB:
         """Crea el asesor y los analistas de operaciones semilla si aún no existen (HU-WEB-13, HU-WEB-08).
         Los analistas usan la misma credencial del asesor; solo se siembran fuera de producción."""
-        await self._seed_operations_users(session)
-        existing = await self.get_user_by_username(session, DEFAULT_SEED_USERNAME)
-        if existing:
-            return existing
+        advisor = await self.get_user_by_username(session, DEFAULT_SEED_USERNAME)
+        if advisor is None:
+            advisor = await self.create_user(
+                session=session,
+                username=DEFAULT_SEED_USERNAME,
+                password=DEFAULT_SEED_PASSWORD,
+                full_name=DEFAULT_SEED_NAME,
+                role="advisor",
+                totp_secret=DEFAULT_SEED_TOTP_SECRET,
+            )
+        await self._seed_operations_users(session, advisor.hashed_password)
+        return advisor
 
-        return await self.create_user(
-            session=session,
-            username=DEFAULT_SEED_USERNAME,
-            password=DEFAULT_SEED_PASSWORD,
-            full_name=DEFAULT_SEED_NAME,
-            role="advisor",
-            totp_secret=DEFAULT_SEED_TOTP_SECRET,
-        )
-
-    async def _seed_operations_users(self, session: AsyncSession) -> None:
+    async def _seed_operations_users(self, session: AsyncSession, hashed_password: str) -> None:
         for username, full_name, partner_id in SEED_OPERATIONS_USERS:
             if await self.get_user_by_username(session, username):
                 continue
@@ -95,13 +106,8 @@ class AuthService:
                 found = await session.execute(select(PartnerDB).where(PartnerDB.partner_id == partner_id))
                 if found.scalars().first() is None:
                     continue
-            await self.create_user(
-                session=session,
-                username=username,
-                password=DEFAULT_SEED_PASSWORD,
-                full_name=full_name,
-                role="analyst",
-                partner_id=partner_id,
+            await self._add_user(
+                session, username, hashed_password, full_name, "analyst", DEFAULT_SEED_TOTP_SECRET, partner_id
             )
 
     async def authenticate_user(

@@ -12,7 +12,7 @@ SEARCH_LIMIT = 50
 
 def escape_like(text: str) -> str:
     """El texto del analista se busca literal: sin comodines propios de LIKE."""
-    return text.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_")
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def mask_document(document: str) -> str:
