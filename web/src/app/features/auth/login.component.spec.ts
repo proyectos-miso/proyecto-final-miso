@@ -165,4 +165,16 @@ describe('LoginComponent (HU-WEB-13)', () => {
     expect(authServiceSpy.login).not.toHaveBeenCalled();
     expect(component.errorMessage()).toBe('');
   });
+
+  it('HU-WEB-08: el analista de operaciones entra a Gestión', () => {
+    authServiceSpy.login.mockReturnValue(of({ ...mockSession, role: 'analyst' }));
+    component.username = 'operaciones@solventa.example';
+    component.password = 'Prueba2026*';
+    component.totpCode = '123456';
+
+    component.onSubmit();
+
+    expect(routerSpy.navigateByUrl).toHaveBeenCalledWith('/gestion');
+  });
 });
+
