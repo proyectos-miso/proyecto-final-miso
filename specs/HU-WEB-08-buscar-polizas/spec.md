@@ -209,7 +209,7 @@ N/A: reutiliza la arquitectura hexagonal (ADR 0004) y la estructura por funciona
 
 ### Configuration and deployment
 
-- **Columnas nuevas** en tablas existentes: `users.partner_id`, y `holder_name`, `holder_document_type`, `holder_email` y `holder_phone` en `policies`. El proyecto no tiene migraciones; el arranque las agrega con `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, el mismo patrón que dejó HU-WEB-10 para `quotes.partner_id`, así que las bases existentes no hay que recrearlas.
+- **Columnas nuevas** en tablas existentes: `policies.partner_id` (HU-WEB-14 la agregó al modelo, pero no al arranque, y las bases creadas antes fallaban al leer o emitir pólizas), `users.partner_id`, y `holder_name`, `holder_document_type`, `holder_email` y `holder_phone` en `policies`. El proyecto no tiene migraciones; el arranque las agrega con `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, el mismo patrón que dejó HU-WEB-10 para `quotes.partner_id`, así que las bases existentes no hay que recrearlas.
 - **Índice** `ix_policies_insured_document`, creado con la tabla o con `CREATE INDEX IF NOT EXISTS` al arrancar.
 - **Siembra:** en desarrollo, los usuarios se siembran después de los socios, para que el analista de Banco Aliado encuentre a su socio.
 - **Variables:** ninguna nueva.

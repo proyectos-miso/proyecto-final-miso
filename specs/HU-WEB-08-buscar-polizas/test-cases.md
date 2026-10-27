@@ -136,7 +136,7 @@
 | Tool or method | npm test (gestion.component.spec.ts, role.guard.spec.ts, login.component.spec.ts) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 avisa cuando hay más de 50 resultados"; web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 al abrir trae las pólizas más recientes y las muestra en la tabla"; web/src/app/core/guards/role.guard.spec.ts::"TC-06 devuelve al asesor al cotizador y al analista a gestión"; web/src/app/features/auth/login.component.spec.ts::"HU-WEB-08: el analista de operaciones entra a Gestión" |
+| Evidence | web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 avisa cuando hay más de 50 resultados"; web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 al abrir trae las pólizas más recientes y las muestra en la tabla"; web/src/app/core/guards/role.guard.spec.ts::"TC-06 devuelve al asesor al cotizador y al analista a gestión"; web/src/app/features/auth/login.component.spec.ts::"HU-WEB-08: el analista de operaciones entra a Gestión"; prueba de punta a punta local con Chrome el 2026-10-27 (analista de operaciones, analista de Banco Aliado y asesor contra el backend con PostgreSQL): 24 de 24 verificaciones |
 | Status | PASS |
 
 ### TC-07 · Usuarios de prueba solo en desarrollo
@@ -187,7 +187,7 @@
 | Tool or method | Narrador o NVDA, teclado |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
+| Evidence | PENDING: el teclado ya se verificó con Chrome el 2026-10-27 (Tab llega al buscador, Enter busca, "Limpiar filtro" devuelve el foco al campo, la tabla tiene 6 encabezados y el número de resultados está en role=status); falta la pasada con lector de pantalla |
 | Status | PENDING |
 
 ## Security test coverage
