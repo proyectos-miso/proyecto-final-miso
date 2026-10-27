@@ -1,19 +1,22 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, Injector, OnInit, afterNextRender, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
-import { PlanTier } from '../../core/models/quote.model';
 import { PolicySearchItem, PolicyStatus } from '../../core/models/policy.model';
 import { PolicyService } from '../../core/policies/policy.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
+import { PolicyDetailComponent } from './policy-detail.component';
+import { PLAN_LABELS, POLICY_STATUS_OPTIONS, policyStatusLabel } from './policy-labels';
 
-/** Consulta de pólizas de operaciones (HU-WEB-08): busca por documento, número, socio o titular. */
+/** Consulta de pólizas de operaciones: busca (HU-WEB-08) y abre el detalle con ?poliza= (HU-WEB-09). */
 @Component({
   selector: 'app-gestion',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, PolicyDetailComponent],
   template: `
-    <section class="gestion">
+    <section class="gestion" [class.with-detail]="selected()">
       <header>
         <h1>Consulta de pólizas</h1>
         <p class="subtitle">Busque por documento del cliente, número de póliza, socio de distribución o titular.</p>
@@ -56,52 +59,75 @@ import { extractErrorMessage } from '../../core/utils/http-error';
         </div>
       }
 
-      @if (noResults()) {
-        <div class="empty" data-testid="no-results">
-          <p>No encontramos pólizas que coincidan con «{{ searchedQuery() }}»{{ status() ? ' en estado ' + statusLabel(status()) : '' }}.</p>
-          <button type="button" class="btn-clear" (click)="clear()">Limpiar filtro</button>
-        </div>
-      }
+      <div class="layout">
+        <div class="results">
+          @if (noResults()) {
+            <div class="empty" data-testid="no-results">
+              <p>No encontramos pólizas que coincidan con «{{ searchedQuery() }}»{{ status() ? ' en estado ' + statusLabel(status()) : '' }}.</p>
+              <button type="button" class="btn-clear" (click)="clear()">Limpiar filtro</button>
+            </div>
+          }
 
-      @if (items().length > 0) {
-        <div class="table-wrap">
-          <table>
-            <caption class="sr-only">Pólizas encontradas</caption>
-            <thead>
-              <tr>
-                <th scope="col">Póliza</th>
-                <th scope="col">Titular</th>
-                <th scope="col">Plan</th>
-                <th scope="col">Estado</th>
-                <th scope="col">Vigencia</th>
-                <th scope="col">Socio</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (item of items(); track item.policy_number) {
-                <tr>
-                  <th scope="row">{{ item.policy_number }}</th>
-                  <td>
-                    {{ item.holder_name ?? 'Sin nombre registrado' }}
-                    <span class="doc">Documento {{ item.holder_document }}</span>
-                  </td>
-                  <td>{{ planLabels[item.plan] }}</td>
-                  <td><span class="chip" [attr.data-status]="item.status">{{ statusLabel(item.status) }}</span></td>
-                  <td>{{ item.valid_from | date: 'dd/MM/yyyy' }} – {{ item.valid_until | date: 'dd/MM/yyyy' }}</td>
-                  <td>{{ item.partner_name ?? 'Portal Solventa' }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
+          @if (items().length > 0) {
+            <div class="table-wrap">
+              <table>
+                <caption class="sr-only">Pólizas encontradas</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Póliza</th>
+                    <th scope="col">Titular</th>
+                    <th scope="col">Plan</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Vigencia</th>
+                    <th scope="col">Socio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of items(); track item.policy_number) {
+                    <tr [class.selected]="item.policy_number === selected()">
+                      <th scope="row">
+                        <button
+                          type="button"
+                          class="btn-policy"
+                          [id]="'policy-' + item.policy_number"
+                          [attr.aria-current]="item.policy_number === selected() ? 'true' : null"
+                          (click)="open(item.policy_number)"
+                        >
+                          <span class="sr-only">Ver detalle de la póliza </span>{{ item.policy_number }}
+                        </button>
+                      </th>
+                      <td>
+                        {{ item.holder_name ?? 'Sin nombre registrado' }}
+                        <span class="doc">Documento {{ item.holder_document }}</span>
+                      </td>
+                      <td>{{ planLabels[item.plan] }}</td>
+                      <td><span class="chip" [attr.data-status]="item.status">{{ statusLabel(item.status) }}</span></td>
+                      <td>{{ item.valid_from | date: 'dd/MM/yyyy' }} – {{ item.valid_until | date: 'dd/MM/yyyy' }}</td>
+                      <td>{{ item.partner_name ?? 'Portal Solventa' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            @if (hasMore()) {
+              <p class="more">Se muestran las 50 pólizas más recientes. Refine la búsqueda para ver otras.</p>
+            }
+          }
         </div>
-        @if (hasMore()) {
-          <p class="more">Se muestran las 50 pólizas más recientes. Refine la búsqueda para ver otras.</p>
+        @if (selected(); as number) {
+          <app-policy-detail class="aside" [policyNumber]="number" (closed)="closeDetail()" />
         }
-      }
+      </div>
     </section>
   `,
   styles: [`
     .gestion { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    .gestion.with-detail { max-width: 1440px; }
+    .with-detail .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 24px; align-items: start; }
+    @media (max-width: 1023px) { .with-detail .layout { grid-template-columns: minmax(0, 1fr); } }
+    .aside { display: block; }
+    .btn-policy { padding: 0; border: none; background: none; color: var(--marca-600); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+    tr.selected { background: var(--n-50); }
     h1 { font-size: var(--t-xl); margin: 0 0 4px; color: var(--texto); }
     .subtitle { color: var(--texto-sec); margin: 0 0 24px; }
     .search { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
@@ -131,6 +157,10 @@ import { extractErrorMessage } from '../../core/utils/http-error';
 })
 export class GestionComponent implements OnInit {
   private readonly policies = inject(PolicyService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
 
   readonly query = signal('');
   readonly status = signal<PolicyStatus | ''>('');
@@ -140,13 +170,11 @@ export class GestionComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly searched = signal(false);
   readonly searchedQuery = signal('');
+  readonly selected = signal<string | null>(null);
 
-  readonly statusOptions: { value: PolicyStatus; label: string }[] = [
-    { value: 'ACTIVE', label: 'Vigente' },
-    { value: 'ISSUED', label: 'Pendiente de pago' },
-    { value: 'CANCELLED', label: 'Cancelada' },
-  ];
-  readonly planLabels: Record<PlanTier, string> = { basic: 'Básico', standard: 'Estándar', premium: 'Premium' };
+  readonly statusOptions = POLICY_STATUS_OPTIONS;
+  readonly planLabels = PLAN_LABELS;
+  readonly statusLabel = policyStatusLabel;
 
   readonly noResults = computed(() => this.searched() && !this.loading() && !this.error() && this.items().length === 0);
   readonly statusText = computed(() => {
@@ -159,10 +187,26 @@ export class GestionComponent implements OnInit {
 
   ngOnInit(): void {
     this.search();
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => this.selected.set(params.get('poliza')));
   }
 
-  statusLabel(status: string): string {
-    return this.statusOptions.find((option) => option.value === status)?.label ?? status;
+  open(policyNumber: string): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { poliza: policyNumber }, queryParamsHandling: 'merge' });
+  }
+
+  closeDetail(): void {
+    const policyNumber = this.selected();
+    this.selected.set(null);
+    this.router.navigate([], { relativeTo: this.route, queryParams: { poliza: null }, queryParamsHandling: 'merge' });
+    afterNextRender(
+      () => {
+        const row = policyNumber ? document.getElementById(`policy-${policyNumber}`) : null;
+        (row ?? document.getElementById('policySearch'))?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   search(): void {

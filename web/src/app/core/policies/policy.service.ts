@@ -1,7 +1,13 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { PolicyIssueRequest, PolicyRecord, PolicySearchResponse, PolicyStatus } from '../models/policy.model';
+import {
+  PolicyDetail,
+  PolicyIssueRequest,
+  PolicyRecord,
+  PolicySearchResponse,
+  PolicyStatus,
+} from '../models/policy.model';
 import { API_BASE_URL } from '../quotes/quote.service';
 
 @Injectable({
@@ -20,5 +26,10 @@ export class PolicyService {
     let params = new HttpParams().set('q', query.trim());
     if (status) params = params.set('status', status);
     return this.http.get<PolicySearchResponse>(`${this.baseUrl}/experience/policies/search`, { params });
+  }
+
+  /** Detalle de operaciones (HU-WEB-09); una póliza fuera del alcance responde 404 como una inexistente. */
+  getPolicyDetail(policyNumber: string): Observable<PolicyDetail> {
+    return this.http.get<PolicyDetail>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}`);
   }
 }

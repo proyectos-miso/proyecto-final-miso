@@ -1,14 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting, TestRequest } from '@angular/common/http/testing';
+import { ActivatedRoute, Router, convertToParamMap, ParamMap } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 import { PolicySearchItem, PolicySearchResponse } from '../../core/models/policy.model';
 import { GestionComponent } from './gestion.component';
 
-// Consulta de pólizas de operaciones (HU-WEB-08: TC-06).
-describe('GestionComponent (HU-WEB-08)', () => {
+// Consulta de pólizas de operaciones (HU-WEB-08: TC-06) y apertura del detalle (HU-WEB-09: TC-08).
+describe('GestionComponent (HU-WEB-08, HU-WEB-09)', () => {
   let fixture: ComponentFixture<GestionComponent>;
   let component: GestionComponent;
   let http: HttpTestingController;
+  let queryParams: BehaviorSubject<ParamMap>;
+  let router: { navigate: ReturnType<typeof vi.fn> };
 
   const item: PolicySearchItem = {
     policy_number: 'POL-2026-00001',
@@ -37,9 +41,16 @@ describe('GestionComponent (HU-WEB-08)', () => {
   };
 
   beforeEach(async () => {
+    queryParams = new BehaviorSubject(convertToParamMap({}));
+    router = { navigate: vi.fn().mockResolvedValue(true) };
     await TestBed.configureTestingModule({
       imports: [GestionComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ActivatedRoute, useValue: { queryParamMap: queryParams } },
+        { provide: Router, useValue: router },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(GestionComponent);
     component = fixture.componentInstance;
@@ -116,5 +127,34 @@ describe('GestionComponent (HU-WEB-08)', () => {
     const alert = page().querySelector('[role="alert"]') as HTMLElement;
     expect(alert.textContent).toContain('El socio no está habilitado para consultar.');
     expect(page().querySelector('[data-testid="no-results"]')).toBeNull();
+  });
+
+  it('TC-08 el número de cada póliza es un botón que abre el detalle con ?poliza=', () => {
+    respond({ items: [item], has_more: false });
+
+    const button = page().querySelector('#policy-POL-2026-00001') as HTMLButtonElement;
+    expect(button.textContent).toContain('Ver detalle de la póliza');
+    button.click();
+    expect(router.navigate).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { poliza: 'POL-2026-00001' } }));
+  });
+
+  it('TC-08 con ?poliza= en la dirección abre el panel y al cerrarlo el foco vuelve al número', async () => {
+    respond({ items: [item, b2b], has_more: false });
+    queryParams.next(convertToParamMap({ poliza: 'POL-2026-00003' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const detail = http.expectOne((req) => req.url.endsWith('/experience/policies/POL-2026-00003'));
+    detail.flush({ detail: 'No encontramos la póliza.' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+    expect(page().querySelector('app-policy-detail')).not.toBeNull();
+    expect(page().querySelector('tr.selected')?.textContent).toContain('POL-2026-00003');
+
+    (page().querySelector('app-policy-detail .btn-close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(page().querySelector('app-policy-detail')).toBeNull();
+    expect(router.navigate).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { poliza: null } }));
+    expect(document.activeElement?.id).toBe('policy-POL-2026-00003');
   });
 });
