@@ -187,7 +187,7 @@
 | Tool or method | Narrador o NVDA, teclado |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING: el teclado ya se verificó con Chrome el 2026-10-27 (Tab llega al buscador, Enter busca, "Limpiar filtro" devuelve el foco al campo, la tabla tiene 6 encabezados y el número de resultados está en role=status); falta la pasada con lector de pantalla |
+| Evidence | PENDING: auditoría automática con Chrome el 2026-10-27. axe-core 4.12.1 (WCAG 2.2 AA) sin violaciones en la lista y en «sin resultados». Árbol de accesibilidad: landmark de búsqueda, campo «Buscar», filtro «Estado», conteo en role=status con aria-live=polite, tabla «Pólizas encontradas» con 6 encabezados de columna y uno de fila por póliza. Teclado: Enter busca y «Limpiar filtro» devuelve el foco al buscador. A 320 px el encabezado del portal se desbordaba y se corrigió (app.component.css). Falta la pasada con lector de pantalla |
 | Status | PENDING |
 
 ## Security test coverage
