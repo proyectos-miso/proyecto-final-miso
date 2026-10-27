@@ -15,11 +15,17 @@ from app.core.security import (
     verify_password,
     verify_totp,
 )
+from app.modules.rating.models import PartnerDB
 from app.modules.auth.models import LoginResponse, UserDB
 
 DEFAULT_SEED_USERNAME = "asesor@solventa.com"
 DEFAULT_SEED_PASSWORD = "SuperSecreta2026*"
 DEFAULT_SEED_NAME = "Carlos Asesor"
+# Analistas de operaciones de prueba (HU-WEB-08): uno ve todas las pólizas y el otro solo las de Banco Aliado.
+SEED_OPERATIONS_USERS = [
+    ("operaciones@solventa.example", "Analista de Operaciones", None),
+    ("analista@bancoaliado.example", "Analista Banco Aliado", "banco-aliado-1"),
+]
 DEFAULT_SEED_TOTP_SECRET = "JBSWY3DPEHPK3PXP"
 
 
@@ -43,6 +49,7 @@ class AuthService:
         full_name: str,
         role: str = "advisor",
         totp_secret: str = DEFAULT_SEED_TOTP_SECRET,
+        partner_id: Optional[str] = None,
     ) -> UserDB:
         """Registra un nuevo usuario con contraseña hasheada y secreto TOTP."""
         clean_username = username.strip().lower()
@@ -52,6 +59,7 @@ class AuthService:
             hashed_password=hashed_pwd,
             totp_secret=totp_secret.strip().upper(),
             role=role,
+            partner_id=partner_id,
             full_name=full_name.strip(),
             is_active=True,
             failed_attempts=0,
@@ -63,7 +71,9 @@ class AuthService:
         return user
 
     async def seed_default_users(self, session: AsyncSession) -> UserDB:
-        """Crea el asesor semilla por defecto si aún no existe en la base de datos."""
+        """Crea el asesor y los analistas de operaciones semilla si aún no existen (HU-WEB-13, HU-WEB-08).
+        Los analistas usan la misma credencial del asesor; solo se siembran fuera de producción."""
+        await self._seed_operations_users(session)
         existing = await self.get_user_by_username(session, DEFAULT_SEED_USERNAME)
         if existing:
             return existing
@@ -76,6 +86,23 @@ class AuthService:
             role="advisor",
             totp_secret=DEFAULT_SEED_TOTP_SECRET,
         )
+
+    async def _seed_operations_users(self, session: AsyncSession) -> None:
+        for username, full_name, partner_id in SEED_OPERATIONS_USERS:
+            if await self.get_user_by_username(session, username):
+                continue
+            if partner_id:
+                found = await session.execute(select(PartnerDB).where(PartnerDB.partner_id == partner_id))
+                if found.scalars().first() is None:
+                    continue
+            await self.create_user(
+                session=session,
+                username=username,
+                password=DEFAULT_SEED_PASSWORD,
+                full_name=full_name,
+                role="analyst",
+                partner_id=partner_id,
+            )
 
     async def authenticate_user(
         self,

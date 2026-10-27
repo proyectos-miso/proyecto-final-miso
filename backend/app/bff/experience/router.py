@@ -1,6 +1,6 @@
 """Router BFF para canales Web y Móvil (experience-edge) (HU-WEB-13)."""
-from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
@@ -18,7 +18,9 @@ from app.modules.profile.models import (
 from app.modules.profile.service import IneligibleAgeError, profile_service
 from app.modules.rating.models import QuoteRequest, QuoteResponse
 from app.modules.rating.service import rating_service
-from app.modules.policy.models import PolicyIssueRequest, PolicyRecord
+from app.modules.policy import search as policy_search
+from app.modules.policy.models import PolicyIssueRequest, PolicyRecord, PolicySearchResponse, PolicyStatus
+from app.modules.rating.models import PartnerDB, PartnerStatus
 from app.modules.policy.service import PolicyNotFoundError, QuoteExpiredError, QuoteNotFoundError, policy_service
 from app.modules.payments.models import PaymentChargeRequest, PaymentReceipt
 from app.modules.payments.gateway import GatewayUnavailableError
@@ -114,6 +116,24 @@ async def create_quote(
         return await rating_service.create_quote(db, request, simulated_bureau_delay=simulated_delay)
     except NotImplementedError as exc:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
+
+
+@router.get("/policies/search", response_model=PolicySearchResponse)
+async def search_policies(
+    q: str = Query("", max_length=80, description="Documento, número de póliza, socio o titular"),
+    policy_status: Optional[PolicyStatus] = Query(None, alias="status"),
+    claims: Dict[str, Any] = Depends(require_roles(["analyst"])),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Búsqueda de operaciones; el socio del usuario sale de la base en cada consulta, no del pedido (HU-WEB-08)."""
+    user = await auth_service.get_user_by_username(db, claims["sub"])
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida.")
+    if user.partner_id:
+        partner = await db.get(PartnerDB, user.partner_id)
+        if partner is None or partner.status != PartnerStatus.ACTIVE.value:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El socio no está habilitado para consultar.")
+    return await policy_search.search_policies(db, q, policy_status, user.partner_id)
 
 
 @router.post(
