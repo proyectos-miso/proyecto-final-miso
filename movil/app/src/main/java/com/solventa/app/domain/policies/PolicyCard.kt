@@ -46,7 +46,8 @@ sealed interface StoredCopy {
 
 /** Copia local por cuenta. Ninguna operación lanza por la llave ni por la base, salvo la cancelación. */
 interface PolicyStore {
-    suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant)
+    /** true solo si la copia quedó escrita (HU-MOV-07). */
+    suspend fun save(accountEmail: String, policies: List<PolicyCard>, syncedAt: Instant): Boolean
     suspend fun read(accountEmail: String): StoredCopy
     suspend fun delete(accountEmail: String)
 }

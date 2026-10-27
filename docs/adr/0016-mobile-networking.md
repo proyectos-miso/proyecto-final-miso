@@ -12,8 +12,13 @@
 Paths are under `movil/app/src/main/java/com/solventa/app/`.
 
 - `data/auth/HttpAuthApi.kt` implements `domain/auth/AuthApi` with `java.net.HttpURLConnection` and
-  `org.json`, both part of the platform. It makes eight calls under `auth/`: `otp`, `password/forgot`,
-  `login`, `biometric`, `logout`, `devices` (POST), `devices/{id}` (DELETE) and `password/reset`.
+  `org.json`, both part of the platform. It makes nine calls under `auth/`: `otp`, `password/forgot`,
+  `login`, `biometric`, `logout`, `refresh`, `devices` (POST), `devices/{id}` (DELETE) and
+  `password/reset`.
+- `refresh` (HU-MOV-07) connects before sending and uses `setFixedLengthStreamingMode`, so the connection
+  never resends a rotated refresh token by itself. It returns `RefreshResult`: `Renewed`, `Rejected` (401),
+  `Unavailable` (connection failure or 423) or `Unanswered` (any other outcome once the request may have
+  left).
 - Each call runs in `withContext(Dispatchers.IO)`, with 10 s connect and read timeouts, and closes the
   connection in `finally`. Device calls send `Authorization: Bearer <access token>`.
 - Status codes map to sealed results. Sign-in gives 200, 401, 422, 423 and 429 their own `LoginResult`;
@@ -25,9 +30,9 @@ Paths are under `movil/app/src/main/java/com/solventa/app/`.
 - Parsing uses `getString`: a missing field throws and maps to the failure result. Types and empty values
   are not checked.
 - `BuildConfig.API_BASE_URL` is set in `defaultConfig` of `movil/app/build.gradle.kts` from the Gradle
-  property `apiBaseUrl`, default `http://10.0.2.2:8000/api/v1/`. It is the same for every build type.
-  `res/xml/network_security_config.xml` lives in `src/main`, so every build allows cleartext to
-  `10.0.2.2` and `localhost`. There is no certificate pinning.
+  property `apiBaseUrl`, default `http://10.0.2.2:8000/api/v1/`. Since HU-MOV-07 `preReleaseBuild` fails
+  unless it starts with `https://`. The `src/main` network security config allows no cleartext; the
+  `src/debug` one allows it only to `10.0.2.2` and `localhost`. There is no certificate pinning.
 - `HttpAuthApiTest` runs against MockWebServer 4.12.0, a test-only OkHttp artifact. Production code has
   no Retrofit, OkHttp, Ktor or serialization library.
 
@@ -60,18 +65,19 @@ Option A.
 
 - Easier: no new dependency; behavior is explicit and tested call by call.
 - Harder: each endpoint needs handwritten request, parsing and mapping. There is no central place for auth
-  headers, token refresh or pinning. The app has no token refresh call today.
+  headers, token refresh or pinning. Only the policies sync renews the token (HU-MOV-07), without an
+  interceptor: one caller does not justify moving to option B.
 - Migration when next touched:
-  - Rule 5 is not met: the base URL and cleartext are the same for all build types. This is a known gap,
-    tracked for its own spec.
+  - Rule 5 is met since HU-MOV-07.
+  - `registerDevice` and `revokeDevice` still use the access token without renewing it, so after 15 minutes
+    they fail with no retry; they renew when they next change.
   - `logout`, `registerDevice` and `revokeDevice` move to sealed results when they next change.
   - The second feature with its own API writes the client-library ADR before adding the library.
 
 ## Security and privacy impact
 
-- A release built without `-PapiBaseUrl=https://…` calls `http://10.0.2.2`. On a real device that is a
-  normal private address, so passwords, one-time codes and device secrets would go in cleartext to
-  whatever host has it on the local network.
+- Until HU-MOV-07, a release built without `-PapiBaseUrl=https://…` called `http://10.0.2.2` in
+  cleartext. Now that build fails, and a release allows no cleartext.
 - No certificate pinning. `sdd/rules/mobile.md` asks for it when the risk justifies it; decide in the
   hardening spec or the client-library ADR.
 - Bodies carry passwords, codes, device secrets and tokens. The app logs no requests or responses today;

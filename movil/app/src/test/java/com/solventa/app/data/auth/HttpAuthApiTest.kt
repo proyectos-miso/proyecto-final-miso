@@ -3,6 +3,7 @@ package com.solventa.app.data.auth
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
+import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
 import kotlinx.coroutines.test.runTest
@@ -20,12 +21,13 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 
 // Contrato HTTP de la app con el BFF del asegurado contra un servidor local de prueba.
 @RunWith(RobolectricTestRunner::class)
 class HttpAuthApiTest {
 
-    private class Reply(val status: Int, val body: String = "", val retryAfter: String? = null)
+    private class Reply(val status: Int, val body: String = "", val retryAfter: String? = null, val policy: SocketPolicy? = null)
 
     private class Received(val method: String, val path: String, val body: String, val authorization: String?)
 
@@ -49,6 +51,7 @@ class HttpAuthApiTest {
                 val reply = replies[path] ?: Reply(500)
                 return MockResponse().setResponseCode(reply.status).setBody(reply.body).apply {
                     reply.retryAfter?.let { setHeader("Retry-After", it) }
+                    reply.policy?.let { socketPolicy = it }
                 }
             }
         }
@@ -183,9 +186,43 @@ class HttpAuthApiTest {
         }
     }
 
+    // HU-MOV-07 TC-04: la renovación distingue lo que no llegó al servidor de lo que pudo rotar el token.
+    @Test
+    fun `renovar traduce cada respuesta del servidor`() = runTest {
+        replies["auth/refresh"] = Reply(200, tokensJson())
+        assertEquals(SessionTokens("a", "r"), (api.refresh("refresh-1") as RefreshResult.Renewed).tokens)
+        assertEquals("refresh-1", JSONObject(received.last().body).getString("refresh_token"))
+
+        val cases = listOf(
+            Reply(200, """{"access_token":"a","full_name":"x"}""") to RefreshResult.Unanswered,
+            Reply(200, """{"access_token":"","refresh_token":"r"}""") to RefreshResult.Unanswered,
+            Reply(401, """{"detail":"x"}""") to RefreshResult.Rejected,
+            Reply(423, """{"detail":"x"}""", retryAfter = "60") to RefreshResult.Unavailable,
+            Reply(500) to RefreshResult.Unanswered,
+            Reply(502) to RefreshResult.Unanswered,
+        )
+        cases.forEach { (reply, expected) ->
+            replies["auth/refresh"] = reply
+            assertEquals(expected, api.refresh("refresh-1"))
+        }
+    }
+
+    @Test
+    fun `la renovacion va con longitud fija y no se reenvia si se corta la respuesta`() = runTest {
+        replies["auth/refresh"] = Reply(200, policy = SocketPolicy.DISCONNECT_AFTER_REQUEST)
+
+        assertEquals(RefreshResult.Unanswered, api.refresh("refresh-1"))
+        assertEquals(1, received.count { it.path == "auth/refresh" })
+        val recorded = server.takeRequest()
+        assertNull(recorded.getHeader("Transfer-Encoding"))
+        assertEquals(recorded.bodySize.toString(), recorded.getHeader("Content-Length"))
+    }
+
     @Test
     fun `sin servidor todo responde como error de red`() = runTest {
         server.shutdown()
+
+        assertEquals(RefreshResult.Unavailable, api.refresh("r"))
 
         assertEquals(OtpResult.Failed, api.requestOtp("a@b.co"))
         assertEquals(LoginResult.NetworkError, api.login("a@b.co", "x", "123456"))
