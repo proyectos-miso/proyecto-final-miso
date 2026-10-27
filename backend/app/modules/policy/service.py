@@ -40,6 +40,15 @@ def one_year_after(moment: datetime) -> datetime:
         return moment.replace(year=moment.year + 1, day=28)
 
 
+def included_coverages(conditions: dict) -> list:
+    return [c for c in conditions["coverages"] if c.get("included", True)]
+
+
+def insured_amount(included: list) -> float:
+    """La suma asegurada es el límite de la cobertura de muerte, que la tarifa iguala al monto cotizado."""
+    return next((c["limit"] for c in included if c.get("id") == "death"), max((c["limit"] for c in included), default=0.0))
+
+
 class PolicyService:
     """Emisión atómica e idempotente: una sola póliza por cotización (HU-WEB-05, HU-WEB-14, HA-11, HA-14)."""
 
@@ -203,15 +212,11 @@ class PolicyService:
 
     @staticmethod
     def card(policy: PolicyDB, holder_name: str) -> InsuredPolicyCard:
-        included = [c for c in policy.conditions["coverages"] if c.get("included", True)]
-        # La suma asegurada es el límite de la cobertura de muerte, que la tarifa iguala al monto cotizado.
-        insured_amount = next(
-            (c["limit"] for c in included if c.get("id") == "death"), max((c["limit"] for c in included), default=0.0)
-        )
+        included = included_coverages(policy.conditions)
         return InsuredPolicyCard(
             policy_number=policy.policy_number,
             plan=policy.conditions["tier"],
-            insured_amount=insured_amount,
+            insured_amount=insured_amount(included),
             holder_name=holder_name,
             coverages=[CardCoverage(name=c["name"], limit=c["limit"]) for c in included],
             valid_from=policy.issued_at,

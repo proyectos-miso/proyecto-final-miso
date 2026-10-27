@@ -47,8 +47,7 @@ Decisiones de Juan Camilo Peña (2026-10-27): los siniestros se leen de una tabl
 | backend/app/modules/policy/models.py | Modelos del detalle |
 | backend/app/modules/policy/detail.py | Consulta del detalle y enmascarado del contacto |
 | backend/app/modules/policy/service.py | Suma asegurada compartida con la tarjeta del asegurado |
-| backend/app/modules/policy/search.py | Alcance por socio compartido con el detalle |
-| backend/app/bff/experience/router.py | Endpoint de detalle |
+| backend/app/bff/experience/router.py | Endpoint de detalle y alcance por socio compartido con la búsqueda |
 | backend/app/main.py | Registro de la tabla de siniestros |
 | backend/tests/integration/policy_search_fixtures.py | Datos de prueba de pagos y siniestros |
 | backend/tests/integration/test_policy_detail_api.py | Pruebas del detalle, del alcance y del enmascarado |

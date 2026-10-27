@@ -4,6 +4,7 @@ from typing import List, Literal, Optional
 from datetime import datetime
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Sequence, String
 from app.core.database import Base
+from app.modules.claims.models import ClaimSummary
 from app.modules.rating.models import PlanTier, QuoteTierDetail
 
 # Consecutivo global del número POL-YYYY-XXXXX; los saltos por emisiones repetidas no importan.
@@ -63,6 +64,49 @@ class PolicySearchItem(BaseModel):
 class PolicySearchResponse(BaseModel):
     items: List[PolicySearchItem]
     has_more: bool
+
+
+class PolicyDetailHolder(BaseModel):
+    """Titular con documento, correo y teléfono enmascarados (HU-WEB-09)."""
+    name: Optional[str]
+    document_type: Optional[str]
+    document: str
+    email: Optional[str]
+    phone: Optional[str]
+
+
+class PolicyDetailCoverage(BaseModel):
+    name: str
+    limit: float
+    deductible: float
+
+
+class PolicyPayment(BaseModel):
+    """Resultado de un cobro; nunca el token, la cuenta ni la clave de idempotencia."""
+    paid_at: datetime
+    amount: float
+    currency: str
+    method: str
+    status: str
+    receipt_number: Optional[str]
+    decline_reason: Optional[str]
+
+
+class PolicyDetail(BaseModel):
+    """Detalle de operaciones: sin beneficiarios ni datos completos del titular (HU-WEB-09)."""
+    policy_number: str
+    status: PolicyStatus
+    plan: PlanTier
+    valid_from: datetime
+    valid_until: datetime
+    partner_name: Optional[str]
+    holder: PolicyDetailHolder
+    insured_amount: float
+    monthly_premium: float
+    annual_premium: float
+    coverages: List[PolicyDetailCoverage]
+    payments: List[PolicyPayment]
+    claims: List[ClaimSummary]
 
 
 class PolicyRecord(BaseModel):
