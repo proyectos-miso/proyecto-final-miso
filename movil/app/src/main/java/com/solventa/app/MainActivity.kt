@@ -43,7 +43,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore)
+                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope)
             }
         }
     }
@@ -52,7 +52,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                WalletViewModel(app.policiesApi, app.policyStore)
+                WalletViewModel(app.policySync, app.policyStore)
             }
         }
     }
@@ -132,12 +132,10 @@ fun SolventaMobileRoot(
         uiState.isAuthenticated -> {
             val walletState by walletViewModel.uiState.collectAsState()
             LaunchedEffect(uiState.currentAccountEmail, uiState.offline) {
-                uiState.currentAccountEmail?.let {
-                    walletViewModel.open(it, if (uiState.offline) null else viewModel.accessToken())
-                }
+                uiState.currentAccountEmail?.let(walletViewModel::open)
             }
-            LaunchedEffect(walletState.sessionExpired) {
-                if (walletState.sessionExpired) viewModel.onSessionExpired()
+            LaunchedEffect(walletState.sessionEnded) {
+                walletState.sessionEnded?.let(viewModel::onSessionEnded)
             }
             WalletScreen(
                 uiState = walletState,

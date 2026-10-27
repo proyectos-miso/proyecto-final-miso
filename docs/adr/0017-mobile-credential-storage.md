@@ -23,8 +23,10 @@ Paths are under `movil/app/src/main/java/com/solventa/app/`. Today:
   bound account. The user signs in again with password and code.
 - `SharedPreferencesSessionStore` writes to the private preferences `solventa_session` (`MODE_PRIVATE`)
   the ciphertext and IV in Base64, plus the device id, email and full name in plain text.
-- `SecureSessionRepository.activeSession` keeps the access and refresh tokens in memory only. Logout clears
-  them and revokes the refresh token on the server. There is no token refresh call.
+- `SecureSessionRepository` keeps the open session in memory only, as an immutable `OpenSession` snapshot
+  (account, tokens and, after an offline biometric sign-in, the device credential) changed only with
+  `compareAndSet`. Since HU-MOV-07 the policies sync renews the pair with the rotating refresh token. Logout
+  and the end of the activity clear the session and revoke the refresh token on the server.
 - `save` and `unlock` fill the plaintext byte arrays with zeros. `SessionTokens` and `DeviceCredential`
   mask their secrets in `toString()`.
 - The manifest sets `android:allowBackup="false"`. `androidx.biometric` is 1.2.0-alpha05, an alpha
@@ -61,7 +63,10 @@ Option A, as today, following `sdd/rules/mobile.md`.
 2. The key is unlocked only through `BiometricPrompt` with a `CryptoObject`.
 3. Only ciphertext and IV go to private preferences. Nothing sensitive goes in plain preferences, saved UI
    state, logs or the clipboard.
-4. Access and refresh tokens live only in memory and are cleared on logout.
+4. Access and refresh tokens live only in memory and are cleared on logout. After an offline biometric
+   sign-in, the decrypted device credential also lives only in memory, at most 15 minutes measured with
+   `elapsedRealtime`; it is dropped when tokens arrive, on logout, on unbind and on key invalidation
+   (HU-MOV-07).
 5. Plaintext byte arrays are zeroed after use. Models with secrets mask them in `toString()`.
 6. New code uses one key per purpose and per account.
 7. Keystore and biometric behavior is proven by instrumented tests on a device.
@@ -82,6 +87,10 @@ Option A, as today, following `sdd/rules/mobile.md`.
   without the key, which never leaves the Keystore.
 - Zeroing covers byte arrays only. The secret and the tokens are also Kotlin `String`s, which cannot be
   wiped.
+- Using the device credential up to 15 minutes after the fingerprint deviates from rule 1's "biometrics on
+  every use". HU-MOV-07 accepts that residual risk (RISK-01) until 2026-12-31.
+- With automatic renewal a session can last while it keeps renewing, because the backend has no absolute
+  session lifetime or refresh-token family revocation (HU-MOV-07 RISK-04).
 - Gap 1 puts passwords and codes in saved state. Gap 2 lets screenshots and the recents thumbnail capture
   them. Gap 4 shows a one-time code on screen in any build whose server sends `debug_code`.
 - Residual risk until the hardening spec closes is accepted by the team through `risk-acceptance`, not by

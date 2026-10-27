@@ -53,6 +53,7 @@ async def test_pedir_codigo_informa_limite_y_falla_del_sms(
 @pytest.mark.parametrize("path, method, body", [
     ("/api/v1/auth/login", "login", {"email": "a@b.co", "password": "x", "otp_code": "123456"}),
     ("/api/v1/auth/biometric", "biometric_login", {"device_id": "d", "device_secret": "s"}),
+    ("/api/v1/auth/refresh", "refresh", {"refresh_token": "x"}),
 ])
 async def test_ingreso_suspendido_responde_423_con_tiempo_restante(async_client: AsyncClient, monkeypatch, path, method, body):
     monkeypatch.setattr(insured_auth_service, method, raising(AccountLockedError(LOCKED_UNTIL, 900)))

@@ -7,6 +7,9 @@ interface AuthApi {
     /** true si el servidor revocó el refresh token. */
     suspend fun logout(refreshToken: String): Boolean
 
+    /** Renueva la sesión; el backend rota el refresh token en cada renovación (HU-MOV-07). */
+    suspend fun refresh(refreshToken: String): RefreshResult
+
     /** Vincula este teléfono para entrar con huella; null si el servidor no respondió. */
     suspend fun registerDevice(accessToken: String): DeviceCredential?
     suspend fun biometricLogin(credential: DeviceCredential): LoginResult
@@ -31,6 +34,19 @@ sealed interface LoginResult {
     data class Locked(val retryAfterSeconds: Int) : LoginResult
     data class TooManyRequests(val retryAfterSeconds: Int) : LoginResult
     data object NetworkError : LoginResult
+}
+
+sealed interface RefreshResult {
+    class Renewed(val tokens: SessionTokens) : RefreshResult
+
+    /** 401: el refresh token está revocado o vencido. */
+    data object Rejected : RefreshResult
+
+    /** La petición pudo llegar y no hubo respuesta válida: el backend pudo haber rotado el token. */
+    data object Unanswered : RefreshResult
+
+    /** No llegó al servidor, o el ingreso está suspendido (423): el token sigue igual. */
+    data object Unavailable : RefreshResult
 }
 
 sealed interface ResetResult {
