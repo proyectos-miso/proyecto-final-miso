@@ -140,7 +140,11 @@ async def test_tc_07_pagos_del_mas_reciente_al_mas_antiguo_sin_datos_del_medio(a
     payments = response.json()["payments"]
     assert [p["status"] for p in payments] == ["APPROVED", "DECLINED"]
     assert payments[0]["receipt_number"] == "REC-2026-00002"
-    assert payments[0]["amount"] == 100000.0 and payments[0]["currency"] == "COP" and payments[0]["method"] == "PSE"
-    assert payments[1]["decline_reason"] == "Fondos insuficientes" and payments[1]["receipt_number"] is None
+    assert payments[0]["amount"] == 100000.0
+    assert payments[0]["currency"] == "COP"
+    assert payments[0]["method"] == "PSE"
+    assert payments[1]["decline_reason"] == "Fondos insuficientes"
+    assert payments[1]["receipt_number"] is None
     assert set(payments[0]) == {"paid_at", "amount", "currency", "method", "status", "receipt_number", "decline_reason"}
-    assert "idempotency" not in json.dumps(payments) and "tok_" not in response.text
+    assert "idempotency" not in json.dumps(payments)
+    assert "tok_" not in response.text

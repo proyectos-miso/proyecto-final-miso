@@ -68,11 +68,11 @@ class PolicySearchResponse(BaseModel):
 
 class PolicyDetailHolder(BaseModel):
     """Titular con documento, correo y teléfono enmascarados (HU-WEB-09)."""
-    name: Optional[str]
-    document_type: Optional[str]
+    name: Optional[str] = None
+    document_type: Optional[str] = None
     document: str
-    email: Optional[str]
-    phone: Optional[str]
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class PolicyDetailCoverage(BaseModel):
@@ -88,8 +88,8 @@ class PolicyPayment(BaseModel):
     currency: str
     method: str
     status: str
-    receipt_number: Optional[str]
-    decline_reason: Optional[str]
+    receipt_number: Optional[str] = None
+    decline_reason: Optional[str] = None
 
 
 class PolicyDetail(BaseModel):
@@ -99,7 +99,7 @@ class PolicyDetail(BaseModel):
     plan: PlanTier
     valid_from: datetime
     valid_until: datetime
-    partner_name: Optional[str]
+    partner_name: Optional[str] = None
     holder: PolicyDetailHolder
     insured_amount: float
     monthly_premium: float
