@@ -127,10 +127,12 @@ async def test_tc_05_maximo_50_resultados_los_mas_recientes_y_sin_contacto(async
 
     body = (await search(async_client, q="3003003000")).json()
 
-    assert len(body["items"]) == 50 and body["has_more"] is True
+    assert len(body["items"]) == 50
+    assert body["has_more"] is True
     assert body["items"][0]["policy_number"] == "POL-2026-10000"
     assert all(set(item) == LIST_FIELDS for item in body["items"])
-    assert "3003003000" not in str(body) and "titular@example.com" not in str(body)
+    assert "3003003000" not in str(body)
+    assert "titular@example.com" not in str(body)
 
 
 @pytest.mark.parametrize("text", ["%", "_", "' or 1=1 --", "\\"])

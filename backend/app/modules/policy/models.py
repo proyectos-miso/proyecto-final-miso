@@ -52,13 +52,13 @@ PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED"]
 class PolicySearchItem(BaseModel):
     """Fila de la búsqueda de operaciones: documento enmascarado y sin datos de contacto (HU-WEB-08)."""
     policy_number: str
-    holder_name: Optional[str]
+    holder_name: Optional[str] = None
     holder_document: str
     plan: PlanTier
     status: str
     valid_from: datetime
     valid_until: datetime
-    partner_name: Optional[str]
+    partner_name: Optional[str] = None
 
 
 class PolicySearchResponse(BaseModel):
