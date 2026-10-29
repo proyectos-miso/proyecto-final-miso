@@ -15,6 +15,10 @@ export class AppComponent {
   private readonly authService = inject(AuthService);
   readonly currentSession = this.authService.currentSession;
 
+  roleLabel(role: string): string {
+    return role === 'analyst' ? 'Operaciones' : 'Asesor';
+  }
+
   logout(): void {
     this.authService.logout();
   }

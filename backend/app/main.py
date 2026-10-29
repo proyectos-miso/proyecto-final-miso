@@ -14,6 +14,7 @@ from app.bff.insured.router import router as insured_router
 from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.policy.models import PolicyDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.core.outbox import OutboxMessageDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
@@ -23,6 +24,7 @@ from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
+from app.modules.policy.search import create_search_indexes
 
 
 @asynccontextmanager
@@ -34,11 +36,33 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_partner_id ON quotes (partner_id)"))
+            # HU-WEB-08: socio de la póliza (faltaba desde HU-WEB-14), usuarios ligados a un socio y titular
+            # de la póliza en bases ya creadas.
+            await conn.execute(text(
+                "ALTER TABLE policies ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
+            ))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_partner_id ON policies (partner_id)"))
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE policies ADD COLUMN IF NOT EXISTS holder_name VARCHAR(150), "
+                "ADD COLUMN IF NOT EXISTS holder_document_type VARCHAR(8), "
+                "ADD COLUMN IF NOT EXISTS holder_email VARCHAR(254), "
+                "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
+            ))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
+        try:
+            async with engine.begin() as conn:
+                await create_search_indexes(conn)
+        except Exception as exc:
+            print(f"Aviso: sin índices de trigramas para la búsqueda de pólizas: {exc}")
         async with AsyncSessionLocal() as session:
-            if settings.debug_enabled:
-                await auth_service.seed_default_users(session)
             await profile_service.seed_default_catalogs(session)
             await rating_service.seed_default_partners(session)
+            # Después de los socios: el analista de prueba de Banco Aliado se liga a su socio.
+            if settings.debug_enabled:
+                await auth_service.seed_default_users(session)
             await insured_auth_service.seed_default_account(session)
     except Exception as exc:
         print(f"Aviso de inicialización de base de datos en arranque: {exc}")

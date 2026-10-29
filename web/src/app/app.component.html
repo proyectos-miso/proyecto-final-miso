@@ -6,7 +6,7 @@
     </div>
     <div class="header-nav">
       <ng-container *ngIf="currentSession() as session; else defaultBadge">
-        <span class="user-greeting">Asesor: <strong>{{ session.advisorName }}</strong></span>
+        <span class="user-greeting">{{ roleLabel(session.role) }}: <strong>{{ session.advisorName }}</strong></span>
         <button type="button" class="btn-logout" (click)="logout()">Cerrar sesión</button>
       </ng-container>
       <ng-template #defaultBadge>

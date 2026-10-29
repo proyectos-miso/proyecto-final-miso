@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
 from app.core.database import Base
 
 
@@ -15,6 +15,8 @@ class UserDB(Base):
     hashed_password = Column(String(255), nullable=False)
     totp_secret = Column(String(64), nullable=False)
     role = Column(String(50), nullable=False, default="advisor")
+    # Usuario de un socio: solo consulta las pólizas de ese socio (HU-WEB-08).
+    partner_id = Column(String(64), ForeignKey("partners.partner_id"), nullable=True)
     full_name = Column(String(150), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     failed_attempts = Column(Integer, default=0, nullable=False)

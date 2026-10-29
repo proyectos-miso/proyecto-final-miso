@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { homeFor } from '../../core/guards/role.guard';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -225,9 +226,9 @@ export class LoginComponent {
         totpCode: this.totpCode,
       })
       .subscribe({
-        next: () => {
+        next: (session) => {
           this.loading.set(false);
-          const returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/cotizador';
+          const returnUrl = this.route.snapshot.queryParams['returnUrl'] || homeFor(session?.role);
           this.router.navigateByUrl(returnUrl);
         },
         error: (err: HttpErrorResponse) => {

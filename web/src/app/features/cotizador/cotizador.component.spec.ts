@@ -315,7 +315,12 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
       fixture.detectChanges();
 
       const call = issue();
-      expect(call.request.body).toEqual({ quote_id: 'QUO-1', tier: 'premium' });
+      // HU-WEB-08: la emisión lleva el titular del paso 1 (TC-02).
+      expect(call.request.body).toEqual({
+        quote_id: 'QUO-1',
+        tier: 'premium',
+        holder: { name: 'Carlos Rodríguez', document_type: 'CC', email: 'carlos@correo.co', phone: '3001234567' },
+      });
       expect(button('Emitir póliza')!.disabled).toBe(true);
       call.flush(policy);
       fixture.detectChanges();
