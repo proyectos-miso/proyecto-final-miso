@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Security status | SECURITY_REVIEW_PENDING |
+| Security status | RISK_ACCEPTED |
 | Evaluated on | 2026-10-25 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-MOV-07-sincronizacion-automatica |
 
@@ -14,16 +14,16 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria implemented, each covered by a passing test case.
-- [ ] Security requirements mitigated by an applicable control and verified by a security test case.
-- [ ] No required control MISSING.
-- [ ] No secret in the code, logs, artifacts or this package.
-- [ ] New or updated dependencies evaluated.
-- [ ] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
-- [ ] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
-- [ ] Security review approved by a person other than the author.
-- [ ] Closeout: every acceptance criterion MET with evidence.
-- [ ] `python sdd/tools/sdd.py spec validate` reports no errors.
+- [x] Acceptance criteria implemented, each covered by a passing test case.
+- [x] Security requirements mitigated by an applicable control and verified by a security test case.
+- [x] No required control MISSING.
+- [x] No secret in the code, logs, artifacts or this package.
+- [x] New or updated dependencies evaluated.
+- [x] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
+- [x] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
+- [x] Security review approved by a person other than the author.
+- [x] Closeout: every acceptance criterion MET with evidence.
+- [x] `python sdd/tools/sdd.py spec validate` reports no errors.
 
 ## Security reviews
 
@@ -54,3 +54,24 @@
 
 | Criterion | Result | Evidence |
 |---|---|---|
+| AC-01 | MET | TC-01: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al sincronizar en segundo plano la billetera muestra las polizas sin el aviso"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al sincronizar en segundo plano una billetera que pedia conexion muestra las polizas"; TC-03: movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"un solo trabajo que espera la red y luego sincroniza" |
+| AC-02 | MET | TC-02: movil/app/src/test/java/com/solventa/app/data/policies/EncryptedPolicyStoreFlowTest.kt::"reemplaza sin duplicar, quita repetidas e informa si escribio" |
+| AC-03 | MET | TC-03: movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"el trabajo exige red y reintenta con espera exponencial"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"una falla o una excepcion se reintentan y lo demas termina"; TC-19: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al rotar o volver a la app sigue la copia mientras otra sincronizacion ocupa el turno" |
+| AC-04 | MET | TC-01: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al sincronizar en segundo plano la billetera muestra las polizas sin el aviso" |
+| AC-05 | MET | TC-04: movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"un 401 renueva una vez y repite con el token nuevo"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"la sesion solo cambia desde la instantanea vigente" |
+| AC-06 | MET | TC-05: movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la renovacion rechazada borra la copia y termina la sesion"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"un segundo 401 despues de renovar borra la copia"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la credencial rechazada desvincula la huella siempre"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"tras una renovacion sin respuesta el 401 siguiente conserva la copia" |
+| AC-07 | MET | TC-06: movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"el ingreso sin red guarda la credencial solo en memoria y la suelta a los 15 minutos"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"cerrar sesion o desactivar la huella sueltan la credencial"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"una llave invalidada o no disponible no usa la credencial"; TC-07: movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"la credencial vencida no se usa y con red pide el ingreso sin borrar" |
+| AC-08 | MET | TC-08: movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"sin sesion no llama al servidor ni escribe" |
+| AC-09 | MET | TC-09: movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"cerrar sesion durante la descarga del trabajo no deja copia"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"el borrado y la revocacion terminan aunque la pantalla se cierre"; movil/app/src/test/java/com/solventa/app/MainActivityTest.kt::"cerrar sesion con la descarga pendiente no deja copia de la cuenta" |
+| AC-10 | MET | TC-01: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"si la copia no se pudo guardar la billetera conserva la fecha anterior"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"si la copia no se guarda responde Failed y no publica" |
+| AC-11 | MET | TC-03: movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"un solo trabajo que espera la red y luego sincroniza"; TC-04: movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"dos sincronizaciones a la vez van en orden con una sola renovacion" |
+| AC-12 | MET | TC-02: movil/app/src/androidTest/java/com/solventa/app/data/policies/EncryptedPolicyStoreTest.kt::una_poliza_repetida_se_guarda_una_vez_y_save_informa_que_escribio |
+| AC-13 | MET | TC-19: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al volver a la app sin conexion sincroniza a lo sumo cada 30 s y con conexion no llama" |
+| AC-14 | MET | TC-17: backend/tests/unit/test_insured_logout.py::test_refresh_con_ingreso_suspendido_responde_bloqueo_sin_rotar; backend/tests/integration/test_insured_auth_errors.py::test_ingreso_suspendido_responde_423_con_tiempo_restante; TC-05: movil/app/src/test/java/com/solventa/app/data/auth/HttpAuthApiTest.kt::"renovar traduce cada respuesta del servidor"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"las fallas pasajeras se reintentan sin borrar ni cerrar" |
+| AC-15 | MET | TC-08: movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"al terminar la actividad termina y revoca solo su sesion"; movil/app/src/test/java/com/solventa/app/data/session/SecureSessionRepositoryTest.kt::"endSession termina solo su sesion y devuelve sus tokens vigentes" |
+| AC-16 | MET | TC-18: movil/app/src/test/java/com/solventa/app/data/NetworkSecurityConfigTest.kt::"la configuracion de release no permite HTTP sin TLS a ningun host"; assembleRelease sin URL `https` falla, 2026-10-25 |
+| AC-17 | MET | TC-19: movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"al rotar o volver a la app sigue la copia mientras otra sincronizacion ocupa el turno" |
+| QR-01 | MET | TC-12: prueba manual de David Gutiérrez en el Galaxy S22 Ultra con Android 16, 2026-10-25: 5 de 5 actualizaciones en primer plano dentro de 60 s, entre 2,3 s y 8,0 s |
+| QR-02 | MET | TC-03: movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"el trabajo exige red y reintenta con espera exponencial"; TC-14: en el teléfono, espera EXPONENTIAL de 10 000 ms, 2026-10-25 |
+| QR-03 | MET | TC-16: prueba manual de David Gutiérrez con TalkBack y la fuente en 2.0, 2026-10-25; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"TC-16 al sincronizar el carne, la poliza y la fecha conservan su nodo para TalkBack" |
+| Pruebas y calidad | MET | CI del #217 en verde (https://github.com/proyectos-miso/proyecto-final-miso/actions/runs/40251393388); SonarCloud 93,7 % de cobertura en el código nuevo, sin bugs ni vulnerabilidades; aprobado por jc-pena-p el 2026-10-27 |
