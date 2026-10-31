@@ -6,7 +6,7 @@
 | Title | Sincronizacion automatica |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/73 |
 | Owner | David Gutiérrez |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-25 |
 | Security profile | HIGH |
 
