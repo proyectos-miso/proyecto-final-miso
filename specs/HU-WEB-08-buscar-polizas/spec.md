@@ -6,7 +6,7 @@
 | Title | Buscar polizas |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/62 |
 | Owner | Juan Camilo Peña |
-| Status | IN_PROGRESS |
+| Status | IN_REVIEW |
 | Created | 2026-10-27 |
 | Security profile | HIGH |
 
