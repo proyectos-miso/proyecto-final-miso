@@ -71,6 +71,16 @@ class EncryptedPolicyStoreTest {
         assertEquals(StoredCopy.Missing, store.read(OTHER_EMAIL))
     }
 
+    // HU-MOV-07 TC-02: con SQLCipher y el Keystore reales, una póliza repetida se guarda una vez y save informa.
+    @Test
+    fun una_poliza_repetida_se_guarda_una_vez_y_save_informa_que_escribio() = runTest {
+        assertTrue(store.save(EMAIL, listOf(policy, renewed, policy), SYNCED_AT))
+
+        val copy = (store.read(EMAIL) as StoredCopy.Found).copy
+        assertEquals(setOf(policy, renewed), copy.policies.toSet())
+        assertEquals(2, copy.policies.size)
+    }
+
     // HU-MOV-06 TC-04: la hora se guarda por cuenta y se borra con la copia.
     @Test
     fun cada_cuenta_recupera_su_hora_de_sincronizacion_y_se_borra_con_la_copia() = runTest {

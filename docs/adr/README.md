@@ -21,6 +21,7 @@ team accepts or changes them.
 | [0005](0005-backend-bff-per-channel.md) | One BFF router per client channel as driving adapters |
 | [0006](0006-backend-persistence.md) | Persistence with async SQLAlchemy behind repository ports |
 | [0007](0007-backend-errors-and-responses.md) | Domain errors and HTTP error responses |
+| [0023](0023-backend-document-storage.md) | Documents in S3 behind presigned links |
 
 ## Web portal (Angular)
 
@@ -42,6 +43,7 @@ team accepts or changes them.
 | [0016](0016-mobile-networking.md) | HTTP with `HttpURLConnection` behind domain interfaces |
 | [0017](0017-mobile-credential-storage.md) | Credentials protected by the Keystore and biometrics; tokens only in memory |
 | [0021](0021-mobile-encrypted-local-database.md) | An encrypted local database per account with Room and SQLCipher |
+| [0022](0022-mobile-background-work.md) | Background work with WorkManager |
 
 ## Infrastructure (Terraform)
 

@@ -218,6 +218,7 @@ private fun AuthStatus.messageRes(): Int = when (this) {
     AuthStatus.ACCOUNT_LOCKED -> R.string.auth_status_account_locked
     AuthStatus.SERVER_UNREACHABLE -> R.string.auth_status_server_unreachable
     AuthStatus.SESSION_EXPIRED -> R.string.auth_status_session_expired
+    AuthStatus.RELOGIN -> R.string.auth_status_relogin
 }
 
 @Preview(showBackground = true)

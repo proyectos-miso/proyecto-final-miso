@@ -1,11 +1,12 @@
 """Router BFF para canales Web y Móvil (experience-edge) (HU-WEB-13)."""
-from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.core.idempotency import IdempotencyConflictError
 from app.core.security import require_roles
+from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
 from app.modules.auth.models import LoginRequest, LoginResponse, RefreshTokenRequest
 from app.modules.auth.service import auth_service
 from app.modules.profile.models import (
@@ -18,7 +19,16 @@ from app.modules.profile.models import (
 from app.modules.profile.service import IneligibleAgeError, profile_service
 from app.modules.rating.models import QuoteRequest, QuoteResponse
 from app.modules.rating.service import rating_service
-from app.modules.policy.models import PolicyIssueRequest, PolicyRecord
+from app.modules.policy import detail as policy_detail_query, document as policy_document, search as policy_search
+from app.modules.policy.models import (
+    CaratulaLink,
+    PolicyDetail,
+    PolicyIssueRequest,
+    PolicyRecord,
+    PolicySearchResponse,
+    PolicyStatus,
+)
+from app.modules.rating.models import PartnerDB, PartnerStatus
 from app.modules.policy.service import PolicyNotFoundError, QuoteExpiredError, QuoteNotFoundError, policy_service
 from app.modules.payments.models import PaymentChargeRequest, PaymentReceipt
 from app.modules.payments.gateway import GatewayUnavailableError
@@ -114,6 +124,72 @@ async def create_quote(
         return await rating_service.create_quote(db, request, simulated_bureau_delay=simulated_delay)
     except NotImplementedError as exc:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
+
+
+async def operations_scope(
+    claims: Dict[str, Any] = Depends(require_roles(["analyst"])),
+    db: AsyncSession = Depends(get_db_session),
+) -> Optional[str]:
+    """Socio del usuario de operaciones; sale de la base en cada consulta, no del pedido (HU-WEB-08, HU-WEB-09)."""
+    user = await auth_service.get_user_by_username(db, claims["sub"])
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida.")
+    if user.partner_id:
+        partner = await db.get(PartnerDB, user.partner_id)
+        if partner is None or partner.status != PartnerStatus.ACTIVE.value:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El socio no está habilitado para consultar.")
+    return user.partner_id
+
+
+@router.get("/policies/search", response_model=PolicySearchResponse)
+async def search_policies(
+    q: str = Query("", max_length=80, description="Documento, número de póliza, socio o titular"),
+    policy_status: Optional[PolicyStatus] = Query(None, alias="status"),
+    partner_id: Optional[str] = Depends(operations_scope),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Búsqueda de operaciones con el alcance del socio del usuario (HU-WEB-08)."""
+    return await policy_search.search_policies(db, q, policy_status, partner_id)
+
+
+@router.get("/policies/{policy_number}", response_model=PolicyDetail)
+async def get_policy_detail(
+    policy_number: str = Path(..., pattern=r"^POL-\d{4}-\d{5}$"),
+    partner_id: Optional[str] = Depends(operations_scope),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Detalle de operaciones; una póliza de otro socio responde igual que una inexistente (HU-WEB-09)."""
+    detail = await policy_detail_query.get_policy_detail(db, policy_number, partner_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la póliza.")
+    return detail
+
+
+@router.get("/policies/{policy_number}/caratula", response_model=CaratulaLink)
+async def get_policy_caratula(
+    response: Response,
+    policy_number: str = Path(..., pattern=r"^POL-\d{4}-\d{5}$"),
+    partner_id: Optional[str] = Depends(operations_scope),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+):
+    """Enlace de 15 minutos a la carátula en PDF, con el alcance del detalle (HU-WEB-16)."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        link = await policy_document.get_caratula_link(db, storage, policy_number, partner_id)
+    except policy_document.PolicyCancelledError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="La póliza está cancelada y no tiene carátula vigente."
+        )
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La carátula está en generación. Intente de nuevo en unos segundos.",
+            headers={"Retry-After": "5"},
+        )
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la póliza.")
+    return link
 
 
 @router.post(

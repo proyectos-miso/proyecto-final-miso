@@ -99,6 +99,7 @@
     <string name="theme_to_light">Cambiar a tema claro</string>
     <string name="auth_device_protected">Credenciales protegidas en el almacén seguro del teléfono</string>
     <string name="auth_status_session_expired">Su sesión venció. Ingrese de nuevo para ver sus pólizas.</string>
+    <string name="auth_status_relogin">Ingrese de nuevo para actualizar sus pólizas.</string>
     <string name="auth_error_network_offline">No fue posible conectar con Solventa. Para ver sus pólizas sin conexión, active el ingreso con huella la próxima vez que tenga red.</string>
 
     <!-- HU-MOV-12: Cierre de sesión -->

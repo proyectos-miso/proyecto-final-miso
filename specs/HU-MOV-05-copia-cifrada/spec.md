@@ -6,7 +6,7 @@
 | Title | Copia cifrada |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/71 |
 | Owner | David Gutiérrez |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-25 |
 | Security profile | HIGH |
 

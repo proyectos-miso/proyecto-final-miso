@@ -11,7 +11,11 @@ import com.solventa.app.domain.auth.BiometricResult
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
+import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.policies.PolicyStore
+import com.solventa.app.domain.policies.PolicySync
+import com.solventa.app.domain.policies.SessionEndReason
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +41,9 @@ enum class AuthStatus {
     ACCOUNT_LOCKED,
     SERVER_UNREACHABLE,
     SESSION_EXPIRED,
+
+    /** La sesión terminó sin borrar la copia: hay que volver a ingresar para actualizarla (HU-MOV-07). */
+    RELOGIN,
 }
 
 enum class AlternativeLoginError {
@@ -109,11 +116,15 @@ fun normalizeEmail(email: String): String = email.trim().lowercase()
  * Acceso con huella por cuenta, acceso alterno con contraseña y código, recuperación de contraseña y
  * cierre de sesión (HU-MOV-01, HU-MOV-02, HU-MOV-03, HU-MOV-12). Sin red, la huella abre solo la copia de
  * las pólizas, y la copia se borra al cerrar sesión o cuando el servidor revoca la sesión (HU-MOV-04).
+ * Cerrar sesión detiene la sincronización; el borrado y la revocación corren en [appScope], para terminar
+ * aunque la pantalla se cierre (HU-MOV-07).
  */
 class AuthViewModel(
     private val sessionRepository: SecureSessionRepository,
     private val authApi: AuthApi,
     private val policyStore: PolicyStore,
+    private val policySync: PolicySync,
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(withAccounts(AuthUiState()))
@@ -121,6 +132,10 @@ class AuthViewModel(
 
     private var lockJob: Job? = null
     private var otpCooldownJob: Job? = null
+    private var credentialJob: Job? = null
+
+    // La sesión que abrió esta pantalla; al terminar la actividad solo se cierra esa (AC-15).
+    private var sessionId: Long? = null
 
     // Refleja las cuentas con huella guardadas y conserva la elegida si sigue existiendo.
     private fun withAccounts(state: AuthUiState): AuthUiState {
@@ -193,7 +208,7 @@ class AuthViewModel(
         }
         when (val result = authApi.biometricLogin(credential)) {
             is LoginResult.Success -> {
-                sessionRepository.startSession(result.tokens)
+                sessionId = sessionRepository.start(email, result.tokens).id
                 _uiState.update {
                     withAccounts(
                         it.copy(
@@ -211,12 +226,19 @@ class AuthViewModel(
                 startLockCountdown(result.retryAfterSeconds)
             }
             is LoginResult.TooManyRequests -> setStatus(AuthStatus.SERVER_UNREACHABLE)
-            LoginResult.NetworkError -> enterOffline(email)
+            LoginResult.NetworkError -> enterOffline(email, credential)
         }
     }
 
-    // La huella ya se verificó en el teléfono; sin servidor solo se abre la copia de la cuenta (AC-12).
-    private fun enterOffline(email: String) {
+    // La huella ya se verificó en el teléfono; sin servidor solo se abre la copia de la cuenta (HU-MOV-04). La
+    // credencial queda en memoria a lo sumo 15 minutos para entrar sola al volver la red (HU-MOV-07, AC-07).
+    private fun enterOffline(email: String, credential: DeviceCredential) {
+        sessionId = sessionRepository.startOffline(email, credential).id
+        credentialJob?.cancel()
+        credentialJob = viewModelScope.launch {
+            delay(CREDENTIAL_TTL_MS)
+            sessionRepository.dropCredential(email)
+        }
         val name = sessionRepository.boundAccounts().firstOrNull { it.email == email }?.name
         _uiState.update {
             withAccounts(
@@ -230,9 +252,6 @@ class AuthViewModel(
             )
         }
     }
-
-    /** Token para pedir las pólizas; null en el ingreso sin red. */
-    fun accessToken(): String? = sessionRepository.activeSession?.accessToken
 
     // El servidor ya no reconoce el teléfono para esa cuenta (huella desactivada o contraseña cambiada).
     private fun resetBiometrics(email: String) {
@@ -299,7 +318,7 @@ class AuthViewModel(
                 !sessionRepository.isBound(accountEmail) &&
                 authenticator.checkAvailability() == BiometricAvailability.AVAILABLE
             if (result is LoginResult.Success) {
-                sessionRepository.startSession(result.tokens)
+                sessionId = sessionRepository.start(accountEmail, result.tokens).id
                 otpCooldownJob?.cancel()
             }
 
@@ -412,30 +431,44 @@ class AuthViewModel(
         _uiState.update { it.copy(showLogoutConfirmation = false) }
     }
 
-    // Se borra la sesión del teléfono y se revoca en el servidor; las huellas vinculadas se conservan.
+    // Se borra la sesión del teléfono y se revoca en el servidor; las huellas vinculadas se conservan. La
+    // sincronización se cancela antes del borrado y el borrado no espera, para que la copia no sobreviva (AC-09).
     fun confirmLogout() {
         val refreshToken = sessionRepository.activeSession?.refreshToken
         val email = _uiState.value.currentAccountEmail
         val biometricReady = sessionRepository.hasStoredSession()
-        sessionRepository.endSession()
+        sessionRepository.end()
+        policySync.cancel()
         _uiState.value = withAccounts(
             AuthUiState(
                 status = if (biometricReady) AuthStatus.LOGGED_OUT_BIOMETRIC_READY else AuthStatus.LOGGED_OUT,
                 selectedAccountEmail = email,
             )
         )
-        viewModelScope.launch {
+        appScope.launch {
             email?.let { policyStore.delete(it) }
             refreshToken?.let { authApi.logout(it) }
         }
     }
 
-    // El servidor rechazó el token: la billetera ya borró la copia y se vuelve a pedir el ingreso.
-    fun onSessionExpired() {
+    // La sincronización terminó la sesión y ya borró la copia si correspondía; se vuelve a pedir el ingreso.
+    fun onSessionEnded(reason: SessionEndReason) {
         val email = _uiState.value.currentAccountEmail
-        sessionRepository.endSession()
-        _uiState.value = withAccounts(AuthUiState(status = AuthStatus.SESSION_EXPIRED, selectedAccountEmail = email))
-        email?.let { viewModelScope.launch { policyStore.delete(it) } }
+        sessionRepository.end()
+        policySync.cancel()
+        val status = when (reason) {
+            SessionEndReason.EXPIRED -> AuthStatus.SESSION_EXPIRED
+            SessionEndReason.DEVICE_REJECTED -> AuthStatus.SESSION_RESET
+            SessionEndReason.RELOGIN -> AuthStatus.RELOGIN
+        }
+        _uiState.value = withAccounts(AuthUiState(status = status, selectedAccountEmail = email))
+    }
+
+    // Si la actividad termina sin cerrar sesión, su sesión no sigue renovándose en segundo plano (AC-15).
+    override fun onCleared() {
+        val ended = sessionId?.let(sessionRepository::endSession) ?: return
+        policySync.cancel()
+        ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken) } }
     }
 
     fun openPasswordRecovery() {
@@ -555,5 +588,6 @@ class AuthViewModel(
 
     private companion object {
         const val OTP_COOLDOWN_SECONDS = 60
+        const val CREDENTIAL_TTL_MS = 15 * 60 * 1000L
     }
 }

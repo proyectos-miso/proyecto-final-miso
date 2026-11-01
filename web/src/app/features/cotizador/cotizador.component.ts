@@ -4,7 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
 import { ClientIdentification, ClientQuoteSubmission, RiskData } from '../../core/models/client.model';
 import { ConsentRecord } from '../../core/models/consent.model';
-import { PolicyRecord } from '../../core/models/policy.model';
+import { PolicyHolder, PolicyRecord } from '../../core/models/policy.model';
 import { PlanTier, QuoteRequest, QuoteResponse } from '../../core/models/quote.model';
 import { PolicyService } from '../../core/policies/policy.service';
 import { QuoteService } from '../../core/quotes/quote.service';
@@ -413,10 +413,22 @@ export class CotizadorComponent {
   });
   readonly issuing = signal(false);
 
+  // HU-WEB-08: el titular del paso 1 se guarda con la póliza.
+  private holder(): PolicyHolder | undefined {
+    const client = this.client();
+    if (!client) return undefined;
+    return {
+      name: `${client.first_name} ${client.last_name}`.trim(),
+      document_type: client.document_type,
+      email: client.email,
+      phone: client.phone,
+    };
+  }
+
   issuePolicy(): void {
     this.issuing.set(true);
     this.policies
-      .issuePolicy({ quote_id: this.quote()!.quote_id, tier: this.selectedTier() })
+      .issuePolicy({ quote_id: this.quote()!.quote_id, tier: this.selectedTier(), holder: this.holder() })
       .pipe(finalize(() => this.issuing.set(false)))
       .subscribe({
         next: (policy) => this.emission.set({ policy }),

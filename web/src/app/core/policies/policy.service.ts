@@ -1,7 +1,14 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { PolicyIssueRequest, PolicyRecord } from '../models/policy.model';
+import {
+  CaratulaLink,
+  PolicyDetail,
+  PolicyIssueRequest,
+  PolicyRecord,
+  PolicySearchResponse,
+  PolicyStatus,
+} from '../models/policy.model';
 import { API_BASE_URL } from '../quotes/quote.service';
 
 @Injectable({
@@ -13,5 +20,22 @@ export class PolicyService {
 
   issuePolicy(request: PolicyIssueRequest): Observable<PolicyRecord> {
     return this.http.post<PolicyRecord>(`${this.baseUrl}/experience/policies`, request);
+  }
+
+  /** Búsqueda de operaciones (HU-WEB-08); el alcance por socio lo decide el servidor. */
+  searchPolicies(query: string, status: PolicyStatus | '' = ''): Observable<PolicySearchResponse> {
+    let params = new HttpParams().set('q', query.trim());
+    if (status) params = params.set('status', status);
+    return this.http.get<PolicySearchResponse>(`${this.baseUrl}/experience/policies/search`, { params });
+  }
+
+  /** Detalle de operaciones (HU-WEB-09); una póliza fuera del alcance responde 404 como una inexistente. */
+  getPolicyDetail(policyNumber: string): Observable<PolicyDetail> {
+    return this.http.get<PolicyDetail>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}`);
+  }
+
+  /** Enlace de 15 minutos a la carátula (HU-WEB-16); el backend la genera la primera vez. */
+  getCaratulaLink(policyNumber: string): Observable<CaratulaLink> {
+    return this.http.get<CaratulaLink>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/caratula`);
   }
 }

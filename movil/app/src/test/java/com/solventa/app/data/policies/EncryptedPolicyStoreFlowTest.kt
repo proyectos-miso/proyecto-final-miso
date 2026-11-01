@@ -59,6 +59,27 @@ class EncryptedPolicyStoreFlowTest {
         assertEquals(StoredCopy.Missing, store.read(OTHER_EMAIL))
     }
 
+    // HU-MOV-07 TC-02: la copia se reemplaza sin duplicar, una póliza repetida se guarda una vez y save informa.
+    @Test
+    fun `reemplaza sin duplicar, quita repetidas e informa si escribio`() = runBlocking {
+        val third = samplePolicy(number = "POL-2026-00003", validUntil = "2027-06-01T00:00:00Z")
+
+        assertTrue(store.save(EMAIL, listOf(policy, renewed), SYNCED_AT))
+        assertTrue(store.save(EMAIL, listOf(renewed, third), LATER))
+        assertEquals(StoredCopy.Found(WalletCopy(listOf(renewed, third), LATER)), store.read(EMAIL))
+
+        assertTrue(store.save(EMAIL, listOf(third, third, renewed), LATER))
+        assertEquals(StoredCopy.Found(WalletCopy(listOf(renewed, third), LATER)), store.read(EMAIL))
+
+        keys.unavailable = true
+        assertFalse(store.save(EMAIL, listOf(policy), LATER))
+        keys.unavailable = false
+        failures += SQLiteException("disk I/O error")
+        assertFalse(store.save(EMAIL, listOf(policy), LATER))
+        keys.canWrap = false
+        assertFalse(store.save(OTHER_EMAIL, listOf(policy), LATER))
+    }
+
     @Test
     fun `borrar elimina la base y la frase de la cuenta sin tocar la otra`() = runBlocking {
         store.save(EMAIL, listOf(policy), SYNCED_AT)

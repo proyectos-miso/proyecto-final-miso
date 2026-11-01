@@ -108,6 +108,7 @@ class AuthScreensTest {
             AuthStatus.ACCOUNT_LOCKED to R.string.auth_status_account_locked,
             AuthStatus.SERVER_UNREACHABLE to R.string.auth_status_server_unreachable,
             AuthStatus.SESSION_EXPIRED to R.string.auth_status_session_expired,
+            AuthStatus.RELOGIN to R.string.auth_status_relogin,
         )
         assertEquals(AuthStatus.entries.size, messages.size)
 

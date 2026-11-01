@@ -51,3 +51,14 @@
 
 | Criterion | Result | Evidence |
 |---|---|---|
+| AC-01 | MET | backend/tests/integration/test_underwriting_api.py::test_tc_02_por_encima_del_cupo_requiere_revision_con_motivo_y_suma_maxima; web/src/app/features/cotizador/cotizador.component.spec.ts::"TC-06 muestra el motivo y la suma máxima en COP como alerta, sin planes ni códigos internos" |
+| AC-02 | MET | web/src/app/features/cotizador/cotizador.component.spec.ts::"TC-06 recotiza en un clic con la suma sugerida y luego muestra los planes sin aviso" |
+| AC-03 | MET | backend/tests/integration/test_underwriting_api.py::test_tc_02_dentro_del_cupo_trae_planes_sin_decision |
+| AC-04 | MET | backend/tests/integration/test_underwriting_api.py::test_tc_03_cada_rechazo_queda_registrado_sin_el_puntaje; backend/tests/integration/test_underwriting_api.py::test_tc_05_la_base_impide_cambiar_o_borrar_un_rechazo |
+| AC-05 | MET | backend/tests/unit/test_underwriting_rules.py::test_tc_01_el_cupo_se_aprueba_y_un_peso_mas_requiere_revision; backend/tests/unit/test_underwriting_rules.py::test_tc_01_a_los_70_anos_manda_el_cupo_por_edad_si_es_menor |
+| AC-06 | MET | backend/tests/unit/test_underwriting_rules.py::test_tc_01_el_puntaje_neutro_usa_el_cupo_de_su_franja |
+| AC-07 | MET | backend/tests/unit/test_underwriting_rules.py::test_tc_01_a_los_70_anos_manda_el_cupo_por_edad_si_es_menor |
+| AC-08 | MET | backend/tests/integration/test_underwriting_api.py::test_tc_04_el_identificador_de_un_rechazo_no_se_puede_emitir |
+| AC-09 | MET | backend/tests/unit/test_underwriting_rules.py::test_tc_01_el_cupo_se_aprueba_y_un_peso_mas_requiere_revision |
+| AC-10 | MET | web/src/app/features/cotizador/client-data-step/client-data-step.component.spec.ts::"TC-08 con datos incompletos el botón sigue habilitado y al enviar dice qué falta, marca los campos y enfoca el primero" |
+| QR-01 | MET | TC-07: prueba manual con lector de pantalla y teclado del 2026-10-25 (test-cases.md) |
