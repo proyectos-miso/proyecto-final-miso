@@ -29,6 +29,8 @@ class PolicyDB(Base):
     holder_document_type = Column(String(8), nullable=True)
     holder_email = Column(String(254), nullable=True)
     holder_phone = Column(String(20), nullable=True)
+    # Carátula guardada en S3 al primer pedido (HU-WEB-16).
+    pdf_s3_key = Column(String(64), nullable=True)
 
 
 class PolicyHolder(BaseModel):
@@ -107,6 +109,12 @@ class PolicyDetail(BaseModel):
     coverages: List[PolicyDetailCoverage]
     payments: List[PolicyPayment]
     claims: List[ClaimSummary]
+
+
+class CaratulaLink(BaseModel):
+    """Enlace prefirmado de la carátula; da acceso al PDF hasta que vence (HU-WEB-16)."""
+    url: str
+    expires_at: datetime
 
 
 class PolicyRecord(BaseModel):

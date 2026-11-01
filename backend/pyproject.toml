@@ -18,6 +18,8 @@ pyjwt = {extras = ["crypto"], version = ">=2.9.0"}
 passlib = {extras = ["bcrypt"], version = ">=1.7.4"}
 httpx = ">=0.27.2"
 python-multipart = ">=0.0.12"
+boto3 = ">=1.43.0"
+fpdf2 = ">=2.8.8"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.3.3"

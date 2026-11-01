@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  CaratulaLink,
   PolicyDetail,
   PolicyIssueRequest,
   PolicyRecord,
@@ -31,5 +32,10 @@ export class PolicyService {
   /** Detalle de operaciones (HU-WEB-09); una póliza fuera del alcance responde 404 como una inexistente. */
   getPolicyDetail(policyNumber: string): Observable<PolicyDetail> {
     return this.http.get<PolicyDetail>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}`);
+  }
+
+  /** Enlace de 15 minutos a la carátula (HU-WEB-16); el backend la genera la primera vez. */
+  getCaratulaLink(policyNumber: string): Observable<CaratulaLink> {
+    return this.http.get<CaratulaLink>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/caratula`);
   }
 }

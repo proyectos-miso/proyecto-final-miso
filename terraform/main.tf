@@ -58,6 +58,8 @@ module "ecs" {
   otp_secret_key        = var.otp_secret_key
   sqs_queue_url         = module.storage_events.sqs_queue_url
   s3_bucket_name        = module.storage_events.s3_bucket_name
+  s3_bucket_arn         = module.storage_events.s3_bucket_arn
+  storage_kms_key_arn   = module.storage_events.kms_key_arn
 }
 
 module "web_hosting" {

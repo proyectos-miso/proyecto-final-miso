@@ -21,6 +21,7 @@ team accepts or changes them.
 | [0005](0005-backend-bff-per-channel.md) | One BFF router per client channel as driving adapters |
 | [0006](0006-backend-persistence.md) | Persistence with async SQLAlchemy behind repository ports |
 | [0007](0007-backend-errors-and-responses.md) | Domain errors and HTTP error responses |
+| [0023](0023-backend-document-storage.md) | Documents in S3 behind presigned links |
 
 ## Web portal (Angular)
 

@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     SQS_QUEUE_EVENTS: str = "solventa-outbox-events-dev"
     S3_DOCUMENTS_BUCKET: Optional[str] = None
     SQS_EVENTS_URL: Optional[str] = None
+    # Solo con Floci detrás de docker compose: dirección del emulador que alcanza el navegador (HU-WEB-16).
+    S3_PUBLIC_ENDPOINT_URL: Optional[str] = None
 
     @field_validator("JWT_SECRET_KEY", "OTP_SECRET_KEY")
     @classmethod
