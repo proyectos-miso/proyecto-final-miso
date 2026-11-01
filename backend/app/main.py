@@ -7,6 +7,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.middleware import TenantContextMiddleware
+from app.core.storage import ensure_emulator_bucket
 from app.bff.experience.router import router as experience_router
 from app.bff.quote_edge.router import router as quote_edge_router
 from app.bff.auth.router import router as auth_router
@@ -51,12 +52,18 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS holder_email VARCHAR(254), "
                 "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
             ))
+            # HU-WEB-16: clave de la carátula en S3, vacía hasta el primer pedido.
+            await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(64)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
         try:
             async with engine.begin() as conn:
                 await create_search_indexes(conn)
         except Exception as exc:
             print(f"Aviso: sin índices de trigramas para la búsqueda de pólizas: {exc}")
+        try:
+            await ensure_emulator_bucket()
+        except Exception as exc:
+            print(f"Aviso: sin bucket de documentos en el emulador: {exc}")
         async with AsyncSessionLocal() as session:
             await profile_service.seed_default_catalogs(session)
             await rating_service.seed_default_partners(session)
