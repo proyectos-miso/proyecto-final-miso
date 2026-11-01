@@ -35,6 +35,11 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
+      # S3 emulado para las pruebas de la carátula (HU-WEB-16); la imagen trae su propio chequeo de salud.
+      floci:
+        image: floci/floci:2.3.0
+        ports:
+          - 4566:4566
     defaults:
       run:
         working-directory: backend

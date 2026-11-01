@@ -90,6 +90,30 @@ resource "aws_iam_role" "task" {
   })
 }
 
+# Carátulas en PDF (HU-WEB-16): el backend lee y escribe solo bajo caratulas/, cifradas con la llave KMS del bucket
+resource "aws_iam_role_policy" "task_documents" {
+  name = "${var.project_name}-task-documents-${var.environment}"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "CaratulasPdf"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
+        Resource = "${var.s3_bucket_arn}/caratulas/*"
+      },
+      {
+        Sid      = "LlaveDelBucket"
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
+        Resource = var.storage_kms_key_arn
+      }
+    ]
+  })
+}
+
 # Task Definition para FastAPI Monolito Modular
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.project_name}-backend-${var.environment}"
