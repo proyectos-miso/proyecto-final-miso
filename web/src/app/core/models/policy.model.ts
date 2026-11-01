@@ -82,6 +82,12 @@ export interface PolicyDetail {
   claims: PolicyClaim[];
 }
 
+/** Enlace prefirmado de la carátula en PDF; vence a los 15 minutos (HU-WEB-16). */
+export interface CaratulaLink {
+  url: string;
+  expires_at: string;
+}
+
 export interface PolicyRecord {
   policy_number: string;
   quote_id: string;
