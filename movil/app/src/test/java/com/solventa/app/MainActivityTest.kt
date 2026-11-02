@@ -16,8 +16,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.data.policies.FakePoliciesApi
+import com.solventa.app.data.policies.FakeScheduler
+import com.solventa.app.data.policies.FakeSyncAuthApi
 import com.solventa.app.data.policies.InMemoryPolicyStore
 import com.solventa.app.data.policies.PendingPoliciesApi
+import com.solventa.app.data.policies.SessionPolicySync
 import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.data.session.FakeSessionCrypto
 import com.solventa.app.data.session.InMemorySessionStore
@@ -29,11 +32,16 @@ import com.solventa.app.domain.auth.BiometricResult
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
+import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
+import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.ui.auth.AuthViewModel
 import com.solventa.app.ui.wallet.WalletViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -59,6 +67,7 @@ class SolventaMobileRootTest {
         override suspend fun login(email: String, password: String, otpCode: String): LoginResult =
             LoginResult.Success(SessionTokens("a", "r"), "María Ruiz")
         override suspend fun logout(refreshToken: String) = true
+        override suspend fun refresh(refreshToken: String): RefreshResult = RefreshResult.Unavailable
         override suspend fun registerDevice(accessToken: String) = DeviceCredential("device-1", "secreto")
         override suspend fun biometricLogin(credential: DeviceCredential): LoginResult =
             LoginResult.Success(SessionTokens("a2", "r2"), "María Ruiz")
@@ -74,12 +83,20 @@ class SolventaMobileRootTest {
 
     private fun inDialog(text: String) = hasText(text) and hasAnyAncestor(isDialog())
 
+    // La pantalla de ingreso y la billetera comparten la sesión, como en la app (HU-MOV-07).
+    private val session = SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()) { 0L }
     private val policyStore = InMemoryPolicyStore()
-    private val wallet = WalletViewModel(FakePoliciesApi(PoliciesResult.Loaded(listOf(samplePolicy()))), policyStore)
+    private val appScope = CoroutineScope(Dispatchers.Main)
+
+    private fun policySync(policies: PoliciesApi, store: PolicyStore = policyStore) =
+        SessionPolicySync(session, FakeSyncAuthApi(), policies, store, FakeScheduler())
+
+    private val sync = policySync(FakePoliciesApi(PoliciesResult.Loaded(listOf(samplePolicy()))))
+    private val wallet = WalletViewModel(sync, policyStore)
 
     @Test
     fun `ingresar, activar la huella, cerrar sesion, volver con huella y desactivarla`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -108,7 +125,7 @@ class SolventaMobileRootTest {
 
     @Test
     fun `desde el ingreso se abre la recuperacion y se vuelve`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -121,7 +138,7 @@ class SolventaMobileRootTest {
 
     @Test
     fun `ahora no entra sin activar la huella`() {
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, policyStore)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -139,8 +156,9 @@ class SolventaMobileRootTest {
     fun `cerrar sesion con la descarga pendiente no deja copia de la cuenta`() {
         val pending = PendingPoliciesApi()
         val store = InMemoryPolicyStore()
-        val viewModel = AuthViewModel(SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()), api, store)
-        compose.setContent { SolventaMobileRoot(viewModel, WalletViewModel(pending, store), authenticator) }
+        val pendingSync = policySync(pending, store)
+        val viewModel = AuthViewModel(session, api, store, pendingSync, appScope)
+        compose.setContent { SolventaMobileRoot(viewModel, WalletViewModel(pendingSync, store), authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
         compose.onNodeWithText(s(R.string.auth_email)).performTextInput("asegurada@example.com")

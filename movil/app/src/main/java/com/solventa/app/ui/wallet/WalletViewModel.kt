@@ -2,11 +2,13 @@ package com.solventa.app.ui.wallet
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.solventa.app.domain.policies.PoliciesApi
-import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
+import com.solventa.app.domain.policies.PolicySync
+import com.solventa.app.domain.policies.SessionEndReason
 import com.solventa.app.domain.policies.StoredCopy
+import com.solventa.app.domain.policies.SyncOutcome
+import com.solventa.app.domain.policies.WalletCopy
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,23 +25,23 @@ data class WalletUiState(
     val policies: List<WalletCard> = emptyList(),
     val offline: Boolean = false,
     val needsConnection: Boolean = false,
-    val sessionExpired: Boolean = false,
+    val sessionEnded: SessionEndReason? = null,
     val lastSync: Instant? = null,
     val stale: Boolean = false,
     val copyDiscarded: Boolean = false,
     val copyUnavailable: Boolean = false,
 ) {
-    val empty: Boolean get() = !loading && !needsConnection && !copyUnavailable && !sessionExpired && policies.isEmpty()
+    val empty: Boolean get() = !loading && !needsConnection && !copyUnavailable && sessionEnded == null && policies.isEmpty()
 }
 
 /**
- * Billetera de pólizas (HU-MOV-04): con red trae las pólizas y guarda la copia de la cuenta; sin red o con
- * el servidor caído muestra esa copia con el aviso de sin conexión. Un 401 borra la copia. La copia guarda
- * la hora de su sincronización y se marca desactualizada pasadas 24 horas (HU-MOV-06). Una copia descartada
- * o no disponible tiene su propio aviso (HU-MOV-05).
+ * Billetera de pólizas (HU-MOV-04): sincroniza al abrirse y, sin red o con el servidor caído, muestra la copia
+ * de la cuenta con el aviso de sin conexión. La copia guarda la hora de su sincronización y se marca
+ * desactualizada pasadas 24 horas (HU-MOV-06); una copia descartada o no disponible tiene su propio aviso
+ * (HU-MOV-05). Sin conexión pide la sincronización en segundo plano y muestra su resultado (HU-MOV-07).
  */
 class WalletViewModel(
-    private val policiesApi: PoliciesApi,
+    private val policySync: PolicySync,
     private val policyStore: PolicyStore,
     private val clock: Clock = Clock.systemUTC(),
 ) : ViewModel() {
@@ -48,41 +50,44 @@ class WalletViewModel(
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
 
     private var loadJob: Job? = null
+    private var account: String? = null
     private var unavailableAccount: String? = null
+    private var lastSyncAttempt: Instant? = null
 
-    /** [accessToken] null es el ingreso sin red: solo se lee la copia. */
-    fun open(accountEmail: String, accessToken: String?) {
-        load {
-            val result = accessToken?.let { policiesApi.activePolicies(it) } ?: PoliciesResult.Unavailable
-            _uiState.value = when (result) {
-                is PoliciesResult.Loaded -> {
-                    val syncedAt = clock.instant()
-                    policyStore.save(accountEmail, result.policies, syncedAt)
-                    WalletUiState(loading = false, policies = cards(result.policies), lastSync = syncedAt)
-                }
-                PoliciesResult.Unauthorized -> {
-                    policyStore.delete(accountEmail)
-                    WalletUiState(loading = false, sessionExpired = true)
-                }
-                PoliciesResult.Unavailable -> fromCopy(accountEmail)
-            }
-        }
+    init {
+        // Lo que sincroniza el trabajo en segundo plano llega aquí; solo se aplica a la cuenta abierta.
+        viewModelScope.launch { policySync.outcomes.collect(::apply) }
     }
 
-    /** Vuelve a leer una copia que no estaba disponible (AC-13). */
+    /** Si la cuenta ya estaba abierta, sigue mostrando lo que tenía mientras sincroniza (AC-17). */
+    fun open(accountEmail: String) {
+        val previous = _uiState.value
+        val reopening = accountEmail == account && !previous.loading
+        close()
+        account = accountEmail
+        if (reopening) _uiState.value = previous
+        sync(accountEmail)
+    }
+
+    /** Vuelve a leer una copia que no estaba disponible (HU-MOV-05, AC-13). */
     fun retry() {
-        val account = unavailableAccount ?: return
-        load { _uiState.value = fromCopy(account) }
+        val accountEmail = unavailableAccount ?: return
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { _uiState.value = fromCopy(accountEmail) }
     }
 
-    /** Cancela la carga antes de cerrar sesión, para que ningún guardado llegue después del borrado (AC-12). */
+    /** Cancela la carga antes de cerrar sesión, para que ningún guardado llegue después del borrado (HU-MOV-05). */
     fun close() {
         loadJob?.cancel()
+        account = null
         unavailableAccount = null
         _uiState.value = WalletUiState()
     }
 
-    /** Recalcula el aviso y las pólizas vencidas con la hora actual, por ejemplo al volver a la app (AC-08). */
+    /**
+     * Al volver a la app recalcula el aviso y las pólizas vencidas (HU-MOV-06) y, sin conexión, sincroniza
+     * enseguida a lo sumo cada 30 s, porque con el teléfono bloqueado la espera del trabajo crece (AC-13).
+     */
     fun refreshClock() {
         if (unavailableAccount != null) return retry()
         val state = _uiState.value
@@ -92,12 +97,40 @@ class WalletViewModel(
             policies = state.policies.map { it.copy(expired = it.policy.isExpiredAt(now)) },
             stale = state.lastSync?.let(::isStale) ?: false,
         )
+        val accountEmail = account ?: return
+        val recent = lastSyncAttempt?.let { Duration.between(it, now) < RESYNC_EVERY } ?: false
+        if (state.offline && !recent) sync(accountEmail)
     }
 
-    private fun load(block: suspend () -> Unit) {
-        close()
-        loadJob = viewModelScope.launch { block() }
+    private fun sync(accountEmail: String) {
+        loadJob?.cancel()
+        lastSyncAttempt = clock.instant()
+        loadJob = viewModelScope.launch {
+            when (val outcome = policySync.sync()) {
+                is SyncOutcome.Synced, is SyncOutcome.SessionEnded -> apply(outcome)
+                SyncOutcome.Failed, SyncOutcome.NoSession -> {
+                    _uiState.value = fromCopy(accountEmail)
+                    policySync.schedule()
+                }
+            }
+        }
     }
+
+    private fun apply(outcome: SyncOutcome) {
+        when (outcome) {
+            is SyncOutcome.Synced -> if (outcome.accountEmail == account) {
+                unavailableAccount = null
+                _uiState.value = synced(outcome.copy)
+            }
+            is SyncOutcome.SessionEnded -> if (outcome.accountEmail == account) {
+                _uiState.value = WalletUiState(loading = false, sessionEnded = outcome.reason)
+            }
+            SyncOutcome.Failed, SyncOutcome.NoSession -> Unit
+        }
+    }
+
+    private fun synced(copy: WalletCopy) =
+        WalletUiState(loading = false, policies = cards(copy.policies), lastSync = copy.syncedAt, stale = isStale(copy.syncedAt))
 
     private suspend fun fromCopy(accountEmail: String): WalletUiState =
         when (val stored = policyStore.read(accountEmail)) {
@@ -116,7 +149,7 @@ class WalletViewModel(
             }
         }
 
-    // Una hora guardada en el futuro significa un reloj atrasado: se avisa igual (AC-06).
+    // Una hora guardada en el futuro significa un reloj atrasado: se avisa igual (HU-MOV-06, AC-06).
     private fun isStale(syncedAt: Instant): Boolean {
         val now = clock.instant()
         return syncedAt.isAfter(now) || Duration.between(syncedAt, now) > STALE_AFTER
@@ -129,5 +162,6 @@ class WalletViewModel(
 
     companion object {
         val STALE_AFTER: Duration = Duration.ofHours(24)
+        private val RESYNC_EVERY: Duration = Duration.ofSeconds(30)
     }
 }

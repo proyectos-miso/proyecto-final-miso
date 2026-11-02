@@ -6,6 +6,9 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Para el túnel local: ./gradlew assembleDebug -PapiBaseUrl=https://xxxx.trycloudflare.com/api/v1/
+val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
+
 android {
     namespace = "com.solventa.app"
     compileSdk = 35
@@ -18,8 +21,6 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Para el túnel local: ./gradlew assembleDebug -PapiBaseUrl=https://xxxx.trycloudflare.com/api/v1/
-        val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
@@ -62,6 +63,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.sqlcipher)
+    implementation(libs.androidx.work.runtime)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
@@ -70,6 +72,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.mockwebserver)
+    testImplementation(libs.androidx.work.testing)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.test.manifest)
@@ -77,6 +80,13 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.kotlinx.coroutines.test)
+}
+
+// La release solo habla HTTPS: sin -PapiBaseUrl=https://… no compila (HU-MOV-07).
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        check(apiBaseUrl.startsWith("https://")) { "La release necesita -PapiBaseUrl=https://…; se recibió $apiBaseUrl" }
+    }
 }
 
 // Las vistas previas (@Preview) solo existen para el editor de Android Studio; no son código de la app.

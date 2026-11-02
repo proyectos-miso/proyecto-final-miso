@@ -4,6 +4,7 @@ import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
+import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,47 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
                 HttpURLConnection.HTTP_NO_CONTENT
         } catch (e: IOException) {
             false
+        }
+    }
+
+    // Solo una falla al conectar prueba que el servidor no recibió el token; después, sin una respuesta válida,
+    // el backend pudo haberlo rotado. Sin guardar el cuerpo, la conexión no reenvía sola un token ya usado.
+    override suspend fun refresh(refreshToken: String): RefreshResult = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("refresh_token", refreshToken).toString().toByteArray(Charsets.UTF_8)
+        val connection = URL(baseUrl + "auth/refresh").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setFixedLengthStreamingMode(body.size)
+            try {
+                connection.connect()
+            } catch (e: IOException) {
+                return@withContext RefreshResult.Unavailable
+            }
+            try {
+                connection.outputStream.use { it.write(body) }
+                when (connection.responseCode) {
+                    HttpURLConnection.HTTP_OK -> {
+                        val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                        val access = json.getString("access_token")
+                        val refresh = json.getString("refresh_token")
+                        if (access.isBlank() || refresh.isBlank()) RefreshResult.Unanswered
+                        else RefreshResult.Renewed(SessionTokens(access, refresh))
+                    }
+                    HttpURLConnection.HTTP_UNAUTHORIZED -> RefreshResult.Rejected
+                    HTTP_LOCKED -> RefreshResult.Unavailable
+                    else -> RefreshResult.Unanswered
+                }
+            } catch (e: IOException) {
+                RefreshResult.Unanswered
+            } catch (e: JSONException) {
+                RefreshResult.Unanswered
+            }
+        } finally {
+            connection.disconnect()
         }
     }
 

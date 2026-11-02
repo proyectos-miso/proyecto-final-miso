@@ -1,6 +1,9 @@
 package com.solventa.app.ui.wallet
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -20,6 +23,7 @@ import com.solventa.app.PHONE
 import com.solventa.app.R
 import com.solventa.app.data.policies.samplePolicy
 import com.solventa.app.ui.theme.SolventaTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -184,6 +188,33 @@ class WalletScreenTest {
         compose.onAllNodesWithText(s(R.string.wallet_empty)).assertCountEquals(0)
         compose.onNodeWithText(s(R.string.wallet_retry)).performClick()
         assertTrue(retried)
+    }
+
+    // HU-MOV-07 TC-16: al volver la red se quitan los avisos y lo demás conserva su nodo, así TalkBack no pierde el foco.
+    @Test
+    fun `TC-16 al sincronizar el carne, la poliza y la fecha conservan su nodo para TalkBack`() {
+        val card = WalletCard(samplePolicy(), false)
+        val syncedAt = java.time.Instant.parse("2026-10-20T15:30:00Z")
+        var state by mutableStateOf(
+            WalletUiState(loading = false, offline = true, policies = listOf(card), lastSync = syncedAt, stale = true)
+        )
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(uiState = state, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {})
+            }
+        }
+        val row = hasText("POL-2026-00001", substring = true) and hasClickAction() and !carne
+        val lastSync = hasText(s(R.string.wallet_last_sync, ""), substring = true)
+        val header = hasText(s(R.string.wallet_title), ignoreCase = true)
+        val logout = hasText(s(R.string.logout_button)) and hasClickAction()
+        val nodes = { listOf(carne, header, row, lastSync, logout).map { compose.onNode(it).fetchSemanticsNode().id } }
+        val before = nodes()
+
+        state = WalletUiState(loading = false, policies = listOf(card), lastSync = syncedAt.plusSeconds(86_400 * 5))
+        compose.waitForIdle()
+
+        compose.onNodeWithText(s(R.string.wallet_offline)).assertDoesNotExist()
+        assertEquals(before, nodes())
     }
 
     @Test

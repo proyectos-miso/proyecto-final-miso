@@ -6,11 +6,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.security.ProviderException
 import javax.crypto.AEADBadTagException
+import javax.crypto.Cipher
 
 // TC-S1-11: custodia de credenciales en el almacén protegido (HU-MOV-03)
 class SecureSessionRepositoryTest {
@@ -18,6 +21,8 @@ class SecureSessionRepositoryTest {
     private val maria = DeviceCredential(deviceId = "device-maria", secret = "secreto-maria")
     private val pedro = DeviceCredential(deviceId = "device-pedro", secret = "secreto-pedro")
     private val tokens = SessionTokens(accessToken = "access.jwt.token", refreshToken = "refresh-token-123")
+    private val newTokens = SessionTokens(accessToken = "access.nuevo", refreshToken = "refresh-nuevo")
+    private var now = 1_000L
 
     private lateinit var crypto: FakeSessionCrypto
     private lateinit var store: InMemorySessionStore
@@ -27,7 +32,7 @@ class SecureSessionRepositoryTest {
     fun setUp() {
         crypto = FakeSessionCrypto()
         store = InMemorySessionStore()
-        repository = SecureSessionRepository(crypto, store)
+        repository = SecureSessionRepository(crypto, store) { now }
     }
 
     private fun bind(credential: DeviceCredential, email: String, name: String) =
@@ -93,10 +98,10 @@ class SecureSessionRepositoryTest {
 
     @Test
     fun `TC-S1-12 terminar la sesion conserva las huellas vinculadas`() {
-        repository.startSession(tokens)
+        repository.start(MARIA, tokens)
         bind(maria, MARIA, "María Ruiz")
 
-        repository.endSession()
+        repository.end()
 
         assertNull(repository.activeSession)
         assertTrue(repository.isBound(MARIA))
@@ -134,7 +139,7 @@ class SecureSessionRepositoryTest {
 
     @Test
     fun `limpiar todo borra sesion, cuentas y llave`() {
-        repository.startSession(tokens)
+        repository.start(MARIA, tokens)
         bind(maria, MARIA, "María Ruiz")
 
         repository.clear()
@@ -159,6 +164,105 @@ class SecureSessionRepositoryTest {
     fun `los tokens y el secreto no se exponen al imprimirlos`() {
         assertEquals("SessionTokens(***)", tokens.toString())
         assertEquals("DeviceCredential(device-maria, ***)", maria.toString())
+    }
+
+    // HU-MOV-07 TC-04: una renovación o un cierre tardíos no reviven la sesión ni pisan otra.
+    @Test
+    fun `la sesion solo cambia desde la instantanea vigente`() {
+        val first = repository.start(MARIA, tokens)
+        val renewed = first.withTokens(newTokens)
+
+        assertTrue(repository.replace(first, renewed))
+        assertFalse(repository.replace(first, first.withTokens(tokens)))
+        assertFalse(repository.endIf(first))
+        assertEquals(newTokens, repository.activeSession)
+
+        repository.end()
+        assertFalse(repository.replace(renewed, renewed.withTokens(tokens)))
+        assertNull(repository.openSession)
+    }
+
+    // HU-MOV-07 TC-08: al terminar la actividad solo se cierra su sesión, con los tokens que tenga ahora.
+    @Test
+    fun `endSession termina solo su sesion y devuelve sus tokens vigentes`() {
+        val mine = repository.start(MARIA, tokens)
+        repository.replace(mine, mine.withTokens(newTokens))
+
+        assertEquals(newTokens, repository.endSession(mine.id)?.tokens)
+
+        val other = repository.start(PEDRO, tokens)
+        assertNull(repository.endSession(mine.id))
+        assertSame(other, repository.openSession)
+    }
+
+    // HU-MOV-07 TC-06: la credencial del ingreso sin red vale 15 minutos y no se extiende atrasando el reloj.
+    @Test
+    fun `la credencial vence a los 15 minutos o si el reloj retrocede`() {
+        val offline = repository.startOffline(MARIA, maria)
+
+        assertNull(offline.tokens)
+        assertFalse(repository.credentialExpired(offline))
+        now += 15 * 60 * 1000L - 1
+        assertFalse(repository.credentialExpired(offline))
+        now += 1
+        assertTrue(repository.credentialExpired(offline))
+        now = 0
+        assertTrue(repository.credentialExpired(offline))
+    }
+
+    @Test
+    fun `soltar la credencial crea otra instantanea con el mismo id e inicio`() {
+        val offline = repository.startOffline(MARIA, maria)
+
+        repository.dropCredential(PEDRO)
+        assertSame(offline, repository.openSession)
+
+        repository.dropCredential(MARIA)
+        val dropped = checkNotNull(repository.openSession)
+        assertNull(dropped.credential)
+        assertEquals(offline.id, dropped.id)
+        assertEquals(offline.credentialSince, dropped.credentialSince)
+        assertFalse(repository.replace(offline, offline.withTokens(newTokens)))
+    }
+
+    @Test
+    fun `desvincular o invalidar la llave suelta la credencial en memoria`() {
+        bind(maria, MARIA, "María Ruiz")
+        repository.startOffline(MARIA, maria)
+        repository.unbind(MARIA)
+        assertNull(repository.openSession?.credential)
+
+        bind(maria, MARIA, "María Ruiz")
+        repository.startOffline(MARIA, maria)
+        crypto.invalidated = true
+        assertEquals(KeyState.LOST, repository.keyState(MARIA))
+        assertNull(repository.openSession?.credential)
+        assertFalse(repository.hasStoredSession())
+    }
+
+    @Test
+    fun `el estado de la llave no lanza y una falla pasajera no borra las cuentas`() {
+        assertEquals(KeyState.LOST, repository.keyState(MARIA))
+        bind(maria, MARIA, "María Ruiz")
+        assertEquals(KeyState.USABLE, repository.keyState(MARIA))
+
+        val busy = object : SessionCrypto by crypto {
+            override fun decryptionCipher(iv: ByteArray): Cipher? = throw ProviderException("Keystore ocupado")
+        }
+        val failing = SecureSessionRepository(busy, store) { now }
+
+        assertEquals(KeyState.UNAVAILABLE, failing.keyState(MARIA))
+        assertTrue(failing.isBound(MARIA))
+    }
+
+    // HU-MOV-07 TC-10: la sesión en memoria no se imprime con el correo ni los secretos.
+    @Test
+    fun `la sesion abierta no expone el correo ni los secretos al imprimirse`() {
+        val text = repository.startOffline(MARIA, maria).toString() + repository.start(MARIA, tokens).toString()
+
+        assertFalse(text.contains(MARIA))
+        assertFalse(text.contains(maria.secret))
+        assertFalse(text.contains(tokens.refreshToken))
     }
 
     private companion object {

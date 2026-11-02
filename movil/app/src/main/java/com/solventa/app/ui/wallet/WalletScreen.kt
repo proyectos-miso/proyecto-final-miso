@@ -79,29 +79,30 @@ fun WalletScreen(
     var flipped by rememberSaveable { mutableStateOf(false) }
     val current = uiState.policies.getOrNull(selected) ?: uiState.policies.firstOrNull()
 
+    // Cada ítem lleva su clave: al quitarse un aviso, los demás conservan su nodo y TalkBack no pierde el foco (HU-MOV-07).
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Greeting(fullName, uiState) }
+        item(key = "greeting") { Greeting(fullName, uiState) }
         if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
-            item { WarningBanner(stringResource(R.string.wallet_offline)) }
+            item(key = "offline") { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
         if (uiState.stale) {
-            item { WarningBanner(stringResource(R.string.wallet_stale), icon = R.drawable.ic_clock) }
+            item(key = "stale") { WarningBanner(stringResource(R.string.wallet_stale), icon = R.drawable.ic_clock) }
         }
         when {
-            uiState.loading -> item { Loading() }
-            uiState.copyUnavailable -> item {
+            uiState.loading -> item(key = "loading") { Loading() }
+            uiState.copyUnavailable -> item(key = "unavailable") {
                 WarningBanner(stringResource(R.string.wallet_copy_unavailable))
                 SecondaryButton(stringResource(R.string.wallet_retry), onRetry, Modifier.padding(top = 12.dp))
             }
-            uiState.copyDiscarded -> item { WarningBanner(stringResource(R.string.wallet_copy_discarded), icon = R.drawable.ic_lock) }
-            uiState.needsConnection -> item { Message(R.string.wallet_needs_connection, R.drawable.ic_cloud_off) }
-            uiState.empty -> item { Message(R.string.wallet_empty, R.drawable.ic_shield) }
+            uiState.copyDiscarded -> item(key = "discarded") { WarningBanner(stringResource(R.string.wallet_copy_discarded), icon = R.drawable.ic_lock) }
+            uiState.needsConnection -> item(key = "needsConnection") { Message(R.string.wallet_needs_connection, R.drawable.ic_cloud_off) }
+            uiState.empty -> item(key = "empty") { Message(R.string.wallet_empty, R.drawable.ic_shield) }
             current != null -> {
-                item {
+                item(key = "carne") {
                     PolicyCarne(card = current, flipped = flipped, onFlip = { flipped = !flipped })
                     Text(
                         text = stringResource(if (flipped) R.string.wallet_flip_back_hint else R.string.wallet_flip_hint),
@@ -112,7 +113,7 @@ fun WalletScreen(
                             .padding(top = 8.dp),
                     )
                 }
-                item {
+                item(key = "header") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -145,9 +146,9 @@ fun WalletScreen(
             }
         }
         uiState.lastSync?.let { lastSync ->
-            item { LastSync(lastSync) }
+            item(key = "lastSync") { LastSync(lastSync) }
         }
-        item {
+        item(key = "footer") {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier

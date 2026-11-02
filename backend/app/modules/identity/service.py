@@ -244,8 +244,11 @@ class InsuredAuthService:
         account = await session.get(InsuredAccountDB, claims["sub"])
         if account is None or claims.get("ver", 0) != account.token_version:
             raise InvalidTokenError()
-        if await self._active_lock(session, account.email, self._clock()) is not None:
-            raise InvalidTokenError()
+        # Con el ingreso suspendido el token no se rota ni se audita: la app reintenta sin perder la copia (HU-MOV-07).
+        now = self._clock()
+        lock = await self._active_lock(session, account.email, now)
+        if lock is not None:
+            raise AccountLockedError(lock.locked_until, policy.seconds_until(lock.locked_until, now))
         await self._revoke_jti(session, claims)
         tokens = self._issue_tokens(account)
         await session.commit()
