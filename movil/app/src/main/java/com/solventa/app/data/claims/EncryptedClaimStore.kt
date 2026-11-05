@@ -102,7 +102,7 @@ class EncryptedClaimStore(
                     dao.insertPhoto(entity)
                     dao.touch(report.id, clock.millis())
                 } catch (e: RuntimeException) {
-                    file.delete()
+                    discard(file)
                     throw e
                 }
                 entity.toPhoto()
@@ -128,7 +128,7 @@ class EncryptedClaimStore(
             withOpenReport(accountId) { dao, report ->
                 if (report.state != ReportState.DRAFT.name) return@withOpenReport false
                 val deleted = dao.deletePhoto(report.id, photoId, clock.millis())
-                if (deleted) photoFile(accountId, photoId).delete()
+                if (deleted) discard(photoFile(accountId, photoId))
                 deleted
             } ?: false
         }
@@ -182,7 +182,7 @@ class EncryptedClaimStore(
         val dao = claims()
         val known = dao.photoIds().toSet()
         photoDir(accountId).listFiles()?.forEach { file ->
-            if (file.name.removeSuffix(PHOTO_SUFFIX) !in known) file.delete()
+            if (file.name.removeSuffix(PHOTO_SUFFIX) !in known) discard(file)
         }
         val report = dao.report() ?: return null
         return report.toReport(dao.photos(report.id).map(PhotoEntity::toPhoto))
@@ -216,17 +216,23 @@ class EncryptedClaimStore(
         val partial = File(dir, file.name + PARTIAL_SUFFIX)
         return try {
             partial.writeBytes(bytes)
-            partial.renameTo(file) || run { partial.delete(); false }
+            partial.renameTo(file) || run { discard(partial); false }
         } catch (e: IOException) {
-            partial.delete()
+            discard(partial)
             false
         }
     }
 
+    /**
+     * Borra un archivo del reporte y dice si ya no está. Si no se pudo borrar, queda huérfano: [currentReport] borra
+     * los archivos sin fila, incluidos los `.partial`, cada vez que abre el reporte.
+     */
+    private fun discard(file: File): Boolean = file.delete() || !file.exists()
+
     private fun removeAll(accountId: String) {
         context.deleteDatabase(fileName(accountId))
         // Room deja un archivo de bloqueo vacío con el nombre de la base; se borra para no dejar ni el nombre.
-        File(context.cacheDir, fileName(accountId) + ".lck").delete()
+        discard(File(context.cacheDir, fileName(accountId) + ".lck"))
         photoDir(accountId).deleteRecursively()
         vault.delete(accountId)
     }

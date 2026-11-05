@@ -179,7 +179,7 @@ class EncryptedClaimStoreTest {
         assertEquals(PhotoImage.Damaged, store.photoImage(EMAIL, first.id))
         assertEquals(PhotoImage.Damaged, store.photoImage(EMAIL, second.id))
         assertEquals(PhotoImage.Damaged, store.photoImage(EMAIL, third.id))
-        secondFile.delete()
+        assertTrue(secondFile.delete())
         assertEquals(PhotoImage.Damaged, store.photoImage(EMAIL, second.id))
         assertEquals(3, report(EMAIL).photos.size)
     }
@@ -344,11 +344,11 @@ class EncryptedClaimStoreTest {
         store.openDraft(EMAIL)
         val kept = store.addPhoto(EMAIL, captured(1))!!
         val dir = photoDir(EMAIL)
-        dir.setWritable(false)
+        assertTrue("la carpeta queda sin permiso de escritura", dir.setWritable(false))
         try {
             assertNull(store.addPhoto(EMAIL, captured(2)))
         } finally {
-            dir.setWritable(true)
+            assertTrue("la carpeta recupera el permiso de escritura", dir.setWritable(true))
         }
 
         assertEquals(listOf(kept.id), report(EMAIL).photos.map { it.id })
