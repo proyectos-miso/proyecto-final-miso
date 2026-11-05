@@ -13,7 +13,7 @@ from app.core.security import (
     decode_refresh_token,
     get_password_hash,
     verify_password,
-    verify_totp,
+    totp_step,
 )
 from app.modules.rating.models import PartnerDB
 from app.modules.auth.models import LoginResponse, UserDB
@@ -156,7 +156,9 @@ class AuthService:
 
         # 2. Validar contraseña y segundo factor TOTP (HA-06)
         password_valid = verify_password(password, user.hashed_password)
-        totp_valid = verify_totp(user.totp_secret, totp_code, tolerance_steps=1)
+        step = totp_step(user.totp_secret, totp_code, tolerance_steps=1)
+        # Un código ya usado no vuelve a servir aunque siga vigente (RC-32).
+        totp_valid = step is not None and (user.last_totp_step is None or step > user.last_totp_step)
 
         if not (password_valid and totp_valid):
             user.failed_attempts += 1
@@ -175,6 +177,7 @@ class AuthService:
 
         # 3. Autenticación exitosa: restablecer contador de fallos
         user.failed_attempts = 0
+        user.last_totp_step = step
         user.locked_until = None
         await session.commit()
         return user
