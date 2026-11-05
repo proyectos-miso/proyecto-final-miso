@@ -22,6 +22,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.PHONE
 import com.solventa.app.R
 import com.solventa.app.data.policies.samplePolicy
+import com.solventa.app.ui.claims.ReportEntry
 import com.solventa.app.ui.theme.SolventaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -222,5 +223,68 @@ class WalletScreenTest {
         show(WalletUiState())
 
         compose.onNodeWithContentDescription(s(R.string.wallet_loading)).assertIsDisplayed()
+    }
+
+    // HU-MOV-08 TC-12: el botón del reporte va debajo del carné o del aviso de la billetera.
+    private val withPolicy = WalletUiState(loading = false, policies = listOf(WalletCard(samplePolicy(), expired = false)))
+
+    private fun showWithReport(state: WalletUiState, entry: ReportEntry, onReport: () -> Unit = {}) {
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = state, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    reportEntry = entry, onReport = onReport,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 con una póliza vigente ofrece reportar un siniestro`() {
+        var opened = false
+        showWithReport(withPolicy, ReportEntry.NEW) { opened = true }
+
+        compose.onNodeWithText(s(R.string.claim_report_button)).performClick()
+
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 sin pólizas vigentes ni reporte no ofrece nada`() {
+        showWithReport(WalletUiState(loading = false), ReportEntry.HIDDEN)
+
+        compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_resume_button)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_ready_button)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 un reporte guardado se retoma aunque la billetera no muestre carnés`() {
+        val noCards = listOf(
+            WalletUiState(loading = false, copyDiscarded = true),
+            WalletUiState(loading = false, offline = true, needsConnection = true),
+            WalletUiState(loading = false),
+        )
+        var shown by mutableStateOf(noCards.first())
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = shown, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    reportEntry = ReportEntry.RESUME, onReport = {},
+                )
+            }
+        }
+        noCards.forEach { state ->
+            shown = state
+            compose.onNodeWithText(s(R.string.claim_resume_button)).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 un reporte listo se ofrece para verlo`() {
+        showWithReport(withPolicy, ReportEntry.READY)
+
+        compose.onNodeWithText(s(R.string.claim_ready_button)).assertExists()
+        compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
     }
 }

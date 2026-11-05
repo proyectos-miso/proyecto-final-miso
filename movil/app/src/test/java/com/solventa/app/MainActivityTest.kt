@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import com.solventa.app.data.claims.InMemoryClaimStore
 import com.solventa.app.data.policies.FakePoliciesApi
 import com.solventa.app.data.policies.FakeScheduler
 import com.solventa.app.data.policies.FakeSyncAuthApi
@@ -87,6 +88,7 @@ class SolventaMobileRootTest {
     private val session = SecureSessionRepository(FakeSessionCrypto(), InMemorySessionStore()) { 0L }
     private val policyStore = InMemoryPolicyStore()
     private val appScope = CoroutineScope(Dispatchers.Main)
+    private val claimStore = InMemoryClaimStore()
 
     private fun policySync(policies: PoliciesApi, store: PolicyStore = policyStore) =
         SessionPolicySync(session, FakeSyncAuthApi(), policies, store, FakeScheduler())
@@ -96,7 +98,7 @@ class SolventaMobileRootTest {
 
     @Test
     fun `ingresar, activar la huella, cerrar sesion, volver con huella y desactivarla`() {
-        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope, claimStore)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -125,7 +127,7 @@ class SolventaMobileRootTest {
 
     @Test
     fun `desde el ingreso se abre la recuperacion y se vuelve`() {
-        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope, claimStore)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -138,7 +140,7 @@ class SolventaMobileRootTest {
 
     @Test
     fun `ahora no entra sin activar la huella`() {
-        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope)
+        val viewModel = AuthViewModel(session, api, policyStore, sync, appScope, claimStore)
         compose.setContent { SolventaMobileRoot(viewModel, wallet, authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -157,7 +159,7 @@ class SolventaMobileRootTest {
         val pending = PendingPoliciesApi()
         val store = InMemoryPolicyStore()
         val pendingSync = policySync(pending, store)
-        val viewModel = AuthViewModel(session, api, store, pendingSync, appScope)
+        val viewModel = AuthViewModel(session, api, store, pendingSync, appScope, claimStore)
         compose.setContent { SolventaMobileRoot(viewModel, WalletViewModel(pendingSync, store), authenticator) }
 
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
