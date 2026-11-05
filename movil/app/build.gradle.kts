@@ -89,6 +89,11 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     }
 }
 
+// La base del reporte de siniestro exporta su esquema: sus datos solo existen en el teléfono (ADR 0021, punto 6; HU-MOV-08).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // Las vistas previas (@Preview) solo existen para el editor de Android Studio; no son código de la app.
 kover {
     reports {
