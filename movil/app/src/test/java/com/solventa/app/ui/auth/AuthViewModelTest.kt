@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.solventa.app.data.claims.InMemoryClaimStore
 import com.solventa.app.data.policies.FakePolicySync
 import com.solventa.app.data.policies.FakeScheduler
 import com.solventa.app.data.policies.FakeSyncAuthApi
@@ -64,6 +65,7 @@ class AuthViewModelTest {
     private lateinit var policyStore: InMemoryPolicyStore
     private lateinit var sync: FakePolicySync
     private lateinit var appScope: CoroutineScope
+    private val claimStore = InMemoryClaimStore()
     private lateinit var viewModel: AuthViewModel
 
     @Before
@@ -86,7 +88,7 @@ class AuthViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope)
+    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore)
 
     /** El ViewModel dentro de una pantalla, para poder terminarla como Android cuando termina la actividad. */
     private fun inScreen(screen: ViewModelStore, policySync: PolicySync = sync): AuthViewModel =
@@ -836,6 +838,51 @@ class AuthViewModelTest {
         viewModel.closePasswordRecovery()
         assertFalse(viewModel.uiState.value.showPasswordRecovery)
         assertTrue(viewModel.uiState.value.showAlternativeAccess)
+    }
+
+    // HU-MOV-08 TC-08: el reporte de siniestro se borra en las mismas revocaciones que la copia, salvo la sesión vencida.
+    @Test
+    fun `HU-MOV-08 TC-08 cerrar sesion borra el reporte de siniestro de la cuenta`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 la huella desactivada en el servidor borra el reporte`() {
+        authApi.biometricResult = LoginResult.InvalidCredentials
+
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 cambiar la contrasena borra el reporte de esa cuenta`() {
+        viewModel.openPasswordRecovery()
+
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 la sesion vencida y el nuevo ingreso conservan el reporte`() = kotlinx.coroutines.runBlocking {
+        val auth = FakeSyncAuthApi().apply { refreshResult = { RefreshResult.Rejected } }
+        val policies = ScriptedPoliciesApi().apply { respond = { PoliciesResult.Unauthorized } }
+        val realSync = SessionPolicySync(repository, auth, policies, policyStore, FakeScheduler()) { claimStore.delete(it) }
+        viewModel = newViewModel(realSync)
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        val outcome = realSync.sync() as SyncOutcome.SessionEnded
+        viewModel.onSessionEnded(outcome.reason)
+        viewModel.onSessionEnded(SessionEndReason.RELOGIN)
+
+        assertEquals(SessionEndReason.EXPIRED, outcome.reason)
+        assertTrue(claimStore.deleted.isEmpty())
     }
 
     @Test

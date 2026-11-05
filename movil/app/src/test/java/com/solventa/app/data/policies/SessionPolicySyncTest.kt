@@ -187,6 +187,25 @@ class SessionPolicySyncTest {
     }
 
     // TC-05: la credencial rechazada borra la copia y desvincula la huella, aunque la sesión haya cambiado.
+    // HU-MOV-08 TC-08: el teléfono desvinculado por el servidor borra el reporte de siniestro; la sesión vencida no.
+    @Test
+    fun `HU-MOV-08 TC-08 solo el telefono desvinculado borra el reporte de siniestro`() = runTest {
+        val wiped = mutableListOf<String>()
+        val withClaims = SessionPolicySync(session, auth, policies, store, scheduler, Clock.fixed(syncedAt, ZoneOffset.UTC)) { wiped += it }
+
+        session.start(EMAIL, old)
+        policies.respond = { PoliciesResult.Unauthorized }
+        auth.refreshResult = { RefreshResult.Rejected }
+        assertEquals(SyncOutcome.SessionEnded(EMAIL, SessionEndReason.EXPIRED), withClaims.sync())
+        assertTrue("la sesión vencida conserva el reporte", wiped.isEmpty())
+
+        bind()
+        session.startOffline(EMAIL, credential)
+        auth.biometricResult = { LoginResult.InvalidCredentials }
+        assertEquals(SyncOutcome.SessionEnded(EMAIL, SessionEndReason.DEVICE_REJECTED), withClaims.sync())
+        assertEquals(listOf(EMAIL), wiped)
+    }
+
     @Test
     fun `la credencial rechazada desvincula la huella siempre`() = runTest {
         bind()

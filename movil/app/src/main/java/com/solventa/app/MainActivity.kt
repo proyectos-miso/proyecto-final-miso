@@ -43,7 +43,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope)
+                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore)
             }
         }
     }

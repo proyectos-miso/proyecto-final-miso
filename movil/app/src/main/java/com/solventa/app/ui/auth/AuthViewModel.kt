@@ -12,6 +12,7 @@ import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.DeviceCredential
+import com.solventa.app.domain.claims.ClaimReportStore
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
 import com.solventa.app.domain.policies.SessionEndReason
@@ -125,6 +126,8 @@ class AuthViewModel(
     private val policyStore: PolicyStore,
     private val policySync: PolicySync,
     private val appScope: CoroutineScope,
+    // El reporte de siniestro de la cuenta se borra en las mismas revocaciones que la copia, salvo la sesión vencida (HU-MOV-08).
+    private val claimStore: ClaimReportStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(withAccounts(AuthUiState()))
@@ -257,6 +260,7 @@ class AuthViewModel(
     private fun resetBiometrics(email: String) {
         sessionRepository.unbind(email)
         viewModelScope.launch { policyStore.delete(email) }
+        appScope.launch { claimStore.delete(email) }
         _uiState.update { withAccounts(it.copy(status = AuthStatus.SESSION_RESET)) }
     }
 
@@ -447,6 +451,7 @@ class AuthViewModel(
         )
         appScope.launch {
             email?.let { policyStore.delete(it) }
+            email?.let { claimStore.delete(it) }
             refreshToken?.let { authApi.logout(it) }
         }
     }
@@ -517,6 +522,7 @@ class AuthViewModel(
                 // El servidor desvinculó las huellas de esa cuenta; las demás cuentas del teléfono se conservan.
                 sessionRepository.unbind(normalizeEmail(email))
                 policyStore.delete(normalizeEmail(email))
+                claimStore.delete(normalizeEmail(email))
                 lockJob?.cancel()
             }
             _uiState.update { state ->
