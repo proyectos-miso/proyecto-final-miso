@@ -11,14 +11,18 @@ A spec is the contract — what, why, how, and how we will know it is done — w
    with the tools available; if it cannot be read, ask the user to paste it. Stories are never created
    or edited by agents. The ID is the story key (for example `HU-12`); a hotfix uses `HOTFIX` with the
    incident instead. Do not design yet.
+   Check also whether a package already exists in `specs/` for the story and whether `specs/pendientes/`
+   has a note for it (`<ID>.md`): its gaps (`RC-NN`) are work the story must absorb.
 2. **Create the package:** `python sdd/tools/sdd.py spec new <ID> "<Title>"` → `specs/<ID>-<slug>/` with
    `spec.md`, `security.md`, `test-cases.md` and `gate.md`, and the branch `feature/<ID>-<slug>` from the
    integration branch.
 3. **Requirements** (`analyst`): the story copied as written; problem, goals and non-goals; affected
    paths (from the code, checked against `sdd/security/critical-paths.md`); use and abuse cases;
    acceptance criteria in EARS form — the story's own as `STATED`, and what the feature needs but the
-   story does not say as `DERIVED: <why>`; measurable quality requirements (or N/A); the twelve security
-   triggers and the profile they imply. **Stop for agreement.**
+   story does not say as `DERIVED: <why>`. Each gap in the story's note in `specs/pendientes/` becomes a
+   criterion `DERIVED: RC-NN`; a gap that does not fit goes to the non-goals with its reason; measurable
+   quality requirements (or N/A); the twelve security triggers and the profile they imply. **Stop for
+   agreement.**
 4. **Security assessment** (`security-assessment`; `threat-model` when the profile is HIGH or CRITICAL).
    The security requirements (SR) it produces go back into Requirements.
 5. **Design and tasks** (`architect`, skills `design` and `adr`). **Stop for agreement** after Design.
