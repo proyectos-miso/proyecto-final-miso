@@ -8,6 +8,8 @@ plugins {
 
 // Para el túnel local: ./gradlew assembleDebug -PapiBaseUrl=https://xxxx.trycloudflare.com/api/v1/
 val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
+// Las pantallas del reporte de siniestro bloquean capturas en release; -PsecureScreens=true lo activa en debug para probarlo (HU-MOV-08).
+val secureScreensInDebug = (project.findProperty("secureScreens") as String?) == "true"
 
 android {
     namespace = "com.solventa.app"
@@ -25,7 +27,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "SECURE_SCREENS", "$secureScreensInDebug")
+        }
         release {
+            buildConfigField("boolean", "SECURE_SCREENS", "true")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
