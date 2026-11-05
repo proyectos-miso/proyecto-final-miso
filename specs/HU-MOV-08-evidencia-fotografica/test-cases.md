@@ -92,8 +92,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y coroutines-test (`ClaimReportViewModelTest`, `AndroidTrustedClockTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-01 la foto se guarda con la ubicación, la hora del teléfono y la independiente"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-01 sin hora independiente la foto se guarda igual"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-01 guarda la foto con su ubicación, precisión y horas"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-01 sin hora independiente la foto se guarda igual"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-01 con la cámara abierta usa la ubicación fresca y precisa"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"prefiere la hora del GNSS"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"sin GNSS usa la hora de red de Android"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"sin ninguna no hay hora independiente" |
+| Status | PASS |
 
 ### TC-02 · La evidencia sale solo de la cámara de la app
 
@@ -109,8 +109,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric y Compose UI test (`ClaimScreensTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-02 la evidencia sale solo de la cámara de la app, sin galería ni otras apps"; movil/app/src/test/java/com/solventa/app/data/claims/ClaimPrivacySourceTest.kt::"el reporte no abre la galería ni otra app de cámara ni escribe la foto en claro" |
+| Status | PASS |
 
 ### TC-03 · Permisos negados: ubicación, solo aproximada y cámara
 
@@ -126,8 +126,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric y Compose UI test (`ClaimScreensTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 el permiso negado explica los pasos y abre los ajustes de la app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 sin cámara en el teléfono lo explica sin ofrecer ajustes"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 al volver de los ajustes con el permiso la cámara se abre"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 si revocan un permiso a mitad del reporte se vuelve a pedir y el reporte sigue"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-03 los permisos que faltan se explican y con todos se abre la cámara"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-03 el permiso se lee como preciso, solo aproximado o negado"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-03 sin ubicación precisa no hay foto y no se pide la ubicación" |
+| Status | PASS |
 
 ### TC-04 · Sin ubicación no hay foto
 
@@ -143,8 +143,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y coroutines-test (`ClaimReportViewModelTest`, `AndroidCaptureLocatorTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-04 sin ubicación no hay foto y se dice cómo resolverlo"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-04 mientras busca la ubicación cuenta los segundos y no deja disparar otra vez"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-04 con la ubicación del teléfono apagada no hay foto"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-04 sin una ubicación buena a tiempo no hay foto"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-04 una ubicación de más de 10 s o peor que 100 m espera una buena"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-04 con la ubicación apagada ofrece los ajustes de ubicación" |
+| Status | PASS |
 
 ### TC-05 · Ubicación simulada y reloj cambiado
 
@@ -160,8 +160,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y Robolectric (`AndroidCaptureLocatorTest`, `AndroidTrustedClockTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-05 una ubicación simulada queda marcada"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-05 la ubicación simulada queda marcada en la foto"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"TC-05 no la corrige con el reloj del teléfono adelantado" |
+| Status | PASS |
 
 ### TC-06 · Nada en claro en disco ni en las copias
 
@@ -177,8 +177,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric (`EncryptedClaimStoreTest`, `DataExtractionRulesTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-06 el archivo de la foto está cifrado y no hay copias en claro"; movil/app/src/test/java/com/solventa/app/data/DataExtractionRulesTest.kt::"cada seccion excluye los nueve dominios completos y no incluye nada"; movil/app/src/test/java/com/solventa/app/data/DataExtractionRulesTest.kt::"el manifiesto niega las copias y declara las reglas de extraccion"; Galaxy S22 Ultra: las fotos no empiezan como JPEG, la base no tiene el encabezado de SQLite, carpetas 700, sin entradas en MediaStore ni archivos del reporte en la caché |
+| Status | PASS |
 
 ### TC-07 · Huella de cada foto y foto alterada
 
@@ -194,8 +194,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y Robolectric (`PhotoCipherTest`, `EvidenceEncoderTest`, `EncryptedClaimStoreTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/PhotoCipherTest.kt::"la huella es el SHA-256 en hexadecimal"; movil/app/src/test/java/com/solventa/app/data/claims/PhotoCipherTest.kt::"cifra y descifra la misma foto"; movil/app/src/test/java/com/solventa/app/data/claims/PhotoCipherTest.kt::"un byte cambiado, otra llave u otro nonce no descifran"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-07 la huella es el SHA-256 de los bytes JPEG y la imagen vuelve igual"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-07 una foto alterada, cambiada por otra o sin archivo queda dañada"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-07 una foto que se descifra pero no coincide con su huella queda dañada" |
+| Status | PASS |
 
 ### TC-08 · Un reporte por cuenta, borrado al terminar la sesión
 
@@ -211,8 +211,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric y coroutines-test (`EncryptedClaimStoreTest`, `AuthViewModelTest`, `SessionPolicySyncTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-08 cada cuenta tiene su reporte, su frase y su llave"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-08 un borrado durante una foto no deja la foto después del borrado"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 cerrar sesion borra el reporte de siniestro de la cuenta"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 la huella desactivada en el servidor borra el reporte"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 cambiar la contrasena borra el reporte de esa cuenta"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 la sesion vencida y el nuevo ingreso conservan el reporte"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"HU-MOV-08 TC-08 solo el telefono desvinculado borra el reporte de siniestro"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-11 al volver a abrir encuentra las fotos, la póliza y la descripción"; Galaxy S22 Ultra: al cerrar sesión no quedan la base, las fotos ni la frase de la cuenta |
+| Status | PASS |
 
 ### TC-09 · Reglas del reporte y lo que falta
 
@@ -228,8 +228,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y coroutines-test (`ClaimRulesTest`, `ClaimReportViewModelTest`, `EvidenceEncoderTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"un reporte vacío pide foto, póliza y descripción, en ese orden"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"solo espacios cuenta como sin descripción"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"la descripción se recorta en 500 caracteres y con 500 queda igual"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"se pueden agregar fotos hasta 5 y no en un reporte listo"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"con una foto, póliza vigente y descripción no falta nada"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-09 sin fotos no pasa al detalle y dice que falta la foto"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-09 enviar sin descripción o sin póliza dice qué falta y no lo deja listo"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-09 la descripción se recorta en 500 y se guarda medio segundo después"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-09 con 5 fotos ya no abre la cámara ni guarda otra"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-09 el detalle dice qué falta mientras Enviar está desactivado"; movil/app/src/test/java/com/solventa/app/data/claims/EvidenceEncoderTest.kt::"TC-09 baja la calidad hasta que cabe en el límite"; movil/app/src/test/java/com/solventa/app/data/claims/EvidenceEncoderTest.kt::"TC-09 si ni con la calidad más baja cabe no hay foto"; movil/app/src/test/java/com/solventa/app/data/claims/EvidenceEncoderTest.kt::"una foto grande queda con el lado mayor en 1920 px"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-09 no entra una sexta foto ni una de más de 2 MB"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-09 dos fotos a la vez con 4 guardadas solo dejan entrar una quinta"; Galaxy S22 Ultra: con 510 letras escritas quedan 500, y solo espacios cuentan como sin descripción |
+| Status | PASS |
 
 ### TC-10 · Borrar una foto y descartar el reporte
 
@@ -245,8 +245,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric (`EncryptedClaimStoreTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-10 borrar la segunda foto borra su archivo y deja 2 en orden"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-10 descartar borra la base, las fotos, la frase y la llave"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-10 un archivo de foto sin fila se borra al abrir el reporte"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-24 un borrador con pólizas vigentes se descarta desde la evidencia, aun sin fotos" |
+| Status | PASS |
 
 ### TC-11 · El reporte sobrevive y «Enviar» lo deja listo
 
@@ -262,8 +262,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric y Compose UI test (`ClaimScreensTest`, `ClaimReportViewModelTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-11 al volver a abrir encuentra las fotos, la póliza y la descripción"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-11 enviar con todo deja el reporte listo y muestra el guardado"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"atrás va de la cámara y del detalle a la evidencia, y de la evidencia a la billetera"; Galaxy S22 Ultra: el reporte con 5 fotos sigue tras cerrar el proceso y volver a ingresar, y tras girar el teléfono |
+| Status | PASS |
 
 ### TC-12 · Botón en la billetera y pólizas vigentes sin red
 
@@ -279,8 +279,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric y Compose UI test (`WalletScreenTest`, `ClaimScreensTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-12 abre un borrador con solo las pólizas vigentes de la copia"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-12 la billetera ofrece reportar, retomar o ver el listo, y nada sin pólizas ni reporte"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"HU-MOV-08 TC-12 con una póliza vigente ofrece reportar un siniestro"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"HU-MOV-08 TC-12 sin pólizas vigentes ni reporte no ofrece nada"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"HU-MOV-08 TC-12 un reporte guardado se retoma aunque la billetera no muestre carnés"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"HU-MOV-08 TC-12 un reporte listo se ofrece para verlo"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-12 sin pólizas vigentes el detalle lo dice y deja descartar" |
+| Status | PASS |
 
 ### TC-13 · Capturas bloqueadas en release
 
@@ -296,8 +296,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric (`ClaimSecureWindowTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimSecureWindowTest.kt::"TC-13 la ventana es segura solo mientras se muestra el reporte, y nunca si está apagada"; Galaxy S22 Ultra con `-PsecureScreens=true`: la captura del reporte sale negra y la de la billetera no |
+| Status | PASS |
 
 ### TC-14 · Sin datos en registros ni en el estado guardado
 
@@ -313,8 +313,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric (`ClaimScreensTest`) y búsqueda en el código |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/ClaimPrivacySourceTest.kt::"el reporte no escribe registros"; movil/app/src/test/java/com/solventa/app/data/claims/ClaimPrivacySourceTest.kt::"el reporte no guarda nada en el estado que conserva el sistema"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"al cerrar sesión no queda nada del reporte en memoria"; Galaxy S22 Ultra: logcat del proceso sin líneas de la app durante el reporte |
+| Status | PASS |
 
 ### TC-15 · Fallas de llave, base o almacenamiento sin cerrar la app
 
@@ -330,8 +330,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y Robolectric (`EncryptedClaimStoreTest`, `ClaimReportViewModelTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-15 con la llave invalidada no se puede abrir y no se borra"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-15 con la base dañada no se puede abrir y no se borra"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-15 con el teléfono bloqueado o una falla pasajera queda no disponible y se conserva"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-15 si no se puede escribir el archivo no queda nada a medias y el reporte sigue"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"sin poder usar la llave no se crea el borrador"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-15 no disponible o sin poder abrir se avisa y nada se borra solo" |
+| Status | PASS |
 
 ### TC-16 · Tiempo de guardado de la foto
 
@@ -347,8 +347,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Medición en el teléfono con marcas de tiempo de la build de prueba, sin registrar contenido |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Galaxy S22 Ultra con Android 16, 2026-11-05, desde el toque del disparador hasta que el archivo cifrado queda escrito: 20 de 20 por debajo de 2 s (mediana 0,78 s, máximo 1,31 s); una segunda serie con el teléfono ya caliente: 20 de 20 (mediana 1,28 s, máximo 1,39 s) |
+| Status | PASS |
 
 ### TC-17 · Accesibilidad con TalkBack
 
@@ -364,8 +364,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | TalkBack en el teléfono y aserciones de semántica en `ClaimScreensTest` |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 cada pantalla del reporte anuncia su título"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 sin fotos, Continuar anuncia lo que falta en un nodo vivo que ya estaba"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 borrar una foto se anuncia con las que quedan"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 la fila de la foto se lee en un nodo y en palabras"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 la cámara anuncia solo su estado y el disparador es un botón"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 los campos obligatorios y el contador se leen en palabras"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 con la fuente al máximo la explicación del permiso se lee completa"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 el disparador y borrar la foto tienen nombre y miden al menos 48 dp"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 la barra de progreso es decorativa y no tapa el botón Atrás"; Galaxy S22 Ultra con Android 16, 2026-11-05: todos los controles miden 48 dp o más; recorrido con TalkBack y con la fuente al máximo hecho por David, sin problemas |
+| Status | PASS |
 
 ### TC-18 · Dependencias y secretos
 
@@ -381,8 +381,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | OSV.dev y `sdd.py` |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | OSV.dev sin vulnerabilidades para CameraX 1.5.3 (EV-01 en gate.md); `sdd.py scan deps --base origin/dev --require-evaluation`: 4 dependencias nuevas, 0 sin evaluación; `sdd.py scan secrets --diff origin/dev` y sobre los 39 archivos nuevos con pruebas: 0 secretos |
+| Status | PASS |
 
 ### TC-19 · Permisos mínimos del manifiesto
 
@@ -398,8 +398,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Robolectric sobre el manifiesto combinado (`ClaimManifestTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimManifestTest.kt::"TC-19 pide cámara y ubicación precisa y aproximada, sin segundo plano ni almacenamiento"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimManifestTest.kt::"TC-19 la cámara y el GPS no son obligatorios"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimManifestTest.kt::"TC-19 no hay actividades exportadas nuevas" |
+| Status | PASS |
 
 ### TC-20 · Recorrido completo en el teléfono
 
@@ -415,8 +415,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Pruebas manuales en el teléfono con adb |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | Galaxy S22 Ultra con Android 16, 2026-11-05: reporte con fotos, póliza y descripción; cada foto con las coordenadas y la hora reales; con la ubicación solo aproximada y con la ubicación negada, el aviso con sus pasos y «Abrir ajustes» lleva a la información de la app, la cámara no se abre y el reporte se conserva; las fotos no aparecen en MediaStore; la base y las fotos no se leen sin la app; con `-PsecureScreens=true` la captura del reporte sale negra y la tarjeta de recientes queda vacía; en debug se permite |
+| Status | PASS |
 
 ### TC-21 · Cifrado real con SQLCipher y el Keystore
 
@@ -432,8 +432,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Prueba instrumentada con `connectedAndroidTest` (`EncryptedClaimStoreTest` en `androidTest`), como `EncryptedPolicyStoreTest` de HU-MOV-05 |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"la_base_no_es_sqlite_legible_ni_abre_con_otra_frase"; movil/app/src/androidTest/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"la_llave_del_reporte_esta_en_el_keystore_no_se_exporta_y_no_es_la_de_la_billetera"; movil/app/src/androidTest/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"la_foto_queda_cifrada_y_vuelve_igual_con_su_huella"; movil/app/src/androidTest/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"descartar_borra_la_base_las_fotos_la_frase_y_la_llave"; movil/app/src/androidTest/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"sin_la_llave_no_se_puede_abrir_y_no_se_borra"; 5 de 5 en el Galaxy S22 Ultra con Android 16 |
+| Status | PASS |
 
 ### TC-22 · La ubicación se lee solo con la cámara abierta
 
@@ -449,8 +449,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y Robolectric (`AndroidCaptureLocatorTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-22 solo escucha la ubicación entre start y stop"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-22 al detenerse olvida la última ubicación"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-22 la ubicación se escucha solo con la cámara a la vista"; Galaxy S22 Ultra: `dumpsys location` registra y quita el pedido al abrir y cerrar la cámara, sin pedidos con la cámara cerrada |
+| Status | PASS |
 
 ### TC-23 · Esquema exportado y sin migraciones destructivas
 
@@ -466,8 +466,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit sobre los archivos del proyecto (`ClaimSchemaTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/ClaimSchemaTest.kt::"el esquema de la versión 1 está exportado en el repositorio"; movil/app/src/test/java/com/solventa/app/data/claims/ClaimSchemaTest.kt::"la base declara exportSchema y el almacén no usa migraciones destructivas" |
+| Status | PASS |
 
 ### TC-24 · Reporte listo, póliza vencida y reporte siempre alcanzable
 
@@ -483,8 +483,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | JUnit y coroutines-test (`ClaimReportViewModelTest`) |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-24 una póliza que dejó de estar vigente se pide de nuevo al enviar"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-24 un reporte listo se abre en el guardado y se puede descartar"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"TC-24 una póliza que ya no está vigente se pide de nuevo"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-24 un reporte listo no se edita ni recibe ni pierde fotos"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-24 un borrador con pólizas vigentes se descarta desde la evidencia, aun sin fotos"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-12 sin pólizas vigentes el detalle lo dice y deja descartar"; Galaxy S22 Ultra: el reporte listo se ve sin editar y se descarta con confirmación |
+| Status | PASS |
 
 ### TC-25 · Teléfono bloqueado de verdad
 
@@ -500,8 +500,8 @@ Las pruebas automáticas van en `movil/app/src/test/java/com/solventa/app/` con 
 | Tool or method | Prueba instrumentada con una persona que bloquea y desbloquea (`ClaimRealLockTest` en `androidTest`), como `RealLockTest` de HU-MOV-05 |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | movil/app/src/androidTest/java/com/solventa/app/data/claims/ClaimRealLockTest.kt::"con_el_telefono_bloqueado_el_reporte_no_esta_disponible_y_se_conserva"; Galaxy S22 Ultra con Android 16 y PIN, con David desbloqueando, 2026-11-05: 1 de 1 |
+| Status | PASS |
 
 ## Security test coverage
 
