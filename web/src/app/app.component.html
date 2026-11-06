@@ -6,6 +6,10 @@
     </div>
     <div class="header-nav">
       <ng-container *ngIf="currentSession() as session; else defaultBadge">
+        <nav *ngIf="session.role === 'analyst'" class="main-nav" aria-label="Secciones de operaciones">
+          <a routerLink="/gestion" routerLinkActive="active" ariaCurrentWhenActive="page">Pólizas</a>
+          <a routerLink="/siniestros" routerLinkActive="active" ariaCurrentWhenActive="page">Siniestros</a>
+        </nav>
         <span class="user-greeting">{{ roleLabel(session.role) }}: <strong>{{ session.advisorName }}</strong></span>
         <button type="button" class="btn-logout" (click)="logout()">Cerrar sesión</button>
       </ng-container>

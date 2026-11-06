@@ -4,7 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
 import { ClientIdentification, ClientQuoteSubmission, RiskData } from '../../core/models/client.model';
 import { ConsentRecord } from '../../core/models/consent.model';
-import { PolicyHolder, PolicyRecord } from '../../core/models/policy.model';
+import { Beneficiary, PolicyHolder, PolicyRecord } from '../../core/models/policy.model';
 import { PlanTier, QuoteRequest, QuoteResponse } from '../../core/models/quote.model';
 import { PolicyService } from '../../core/policies/policy.service';
 import { QuoteService } from '../../core/quotes/quote.service';
@@ -12,6 +12,7 @@ import { ClientDataStepComponent } from './client-data-step/client-data-step.com
 import { ConsentStepComponent } from './consent-step/consent-step.component';
 import { PaymentStepComponent } from './payment-step/payment-step.component';
 import { PremiumBreakdownComponent } from './premium-breakdown/premium-breakdown.component';
+import { BeneficiariesEditorComponent } from '../shared/beneficiaries-editor.component';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { COP } from '../../core/money';
 
@@ -24,6 +25,7 @@ interface Emission {
   selector: 'app-cotizador',
   standalone: true,
   imports: [
+    BeneficiariesEditorComponent,
     CommonModule,
     ClientDataStepComponent,
     ConsentStepComponent,
@@ -164,10 +166,11 @@ interface Emission {
               </div>
             </div>
           } @else {
+            <app-beneficiaries-editor legend="Beneficiarios de la póliza" (changed)="beneficiaries.set($event)" />
             @if (emission().error === 'failed') {
               <p class="issue-error" role="alert">No se pudo emitir la póliza. Intente de nuevo.</p>
             }
-            <button type="button" class="issue-button" [disabled]="issuing()" (click)="issuePolicy()">
+            <button type="button" class="issue-button" [disabled]="issuing() || !beneficiaries()" (click)="issuePolicy()">
               Emitir póliza
             </button>
           }
@@ -412,6 +415,8 @@ export class CotizadorComponent {
     computation: () => ({}),
   });
   readonly issuing = signal(false);
+  // HU-WEB-15: beneficiarios válidos (suman 100 %) o null mientras falte algo.
+  readonly beneficiaries = signal<Beneficiary[] | null>(null);
 
   // HU-WEB-08: el titular del paso 1 se guarda con la póliza.
   private holder(): PolicyHolder | undefined {
@@ -428,7 +433,12 @@ export class CotizadorComponent {
   issuePolicy(): void {
     this.issuing.set(true);
     this.policies
-      .issuePolicy({ quote_id: this.quote()!.quote_id, tier: this.selectedTier(), holder: this.holder() })
+      .issuePolicy({
+        quote_id: this.quote()!.quote_id,
+        tier: this.selectedTier(),
+        holder: this.holder(),
+        beneficiaries: this.beneficiaries() ?? [],
+      })
       .pipe(finalize(() => this.issuing.set(false)))
       .subscribe({
         next: (policy) => this.emission.set({ policy }),
