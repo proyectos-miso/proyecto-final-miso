@@ -20,7 +20,7 @@ A spec is the contract — what, why, how, and how we will know it is done — w
    paths (from the code, checked against `sdd/security/critical-paths.md`); use and abuse cases;
    acceptance criteria in EARS form — the story's own as `STATED`, and what the feature needs but the
    story does not say as `DERIVED: <why>`. Each gap in the story's note in `specs/pendientes/` becomes a
-   criterion `DERIVED: RC-NN`; a gap that does not fit goes to the non-goals with its reason; measurable
+   criterion `DERIVED: RC-NN, <why>`; a gap that does not fit goes to the non-goals with its reason; measurable
    quality requirements (or N/A); the twelve security triggers and the profile they imply. **Stop for
    agreement.**
 4. **Security assessment** (`security-assessment`; `threat-model` when the profile is HIGH or CRITICAL).

@@ -2,7 +2,7 @@
 
 Los seis recorridos críticos de Solventa (J1–J6) y sus features son compromisos del proyecto. Al cierre del Sprint 2 se revisó qué les falta. No se crean historias nuevas: cada brecha se asigna a una historia del tablero que ya va a tocar ese código o esa pantalla, y entra en su spec.
 
-Cada archivo de esta carpeta es la nota de pendientes de una historia o de un hotfix. Quien cree el spec de esa historia (skill `spec-create`) lee su nota y lleva cada brecha a los criterios de aceptación como `DERIVED: RC-NN`, con sus pruebas. Desde ese momento el spec es la fuente de verdad y el gate sigue la brecha como a cualquier otro criterio.
+Cada archivo de esta carpeta es la nota de pendientes de una historia o de un hotfix. Quien cree el spec de esa historia (skill `spec-create`) lee su nota y lleva cada brecha a los criterios de aceptación como `DERIVED: RC-NN, <por qué>` (el validador pide el motivo), con sus pruebas. Desde ese momento el spec es la fuente de verdad y el gate sigue la brecha como a cualquier otro criterio.
 
 `RC-NN` es el código de cada brecha («ruta crítica»). Sirve para nombrarla y para buscar después en qué spec quedó: `grep -r "RC-15" specs/`.
 
@@ -17,7 +17,7 @@ Cuando un tercero que no tenemos es necesario (pasarela bancaria, oráculo de vu
 | [HU-MOV-09.md](HU-MOV-09.md) | Envío sin señal (#75) | David | RC-12 |
 | [HU-MOV-10.md](HU-MOV-10.md) | Radicado (#76) | David | RC-13, RC-14, RC-26 |
 | [HU-MOV-11.md](HU-MOV-11.md) | Estado del siniestro (#77) | Juan Camilo | RC-15, RC-16, RC-27, RC-40 |
-| [HU-WEB-15.md](HU-WEB-15.md) | Dictamen y liquidación (#115) | Juan Camilo | RC-01, RC-05, RC-17, RC-18, RC-19, RC-20, RC-21, RC-22, RC-28, RC-29 |
+| En `specs/HU-WEB-15-dictamen-y-liquidacion/` | Dictamen y liquidación (#115) | Juan Camilo | RC-01, RC-05, RC-17, RC-18, RC-19, RC-20, RC-21, RC-22, RC-28, RC-29 (ya en el spec) |
 | [HOTFIX-produccion.md](HOTFIX-produccion.md) | Hotfix de producción, seguridad y CI/CD | Oscar | RC-30, RC-31, RC-33, RC-35, RC-36 |
 
 ## Recorridos y dónde se resuelven
@@ -42,6 +42,6 @@ Cuando un tercero que no tenemos es necesario (pasarela bancaria, oráculo de vu
 
 ## Al usar una nota
 
-1. Crea el spec con `spec-create`. En Requirements, cada RC de la nota entra como criterio `DERIVED: RC-NN`.
+1. Crea el spec con `spec-create`. En Requirements, cada RC de la nota entra como criterio `DERIVED: RC-NN, <por qué>`.
 2. Si una brecha no cabe en la historia, déjalo escrito en «Goals and non-goals» del spec con el motivo y avísale al equipo; no la descartes en silencio.
 3. Cuando el spec tenga todas las brechas, la nota se puede borrar en el mismo PR.
