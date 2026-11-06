@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
-import { PolicyRecord } from '../../core/models/policy.model';
+import { Beneficiary, PolicyRecord } from '../../core/models/policy.model';
 import { QuoteResponse, QuoteTier } from '../../core/models/quote.model';
 import { CotizadorComponent } from './cotizador.component';
 import { CatalogService } from '../../core/catalogs/catalog.service';
@@ -271,6 +271,9 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
   });
 
   describe('emisión de la póliza (HU-WEB-05)', () => {
+    const beneficiaries: Beneficiary[] = [
+      { name: 'Lucía Prueba', document_type: 'CC', document_number: '52000111', relationship: 'CONYUGE', percentage: 100 },
+    ];
     const policy: PolicyRecord = {
       policy_number: 'POL-2026-00001',
       quote_id: 'QUO-1',
@@ -308,6 +311,16 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
       });
       component.quote.set(quote);
       fixture.detectChanges();
+      component.beneficiaries.set(beneficiaries);
+      fixture.detectChanges();
+    });
+
+    it('HU-WEB-15 no deja emitir sin beneficiarios que sumen 100 %', () => {
+      component.beneficiaries.set(null);
+      fixture.detectChanges();
+
+      expect(button('Emitir póliza')!.disabled).toBe(true);
+      expect(page().querySelector('app-beneficiaries-editor')).not.toBeNull();
     });
 
     it('emite el plan elegido y confirma el número y la vigencia', () => {
@@ -320,6 +333,7 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
         quote_id: 'QUO-1',
         tier: 'premium',
         holder: { name: 'Carlos Rodríguez', document_type: 'CC', email: 'carlos@correo.co', phone: '3001234567' },
+        beneficiaries,
       });
       expect(button('Emitir póliza')!.disabled).toBe(true);
       call.flush(policy);

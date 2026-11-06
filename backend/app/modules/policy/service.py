@@ -79,7 +79,7 @@ class PolicyService:
                 quote_id=quote.quote_id,
                 partner_id=quote.partner_id,
                 insured_document=quote.document_number,
-                beneficiaries=request.beneficiaries,
+                beneficiaries=[b.model_dump() for b in request.beneficiaries],
                 holder_name=request.holder.name if request.holder else None,
                 holder_document_type=request.holder.document_type if request.holder else None,
                 holder_email=request.holder.email if request.holder else None,

@@ -20,6 +20,8 @@ import { PolicyDetail } from '../../core/models/policy.model';
 import { PolicyService } from '../../core/policies/policy.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { PLAN_LABELS, policyStatusLabel } from './policy-labels';
+import { PolicyOperationsComponent } from './policy-operations.component';
+import { RELATIONSHIPS } from '../shared/beneficiaries-editor.component';
 
 const PAYMENT_STATUS: Record<string, string> = { APPROVED: 'Aprobado', DECLINED: 'Rechazado' };
 const PAYMENT_METHOD: Record<string, string> = { PSE: 'PSE', CARD: 'Tarjeta' };
@@ -28,6 +30,7 @@ const CLAIM_STATUS: Record<string, string> = {
   IN_REVIEW: 'En revisión',
   APPROVED: 'Aprobado',
   REJECTED: 'Rechazado',
+  SETTLED: 'Liquidado',
   PAID: 'Pagado',
 };
 
@@ -43,7 +46,7 @@ export const OPEN_DOWNLOAD = new InjectionToken<(url: string) => void>('OPEN_DOW
 /** Detalle de una póliza para operaciones (HU-WEB-09): todo en una vista y el titular enmascarado. */
 @Component({
   selector: 'app-policy-detail',
-  imports: [DatePipe],
+  imports: [DatePipe, PolicyOperationsComponent],
   template: `
     <section class="detail" aria-labelledby="policyDetailTitle" (keydown.escape)="closed.emit()">
       <header>
@@ -118,6 +121,21 @@ export const OPEN_DOWNLOAD = new InjectionToken<(url: string) => void>('OPEN_DOW
           <dd>{{ cop(d.annual_premium) }}</dd>
         </dl>
 
+        <h3>Beneficiarios</h3>
+        @if (!d.beneficiaries?.length) {
+          <p class="none">No hay beneficiarios registrados: la indemnización se paga al titular.</p>
+        } @else {
+          <ul class="items">
+            @for (beneficiary of d.beneficiaries; track $index) {
+              <li>
+                <span>{{ beneficiary.name }}</span>
+                <strong>{{ beneficiary.percentage }} %</strong>
+                <span class="sub">{{ relationship(beneficiary.relationship) }} · {{ beneficiary.document_type }} {{ beneficiary.document }}</span>
+              </li>
+            }
+          </ul>
+        }
+
         <h3>Coberturas contratadas</h3>
         @if (d.coverages.length === 0) {
           <p class="none">Sin coberturas registradas.</p>
@@ -171,6 +189,8 @@ export const OPEN_DOWNLOAD = new InjectionToken<(url: string) => void>('OPEN_DOW
             }
           </ul>
         }
+
+        <app-policy-operations [policy]="d" (changed)="reload()" />
       }
     </section>
   `,
@@ -204,7 +224,7 @@ export const OPEN_DOWNLOAD = new InjectionToken<(url: string) => void>('OPEN_DOW
     .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: var(--t-xs); background: var(--n-100); color: var(--n-700); }
     .chip[data-status='ACTIVE'] { background: #e9f7ee; color: #15803d; }
     .chip[data-status='ISSUED'] { background: #fdf4e7; color: #b45309; }
-    .chip[data-status='CANCELLED'] { background: #fdeeee; color: #b91c1c; }
+    .chip[data-status='CANCELLED'], .chip[data-status='TERMINATED'] { background: #fdeeee; color: #b91c1c; }
   `],
 })
 export class PolicyDetailComponent {
@@ -245,6 +265,15 @@ export class PolicyDetailComponent {
 
   claimStatus(code: string): string {
     return CLAIM_STATUS[code] ?? code;
+  }
+
+  relationship(code: string): string {
+    return RELATIONSHIPS.find((option) => option.value === code)?.label ?? code;
+  }
+
+  /** Tras un endoso o una cancelación se vuelve a pedir el detalle (HU-WEB-15). */
+  reload(): void {
+    this.policies.getPolicyDetail(this.policyNumber()).subscribe({ next: (detail) => this.detail.set(detail) });
   }
 
   /** Pide un enlace nuevo en cada clic: uno vencido no se reutiliza (HU-WEB-16). */

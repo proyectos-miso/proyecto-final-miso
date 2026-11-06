@@ -105,6 +105,13 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/caratulas/*"
       },
       {
+        # Fotos de los siniestros (HU-WEB-15): el expediente solo las lee para verificar su huella y mostrarlas.
+        Sid      = "FotosDeSiniestros"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${var.s3_bucket_arn}/siniestros/*"
+      },
+      {
         Sid      = "LlaveDelBucket"
         Effect   = "Allow"
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]

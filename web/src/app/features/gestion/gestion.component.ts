@@ -9,18 +9,20 @@ import { PolicySearchItem, PolicyStatus } from '../../core/models/policy.model';
 import { PolicyService } from '../../core/policies/policy.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { PolicyDetailComponent } from './policy-detail.component';
+import { MonthlyReportComponent } from './monthly-report.component';
 import { PLAN_LABELS, POLICY_STATUS_OPTIONS, policyStatusLabel } from './policy-labels';
 
 /** Consulta de pólizas de operaciones: busca (HU-WEB-08) y abre el detalle con ?poliza= (HU-WEB-09). */
 @Component({
   selector: 'app-gestion',
-  imports: [DatePipe, FormsModule, PolicyDetailComponent],
+  imports: [DatePipe, FormsModule, PolicyDetailComponent, MonthlyReportComponent],
   template: `
     <section class="gestion" [class.with-detail]="selected()">
       <header>
         <h1>Consulta de pólizas</h1>
         <p class="subtitle">Busque por documento del cliente, número de póliza, socio de distribución o titular.</p>
       </header>
+      <app-monthly-report />
 
       <form class="search" role="search" (ngSubmit)="search()">
         <div class="field grow">
