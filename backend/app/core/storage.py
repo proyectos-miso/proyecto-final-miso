@@ -19,9 +19,13 @@ class DocumentStorage(Protocol):
 
     async def download_url(self, key: str, filename: str, expires_in: int) -> str: ...
 
+    async def get_bytes(self, key: str) -> bytes: ...
+
+    async def view_url(self, key: str, content_type: str, expires_in: int) -> str: ...
+
 
 class S3DocumentStorage:
-    """El bucket cifra con su llave KMS por defecto; el rol del backend solo toca caratulas/ (Terraform)."""
+    """El bucket cifra con su llave KMS por defecto; el rol del backend escribe en caratulas/ y lee siniestros/ (Terraform)."""
 
     def __init__(
         self, bucket: str, region: str, endpoint_url: Optional[str] = None, public_endpoint_url: Optional[str] = None
@@ -71,6 +75,21 @@ class S3DocumentStorage:
 
     async def download_url(self, key: str, filename: str, expires_in: int) -> str:
         """Enlace de solo lectura de esa clave, que descarga el archivo con su nombre."""
+        return await self._sign(key, "application/pdf", f'attachment; filename="{filename}"', expires_in)
+
+    async def view_url(self, key: str, content_type: str, expires_in: int) -> str:
+        """Enlace de solo lectura que el navegador muestra en la página, como la foto de un siniestro (HU-WEB-15)."""
+        return await self._sign(key, content_type, "inline", expires_in)
+
+    async def get_bytes(self, key: str) -> bytes:
+        """Contenido de la clave, para verificar su huella; no queda en disco (HU-WEB-15)."""
+        try:
+            response = await asyncio.to_thread(self.client.get_object, Bucket=self.bucket, Key=key)
+            return await asyncio.to_thread(response["Body"].read)
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("No se pudo leer el documento.") from exc
+
+    async def _sign(self, key: str, content_type: str, disposition: str, expires_in: int) -> str:
         try:
             url = await asyncio.to_thread(
                 self.signer.generate_presigned_url,
@@ -78,8 +97,8 @@ class S3DocumentStorage:
                 Params={
                     "Bucket": self.bucket,
                     "Key": key,
-                    "ResponseContentType": "application/pdf",
-                    "ResponseContentDisposition": f'attachment; filename="{filename}"',
+                    "ResponseContentType": content_type,
+                    "ResponseContentDisposition": disposition,
                 },
                 ExpiresIn=expires_in,
             )
@@ -88,6 +107,15 @@ class S3DocumentStorage:
         if self.require_https and not url.startswith("https://"):
             raise StorageUnavailableError("El enlace no usa HTTPS.")
         return url
+
+    async def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
+        """Lo usa HU-MOV-09 al recibir las fotos, y las pruebas para preparar un expediente."""
+        try:
+            await asyncio.to_thread(
+                self.client.put_object, Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("No se pudo guardar el documento.") from exc
 
 
 @lru_cache

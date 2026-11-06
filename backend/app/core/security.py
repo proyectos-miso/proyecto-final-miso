@@ -7,6 +7,7 @@ import json
 import logging
 import struct
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -177,6 +178,8 @@ def create_refresh_token(
         "sub": subject,
         "role": role,
         "type": "refresh",
+        # Identificador para revocarlo al cerrar sesión o al renovar (HU-WEB-15, RC-20).
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": expire,
     }

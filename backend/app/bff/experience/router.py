@@ -62,11 +62,17 @@ async def refresh_token(
     request: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Renovación silenciosa de sesión JWT mediante refresh token (HU-WEB-13)."""
+    """Renovación silenciosa de sesión JWT mediante refresh token (HU-WEB-13); el refresh usado se revoca."""
     return await auth_service.refresh_session(
         session=db,
         refresh_token=request.refresh_token,
     )
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db_session)):
+    """Cierre de sesión del portal: el refresh queda revocado en el backend (HU-WEB-15, RC-20)."""
+    await auth_service.logout(db, request.refresh_token)
 
 
 @router.post(

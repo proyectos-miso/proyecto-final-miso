@@ -211,7 +211,7 @@ class InMemorySessionTestDouble:
             self.outbox.append(obj)
         elif isinstance(obj, IdempotencyRecordDB):
             self.idempotency_records[(obj.partner_id, obj.idempotency_key)] = obj
-        else:
+        elif hasattr(obj, "username"):
             self.users[obj.username] = obj
 
     async def delete(self, obj):
