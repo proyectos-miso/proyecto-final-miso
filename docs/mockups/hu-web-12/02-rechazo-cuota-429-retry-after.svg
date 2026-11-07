@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 680" width="1000" height="680" style="background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <defs>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Barra Superior Banco Aliado -->
+  <rect x="0" y="0" width="1000" height="56" fill="#1e293b"/>
+  <circle cx="36" cy="28" r="14" fill="#ef4444"/>
+  <text x="36" y="33" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">BA</text>
+  <text x="62" y="34" fill="#ffffff" font-size="15" font-weight="600">Portal Banco Aliado · Solicitud de Crédito Digital</text>
+  <rect x="800" y="16" width="170" height="24" rx="12" fill="#334155"/>
+  <circle cx="814" cy="28" r="5" fill="#f59e0b"/>
+  <text x="826" y="33" fill="#e2e8f0" font-size="11">Cuota Excedida (429)</text>
+
+  <!-- Breadcrumbs & Título de Sección -->
+  <text x="40" y="88" fill="#64748b" font-size="13">Solicitud #CR-2026-8841 &gt; Paso 3: Protección y Seguros</text>
+  <text x="40" y="118" fill="#0f172a" font-size="22" font-weight="700">Paso 3 de 4: Cobertura de Vida Deudores</text>
+
+  <!-- PANEL IZQUIERDO: Degeneración Elegante en el Canal de Venta -->
+  <rect x="40" y="140" width="450" height="490" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#shadow)"/>
+  
+  <rect x="40" y="140" width="450" height="44" rx="10" fill="#f8fafc"/>
+  <rect x="40" y="174" width="450" height="10" fill="#f8fafc"/>
+  <line x1="40" y1="184" x2="490" y2="184" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="60" y="167" fill="#0f172a" font-size="14" font-weight="700">Experiencia del Solicitante (Frontend Banco)</text>
+
+  <!-- Banner Informativo de Degradación Elegante -->
+  <rect x="60" y="202" width="410" height="110" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>
+  <circle cx="86" cy="228" r="12" fill="#3b82f6"/>
+  <text x="86" y="233" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">i</text>
+  <text x="110" y="226" fill="#1e40af" font-size="13" font-weight="700">Seguro voluntario temporalmente no disponible</text>
+  <text x="110" y="246" fill="#1e3a8a" font-size="11">El servicio de tarificación automática no pudo incluir la póliza</text>
+  <text x="110" y="262" fill="#1e3a8a" font-size="11">en este momento. Tu solicitud de crédito principal continuará</text>
+  <text x="110" y="278" fill="#1e3a8a" font-size="11">sin demoras ni bloqueos (Degradación elegante).</text>
+  <text x="110" y="298" fill="#2563eb" font-size="11" font-weight="600">Un asesor se comunicará si deseas añadirla posteriormente.</text>
+
+  <!-- Resumen del Crédito Base (No bloqueado) -->
+  <rect x="60" y="328" width="410" height="180" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="356" fill="#475569" font-size="12" font-weight="600">RESUMEN DEL CRÉDITO EN CURSO</text>
+  
+  <text x="80" y="388" fill="#64748b" font-size="12">Monto solicitado:</text>
+  <text x="450" y="388" fill="#0f172a" font-size="13" font-weight="700" text-anchor="end">$ 25.000.000 COP</text>
+  
+  <text x="80" y="416" fill="#64748b" font-size="12">Plazo pactado:</text>
+  <text x="450" y="416" fill="#0f172a" font-size="13" font-weight="700" text-anchor="end">36 meses</text>
+  
+  <text x="80" y="444" fill="#64748b" font-size="12">Seguro de Vida Deudores:</text>
+  <rect x="360" y="430" width="90" height="20" rx="4" fill="#f1f5f9"/>
+  <text x="405" y="444" fill="#64748b" font-size="11" font-weight="600" text-anchor="middle">Omitido (429)</text>
+
+  <line x1="80" y1="462" x2="450" y2="462" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="488" fill="#0f172a" font-size="13" font-weight="700">Cuota Mensual Crédito:</text>
+  <text x="450" y="488" fill="#059669" font-size="16" font-weight="700" text-anchor="end">$ 892.400 COP</text>
+
+  <!-- Botones de Acción -->
+  <rect x="60" y="534" width="410" height="42" rx="6" fill="#2563eb"/>
+  <text x="265" y="560" fill="#ffffff" font-size="14" font-weight="600" text-anchor="middle">Continuar a Desembolso &gt;</text>
+  <text x="265" y="600" fill="#64748b" font-size="11" text-anchor="middle">El proceso crediticio principal no sufre interrupción</text>
+
+  <!-- PANEL DERECHO: Detalle Técnico del Rechazo 429 -->
+  <rect x="510" y="140" width="450" height="490" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#shadow)"/>
+  
+  <rect x="510" y="140" width="450" height="44" rx="10" fill="#f8fafc"/>
+  <rect x="510" y="174" width="450" height="10" fill="#f8fafc"/>
+  <line x1="510" y1="184" x2="960" y2="184" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="530" y="167" fill="#0f172a" font-size="14" font-weight="700">Diagnóstico API Solventa (Backend Socio)</text>
+
+  <!-- Tarjeta HTTP 429 -->
+  <rect x="530" y="202" width="410" height="64" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <rect x="546" y="218" width="60" height="32" rx="4" fill="#dc2626"/>
+  <text x="576" y="239" fill="#ffffff" font-size="13" font-weight="700" text-anchor="middle">429</text>
+  <text x="618" y="228" fill="#991b1b" font-size="13" font-weight="700">Too Many Requests · Cuota Superada</text>
+  <text x="618" y="247" fill="#b91c1c" font-size="11">POST /api/v1/partners/quotes/life-credit</text>
+
+  <!-- Consola de Encabezados RFC 6585 / IETF Draft -->
+  <rect x="530" y="278" width="410" height="140" rx="6" fill="#0f172a"/>
+  <text x="546" y="302" fill="#94a3b8" font-size="11" font-family="monospace">// Response Headers HTTP/1.1</text>
+  <text x="546" y="324" fill="#38bdf8" font-size="12" font-family="monospace">Retry-After:</text>
+  <text x="650" y="324" fill="#facc15" font-size="12" font-family="monospace" font-weight="bold">1500</text>
+  <text x="695" y="324" fill="#64748b" font-size="11" font-family="monospace">(segundos ~ 25 min)</text>
+  
+  <text x="546" y="348" fill="#38bdf8" font-size="12" font-family="monospace">X-RateLimit-Limit:</text>
+  <text x="710" y="348" fill="#f8fafc" font-size="12" font-family="monospace">50000</text>
+
+  <text x="546" y="372" fill="#38bdf8" font-size="12" font-family="monospace">X-RateLimit-Remaining:</text>
+  <text x="735" y="372" fill="#ef4444" font-size="12" font-family="monospace" font-weight="bold">0</text>
+
+  <text x="546" y="396" fill="#38bdf8" font-size="12" font-family="monospace">X-RateLimit-Reset:</text>
+  <text x="700" y="396" fill="#f8fafc" font-size="12" font-family="monospace">1740841200</text>
+  <text x="795" y="396" fill="#64748b" font-size="11" font-family="monospace">(15:00:00 COT)</text>
+
+  <!-- Payload RFC 7807 (Problem Details) -->
+  <rect x="530" y="430" width="410" height="186" rx="6" fill="#1e293b"/>
+  <text x="546" y="452" fill="#94a3b8" font-size="11" font-family="monospace">// Payload JSON (application/problem+json)</text>
+  <text x="546" y="472" fill="#f8fafc" font-size="11" font-family="monospace">{</text>
+  <text x="562" y="490" fill="#f472b6" font-size="11" font-family="monospace">"type":</text> <text x="620" y="490" fill="#a7f3d0" font-size="11" font-family="monospace">"https://solventa.co/errors/rate-limit"</text><text x="915" y="490" fill="#f8fafc" font-size="11" font-family="monospace">,</text>
+  <text x="562" y="508" fill="#f472b6" font-size="11" font-family="monospace">"title":</text> <text x="625" y="508" fill="#a7f3d0" font-size="11" font-family="monospace">"Cuota de peticiones excedida"</text><text x="860" y="508" fill="#f8fafc" font-size="11" font-family="monospace">,</text>
+  <text x="562" y="526" fill="#f472b6" font-size="11" font-family="monospace">"status":</text> <text x="635" y="526" fill="#facc15" font-size="11" font-family="monospace">429</text><text x="660" y="526" fill="#f8fafc" font-size="11" font-family="monospace">,</text>
+  <text x="562" y="544" fill="#f472b6" font-size="11" font-family="monospace">"detail":</text> <text x="630" y="544" fill="#a7f3d0" font-size="11" font-family="monospace">"Has alcanzado el límite de 50.000 req/h."</text><text x="925" y="544" fill="#f8fafc" font-size="11" font-family="monospace">,</text>
+  <text x="562" y="562" fill="#f472b6" font-size="11" font-family="monospace">"retry_after_seconds":</text> <text x="730" y="562" fill="#facc15" font-size="11" font-family="monospace">1500</text><text x="760" y="562" fill="#f8fafc" font-size="11" font-family="monospace">,</text>
+  <text x="562" y="580" fill="#f472b6" font-size="11" font-family="monospace">"reset_at":</text> <text x="645" y="580" fill="#a7f3d0" font-size="11" font-family="monospace">"2026-10-31T15:00:00-05:00"</text>
+  <text x="546" y="598" fill="#f8fafc" font-size="11" font-family="monospace">}</text>
+</svg>
+

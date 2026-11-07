@@ -52,6 +52,9 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
             ))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
+            # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
         try:
             async with engine.begin() as conn:
                 await create_search_indexes(conn)
@@ -91,6 +94,13 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    expose_headers=[
+        "Retry-After",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "X-RateLimit-Reset-Time",
+    ],
 )
 
 # 2. Middleware de Contexto Multi-Tenant (ASR-06 / HA-14)

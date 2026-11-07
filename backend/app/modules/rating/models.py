@@ -137,8 +137,53 @@ class PartnerQuoteResponse(QuoteResponse):
         )
 
 
+class PartnerQuotaStatus(BaseModel):
+    """Estado y telemetría de cuota de un socio B2B dentro de su ventana de tiempo (HU-WEB-12)."""
+    partner_id: str
+    quota_limit: int
+    quota_used: int
+    quota_remaining: int
+    quota_window_seconds: int
+    reset_at: datetime
+    retry_after: int = 0
+
+
+class PartnerQuotaExceededResponse(BaseModel):
+    """Respuesta HTTP 429 cuando el socio supera su cuota de cotización contratada (HU-WEB-12)."""
+    detail: str = Field(
+        default="Se ha superado la cuota de solicitudes contratada para el socio.",
+        description="Mensaje claro y comprensible sobre el motivo del rechazo.",
+        json_schema_extra={"example": "Se ha superado la cuota de solicitudes contratada para el socio."},
+    )
+    error: str = Field(
+        default="QUOTA_EXCEEDED",
+        description="Código de error estandarizado para integración automatizada.",
+        json_schema_extra={"example": "QUOTA_EXCEEDED"},
+    )
+    retry_after: int = Field(
+        ...,
+        description="Segundos que el socio debe esperar antes de reintentar una nueva solicitud.",
+        json_schema_extra={"example": 1500},
+    )
+    reset_at: str = Field(
+        ...,
+        description="Fecha y hora UTC ISO-8601 en la que la cuota se renueva.",
+        json_schema_extra={"example": "2026-10-31T15:00:00+00:00"},
+    )
+    quota_limit: int = Field(
+        ...,
+        description="Límite máximo de solicitudes contratadas para el período.",
+        json_schema_extra={"example": 50000},
+    )
+    quota_remaining: int = Field(
+        default=0,
+        description="Solicitudes restantes en la ventana activa (0 al ser rechazado).",
+        json_schema_extra={"example": 0},
+    )
+
+
 class PartnerDB(Base):
-    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10)."""
+    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10, HU-WEB-12)."""
     __tablename__ = "partners"
 
     partner_id = Column(String(64), primary_key=True, index=True)
@@ -148,6 +193,8 @@ class PartnerDB(Base):
     status = Column(String(32), nullable=False, default=PartnerStatus.ACTIVE.value)
     quota_limit = Column(Integer, nullable=False, default=50000)
     quota_used = Column(Integer, nullable=False, default=0)
+    quota_window_seconds = Column(Integer, nullable=False, default=3600)
+    quota_reset_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

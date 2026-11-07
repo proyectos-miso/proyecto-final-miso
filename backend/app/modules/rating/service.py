@@ -1,6 +1,7 @@
 """Motor actuarial: desglose de la prima, degradación por latencia del buró, reglas de suscripción,
 canal de socios B2B e idempotencia (HU-WEB-03 a 05, HU-WEB-07, HU-WEB-10, HU-WEB-11)."""
 import asyncio
+import math
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable, List, Optional, Tuple
@@ -16,6 +17,8 @@ from app.modules.rating.models import (
     Coverage,
     PartnerDB,
     PartnerQuoteResponse,
+    PartnerQuotaExceededResponse,
+    PartnerQuotaStatus,
     PartnerStatus,
     PlanTier,
     PremiumFactor,
@@ -24,6 +27,28 @@ from app.modules.rating.models import (
     QuoteResponse,
     QuoteTierDetail,
 )
+
+
+class PartnerQuotaExceededError(Exception):
+    """Lanzada cuando un socio de distribución B2B supera su cuota de cotizaciones contratada (HU-WEB-12)."""
+
+    def __init__(
+        self,
+        partner_id: str,
+        quota_limit: int,
+        quota_used: int,
+        reset_at: datetime,
+        retry_after: int,
+    ):
+        self.partner_id = partner_id
+        self.quota_limit = quota_limit
+        self.quota_used = quota_used
+        self.reset_at = reset_at
+        self.retry_after = max(1, retry_after)
+        super().__init__(
+            f"El socio '{partner_id}' superó su cuota contratada ({quota_used}/{quota_limit}). "
+            f"Reintentar en {self.retry_after} segundos (renueva a las {reset_at.isoformat()})."
+        )
 
 DEFAULT_PARTNERS = [
     {
@@ -34,6 +59,7 @@ DEFAULT_PARTNERS = [
         "status": PartnerStatus.ACTIVE.value,
         "quota_limit": 50000,
         "quota_used": 0,
+        "quota_window_seconds": 3600,
     },
     {
         "partner_id": "socio-inactivo-1",
@@ -43,6 +69,7 @@ DEFAULT_PARTNERS = [
         "status": PartnerStatus.REVOKED.value,
         "quota_limit": 1000,
         "quota_used": 0,
+        "quota_window_seconds": 3600,
     },
 ]
 
@@ -194,6 +221,7 @@ class RatingService:
         simulated_bureau_delay: float = 0.0,
         partner_id: Optional[str] = None,
         commit: bool = True,
+        increment_quota: bool = True,
     ) -> QuoteResponse:
         """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HU-WEB-10, HA-17).
         Un rechazo de suscripción se registra aparte y no deja cotización emitible (HU-WEB-07)."""
@@ -222,7 +250,7 @@ class RatingService:
                 expires_at=datetime.fromisoformat(quote.expires_at),
             )
         )
-        if partner_id:
+        if partner_id and increment_quota:
             await session.execute(
                 update(PartnerDB)
                 .where(PartnerDB.partner_id == partner_id)
@@ -231,6 +259,110 @@ class RatingService:
         if commit:
             await session.commit()
         return quote
+
+    async def get_or_init_partner_window(
+        self,
+        session: AsyncSession,
+        partner_id: str,
+        now: Optional[datetime] = None,
+    ) -> Tuple[PartnerDB, datetime]:
+        """Obtiene el socio y asegura que su ventana de cuota esté inicializada y vigente (HU-WEB-12)."""
+        current_time = now or datetime.now(timezone.utc)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=timezone.utc)
+
+        stmt = select(PartnerDB).where(PartnerDB.partner_id == partner_id)
+        result = await session.execute(stmt)
+        partner = result.scalars().first()
+        if not partner:
+            raise ValueError(f"Socio '{partner_id}' no encontrado.")
+
+        window_seconds = getattr(partner, "quota_window_seconds", None) or settings.PARTNER_QUOTA_WINDOW_SECONDS
+        reset_at = getattr(partner, "quota_reset_at", None)
+        if reset_at is not None and reset_at.tzinfo is None:
+            reset_at = reset_at.replace(tzinfo=timezone.utc)
+
+        # Si no tiene fecha de reinicio inicial, se fija la ventana sin alterar el contador:
+        if reset_at is None:
+            partner.quota_reset_at = current_time + timedelta(seconds=window_seconds)
+        # Si ya se cumplió el tiempo de la ventana previa, reiniciamos el contador y fijamos nueva fecha:
+        elif current_time >= reset_at:
+            partner.quota_used = 0
+            partner.quota_reset_at = current_time + timedelta(seconds=window_seconds)
+
+        return partner, current_time
+
+    async def consume_partner_quota(
+        self,
+        session: AsyncSession,
+        partner_id: str,
+        now: Optional[datetime] = None,
+        commit: bool = False,
+    ) -> PartnerQuotaStatus:
+        """
+        Valida y consume una solicitud de la cuota del socio en la ventana activa (HU-WEB-12).
+        Lanza PartnerQuotaExceededError si la cuota fue superada.
+        """
+        partner, current_time = await self.get_or_init_partner_window(session, partner_id, now)
+        reset_at = partner.quota_reset_at
+        if reset_at.tzinfo is None:
+            reset_at = reset_at.replace(tzinfo=timezone.utc)
+
+        retry_after = max(1, math.ceil((reset_at - current_time).total_seconds()))
+
+        if partner.quota_used >= partner.quota_limit:
+            raise PartnerQuotaExceededError(
+                partner_id=partner.partner_id,
+                quota_limit=partner.quota_limit,
+                quota_used=partner.quota_used,
+                reset_at=reset_at,
+                retry_after=retry_after,
+            )
+
+        partner.quota_used += 1
+        if commit:
+            await session.commit()
+
+        remaining = max(0, partner.quota_limit - partner.quota_used)
+        return PartnerQuotaStatus(
+            partner_id=partner.partner_id,
+            quota_limit=partner.quota_limit,
+            quota_used=partner.quota_used,
+            quota_remaining=remaining,
+            quota_window_seconds=partner.quota_window_seconds or settings.PARTNER_QUOTA_WINDOW_SECONDS,
+            reset_at=reset_at,
+            retry_after=0,
+        )
+
+    async def get_partner_quota_status(
+        self,
+        session: AsyncSession,
+        partner_id: str,
+        now: Optional[datetime] = None,
+    ) -> PartnerQuotaStatus:
+        """
+        Consulta el estado actual de cuota y ventana de un socio sin incrementar quota_used (HU-WEB-12).
+        """
+        partner, current_time = await self.get_or_init_partner_window(session, partner_id, now)
+        reset_at = partner.quota_reset_at
+        if reset_at.tzinfo is None:
+            reset_at = reset_at.replace(tzinfo=timezone.utc)
+
+        retry_after = (
+            max(1, math.ceil((reset_at - current_time).total_seconds()))
+            if partner.quota_used >= partner.quota_limit
+            else 0
+        )
+        remaining = max(0, partner.quota_limit - partner.quota_used)
+        return PartnerQuotaStatus(
+            partner_id=partner.partner_id,
+            quota_limit=partner.quota_limit,
+            quota_used=partner.quota_used,
+            quota_remaining=remaining,
+            quota_window_seconds=partner.quota_window_seconds or settings.PARTNER_QUOTA_WINDOW_SECONDS,
+            reset_at=reset_at,
+            retry_after=retry_after,
+        )
 
     async def get_partner_quote(
         self,
@@ -278,6 +410,8 @@ class RatingService:
                 status=item["status"],
                 quota_limit=item["quota_limit"],
                 quota_used=item["quota_used"],
+                quota_window_seconds=item.get("quota_window_seconds", settings.PARTNER_QUOTA_WINDOW_SECONDS),
+                quota_reset_at=item.get("quota_reset_at"),
             )
             session.add(partner)
             seeded.append(partner)
