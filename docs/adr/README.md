@@ -44,6 +44,7 @@ team accepts or changes them.
 | [0017](0017-mobile-credential-storage.md) | Credentials protected by the Keystore and biometrics; tokens only in memory |
 | [0021](0021-mobile-encrypted-local-database.md) | An encrypted local database per account with Room and SQLCipher |
 | [0022](0022-mobile-background-work.md) | Background work with WorkManager |
+| [0024](0024-mobile-claim-evidence.md) | Claim evidence encrypted on the device |
 
 ## Infrastructure (Terraform)
 

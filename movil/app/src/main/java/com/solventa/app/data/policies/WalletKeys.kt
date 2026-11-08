@@ -105,10 +105,18 @@ class KeystoreWalletKeys(
     }
 }
 
-/** Frase aleatoria de la base de cada cuenta, guardada solo envuelta por su llave del Keystore (CRY-01). */
-class PassphraseVault(context: Context, private val keys: WalletKeys) {
+/**
+ * Frase aleatoria de la base de cada cuenta, guardada solo envuelta por su llave del Keystore (CRY-01). La
+ * billetera y el reporte de siniestro usan preferencias y alias propios: una llave por propósito (HU-MOV-08).
+ */
+class PassphraseVault(
+    context: Context,
+    private val keys: WalletKeys,
+    prefsName: String = WALLET_PREFS,
+    private val aliasPrefix: String = WALLET_ALIAS_PREFIX,
+) {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val random = SecureRandom()
 
     /** null sin frase guardada; Invalid si la guardada está dañada (HU-MOV-05). */
@@ -154,15 +162,21 @@ class PassphraseVault(context: Context, private val keys: WalletKeys) {
         prefs.edit().remove("$accountId.discarded").commit()
     }
 
-    private fun alias(accountId: String) = "solventa_wallet_$accountId"
+    private fun alias(accountId: String) = "$aliasPrefix$accountId"
     private fun encode(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
     private fun decode(value: String) = Base64.getDecoder().decode(value)
 
     companion object {
-        private const val PREFS_NAME = "solventa_wallet"
+        private const val WALLET_PREFS = "solventa_wallet"
+        private const val WALLET_ALIAS_PREFIX = "solventa_wallet_"
+        private const val CLAIMS_PREFS = "solventa_claims"
+        private const val CLAIMS_ALIAS_PREFIX = "solventa_claims_"
         private const val PASSPHRASE_BYTES = 32
         private const val GCM_IV_BYTES = 12
         private const val GCM_TAG_BYTES = 16
+
+        /** Frase y llave del reporte de siniestro, separadas de las de la billetera (HU-MOV-08, CRY-02). */
+        fun forClaims(context: Context, keys: WalletKeys) = PassphraseVault(context, keys, CLAIMS_PREFS, CLAIMS_ALIAS_PREFIX)
 
         /** Identificador de la cuenta para archivos y alias, sin dejar el correo en el teléfono. */
         fun accountId(email: String): String =
