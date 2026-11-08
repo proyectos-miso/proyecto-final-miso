@@ -21,9 +21,10 @@ class PolicyCancelledError(Exception):
     pass
 
 
-def caratula_key(policy_number: str) -> str:
-    """La clave sale del número ya validado por la ruta; el cliente nunca la manda."""
-    return f"caratulas/{policy_number}.pdf"
+def caratula_key(policy_number: str, version: int = 1) -> str:
+    """La clave sale del número ya validado por la ruta; el cliente nunca la manda.
+    Cada endoso sube la versión y la carátula nueva no pisa la anterior (HU-WEB-15)."""
+    return f"caratulas/{policy_number}.pdf" if version <= 1 else f"caratulas/{policy_number}-v{version}.pdf"
 
 
 def cop(amount: float) -> str:
@@ -60,7 +61,8 @@ def render_caratula(policy: PolicyDB, partner_name: Optional[str], generated_at:
 
     # Mismas secciones y etiquetas que el detalle de Gestión (HU-WEB-09).
     write(f"Carátula de la póliza {policy.policy_number}", "B", 16, 9)
-    write("Solventa Seguros Digitales")
+    version = getattr(policy, "version", None) or 1
+    write("Solventa Seguros Digitales" + (f" · Versión {version} (con endosos)" if version > 1 else ""))
 
     heading("Titular")
     write(f"Nombre: {policy.holder_name or 'Sin nombre registrado'}")
@@ -79,6 +81,7 @@ def render_caratula(policy: PolicyDB, partner_name: Optional[str], generated_at:
     for coverage in included:
         deductible = coverage.get("deductible", 0.0)
         write(f"{coverage['name']}: {cop(coverage['limit'])}" + (f", deducible {cop(deductible)}" if deductible else ""))
+
 
     pdf.ln(6)
     write(
@@ -115,7 +118,7 @@ async def get_caratula_link(
 
     key = policy.pdf_s3_key
     if key is None:
-        key = caratula_key(policy.policy_number)
+        key = caratula_key(policy.policy_number, getattr(policy, "version", None) or 1)
         await storage.put_pdf(key, render_caratula(policy, partner_name, now()))
         await session.execute(update(PolicyDB).where(PolicyDB.policy_number == policy.policy_number).values(pdf_s3_key=key))
         await session.commit()

@@ -17,6 +17,7 @@ from app.core.security import (
 )
 from app.modules.rating.models import PartnerDB
 from app.modules.auth.models import LoginResponse, UserDB
+from app.modules.identity.db_models import RevokedTokenDB
 
 DEFAULT_SEED_USERNAME = "asesor@solventa.com"
 DEFAULT_SEED_PASSWORD = "SuperSecreta2026*"
@@ -222,6 +223,13 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token de refresco inválido",
             )
+        # Un refresh revocado al cerrar sesión o ya usado no renueva (HU-WEB-15, RC-20).
+        jti = payload.get("jti")
+        if jti and await session.get(RevokedTokenDB, jti) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de refresco inválido o expirado",
+            )
 
         user = await self.get_user_by_username(session, username)
         if not user or not user.is_active:
@@ -230,7 +238,23 @@ class AuthService:
                 detail="Usuario inactivo o no encontrado",
             )
 
+        await self.revoke(session, payload)
         return self.generate_session_tokens(user)
+
+    async def logout(self, session: AsyncSession, refresh_token: str) -> None:
+        """Revoca el refresh del portal; uno inválido o vencido ya no sirve y no hay nada que revocar."""
+        try:
+            payload = decode_refresh_token(refresh_token)
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+            return
+        await self.revoke(session, payload)
+
+    @staticmethod
+    async def revoke(session: AsyncSession, payload: dict) -> None:
+        jti = payload.get("jti")
+        if jti and await session.get(RevokedTokenDB, jti) is None:
+            session.add(RevokedTokenDB(jti=jti, expires_at=datetime.fromtimestamp(payload["exp"], tz=timezone.utc)))
+            await session.commit()
 
 
 auth_service = AuthService()

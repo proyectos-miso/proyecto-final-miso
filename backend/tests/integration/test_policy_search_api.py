@@ -9,6 +9,7 @@ from app.modules.policy.models import PolicyDB
 from app.modules.rating.service import rating_service
 from tests.integration.policy_search_fixtures import (
     ALIADO,
+    BENEFICIARIES,
     OTRO,
     REVOCADO,
     add_policies,
@@ -89,7 +90,8 @@ async def test_tc_02_al_emitir_desde_el_portal_se_guarda_el_titular(async_client
     holder = {"name": "Carolina Prueba Gómez", "document_type": "CC", "email": "carolina@example.com", "phone": "3001234567"}
 
     response = await async_client.post(
-        "/api/v1/experience/policies", headers=advisor, json={"quote_id": quote["quote_id"], "tier": "standard", "holder": holder}
+        "/api/v1/experience/policies", headers=advisor, json={"quote_id": quote["quote_id"], "tier": "standard", "holder": holder,
+              "beneficiaries": BENEFICIARIES}
     )
 
     assert response.status_code == 200

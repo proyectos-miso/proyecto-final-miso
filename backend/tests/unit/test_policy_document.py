@@ -31,7 +31,8 @@ def policy(**changes) -> SimpleNamespace:
         holder_email="carolina@example.com",
         holder_phone="3001112233",
         insured_document="1020304050",
-        beneficiaries=[{"name": "Beneficiaria Prueba", "document": "9988776655"}],
+        beneficiaries=[{"name": "Beneficiaria Prueba", "document_type": "CC", "document_number": "9988776655",
+                        "relationship": "HIJO", "percentage": 100}],
     )
     values.update(changes)
     return SimpleNamespace(**values)
@@ -72,6 +73,14 @@ def test_tc_02_el_documento_va_enmascarado_y_sin_contacto_ni_beneficiarios():
     assert "Documento: CC ******4050" in text
     for hidden in ["1020304050", "carolina@example.com", "3001112233", "Beneficiaria", "9988776655"]:
         assert hidden not in text
+
+
+def test_hu_web_15_despues_de_un_endoso_la_caratula_dice_su_version():
+    """HU-WEB-15 (RC-21): la carátula de un endoso lleva su versión y sigue sin beneficiarios (HU-WEB-16, AC-07)."""
+    text = render(version=2)
+
+    assert "Versión 2" in text
+    assert "Beneficiaria" not in text
 
 
 def test_tc_02_sin_titular_registrado_lo_dice_y_enmascara_el_documento():
