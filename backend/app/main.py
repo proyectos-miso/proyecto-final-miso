@@ -58,6 +58,9 @@ async def lifespan(app: FastAPI):
             # HU-WEB-16: clave de la carátula en S3, vacía hasta el primer pedido.
             await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(64)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
+            # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
             # HU-WEB-15: versión de la póliza por endosos y datos del siniestro para el expediente y el dictamen.
             await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1"))
             await conn.execute(text(
@@ -113,6 +116,13 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    expose_headers=[
+        "Retry-After",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "X-RateLimit-Reset-Time",
+    ],
 )
 
 # 2. Middleware de Contexto Multi-Tenant (ASR-06 / HA-14)
