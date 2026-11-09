@@ -2,6 +2,10 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  CaratulaLink,
+  EndorsementRequest,
+  PolicyAudit,
+  PolicyOperationResult,
   PolicyDetail,
   PolicyIssueRequest,
   PolicyRecord,
@@ -31,5 +35,39 @@ export class PolicyService {
   /** Detalle de operaciones (HU-WEB-09); una póliza fuera del alcance responde 404 como una inexistente. */
   getPolicyDetail(policyNumber: string): Observable<PolicyDetail> {
     return this.http.get<PolicyDetail>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}`);
+  }
+
+  /** Enlace de 15 minutos a la carátula (HU-WEB-16); el backend la genera la primera vez. */
+  getCaratulaLink(policyNumber: string): Observable<CaratulaLink> {
+    return this.http.get<CaratulaLink>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/caratula`);
+  }
+
+  /** Endoso de beneficiarios o de suma asegurada (HU-WEB-15). */
+  endorse(policyNumber: string, request: EndorsementRequest): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/endorsements`,
+      request,
+    );
+  }
+
+  /** Cancelación a pedido del cliente con devolución proporcional (HU-WEB-15). */
+  cancel(policyNumber: string, reason: string): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/cancellation`,
+      { reason },
+    );
+  }
+
+  /** Decisiones sobre la póliza en orden (HU-WEB-15). */
+  audit(policyNumber: string): Observable<PolicyAudit> {
+    return this.http.get<PolicyAudit>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/audit`);
+  }
+
+  /** Reporte mensual al regulador y al reasegurador, como archivo (HU-WEB-15). */
+  monthlyReport(period: string, format: 'csv' | 'pdf'): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/experience/reports/${period}`, {
+      params: new HttpParams().set('format', format),
+      responseType: 'blob',
+    });
   }
 }

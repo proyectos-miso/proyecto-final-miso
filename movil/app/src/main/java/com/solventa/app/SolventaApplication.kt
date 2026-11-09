@@ -3,6 +3,7 @@ package com.solventa.app
 import android.app.Application
 import android.app.KeyguardManager
 import com.solventa.app.data.auth.HttpAuthApi
+import com.solventa.app.data.claims.EncryptedClaimStore
 import com.solventa.app.data.policies.EncryptedPolicyStore
 import com.solventa.app.data.policies.HttpPoliciesApi
 import com.solventa.app.data.policies.KeystoreWalletKeys
@@ -15,6 +16,7 @@ import com.solventa.app.data.settings.ThemePreferenceStore
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.data.session.SharedPreferencesSessionStore
 import com.solventa.app.domain.auth.AuthApi
+import com.solventa.app.domain.claims.ClaimReportStore
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
@@ -44,8 +46,17 @@ class SolventaApplication : Application(), PolicySyncHost {
         EncryptedPolicyStore(this, PassphraseVault(this, KeystoreWalletKeys(isDeviceLocked = keyguard::isDeviceLocked)))
     }
 
+    // Reporte de siniestro con su propia base, frase y llave por cuenta, aparte de la billetera (HU-MOV-08, ADR 0024).
+    val claimStore: ClaimReportStore by lazy {
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        EncryptedClaimStore(this, PassphraseVault.forClaims(this, KeystoreWalletKeys(isDeviceLocked = keyguard::isDeviceLocked)))
+    }
+
     override val policySync: PolicySync by lazy {
-        SessionPolicySync(sessionRepository, authApi, policiesApi, policyStore, WorkManagerSyncScheduler(this))
+        SessionPolicySync(
+            sessionRepository, authApi, policiesApi, policyStore, WorkManagerSyncScheduler(this),
+            onDeviceRejected = { claimStore.delete(it) },
+        )
     }
 
     override fun onCreate() {

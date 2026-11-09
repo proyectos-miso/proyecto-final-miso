@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.solventa.app.R
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
+import com.solventa.app.ui.claims.ReportEntry
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.SecondaryButton
 import com.solventa.app.ui.theme.SectionLabel
@@ -74,6 +77,8 @@ fun WalletScreen(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
     onRetry: () -> Unit = {},
+    reportEntry: ReportEntry = ReportEntry.HIDDEN,
+    onReport: () -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -113,6 +118,8 @@ fun WalletScreen(
                             .padding(top = 8.dp),
                     )
                 }
+                // Debajo del carné, como el mockup 1 (HU-MOV-08, AC-06).
+                if (reportEntry != ReportEntry.HIDDEN) item(key = "report") { ReportButton(reportEntry, onReport) }
                 item(key = "header") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -144,6 +151,11 @@ fun WalletScreen(
                     )
                 }
             }
+        }
+        // Sin carnés (copia descartada o no disponible, sin conexión ni copia, o sin pólizas), debajo del aviso: un
+        // reporte guardado siempre se puede retomar o descartar (HU-MOV-08, SR-13).
+        if (current == null && !uiState.loading && reportEntry != ReportEntry.HIDDEN) {
+            item(key = "report") { ReportButton(reportEntry, onReport) }
         }
         uiState.lastSync?.let { lastSync ->
             item(key = "lastSync") { LastSync(lastSync) }
@@ -444,6 +456,29 @@ private fun Loading() {
             .padding(vertical = 32.dp),
     ) {
         CircularProgressIndicator(modifier = Modifier.semantics { contentDescription = description })
+    }
+}
+
+@Composable
+private fun ReportButton(entry: ReportEntry, onClick: () -> Unit) {
+    val text = stringResource(
+        when (entry) {
+            ReportEntry.RESUME -> R.string.claim_resume_button
+            ReportEntry.READY -> R.string.claim_ready_button
+            else -> R.string.claim_report_button
+        },
+    )
+    Button(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_camera), contentDescription = null, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.size(10.dp))
+        Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
 

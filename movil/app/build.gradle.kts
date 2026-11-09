@@ -8,6 +8,8 @@ plugins {
 
 // Para el túnel local: ./gradlew assembleDebug -PapiBaseUrl=https://xxxx.trycloudflare.com/api/v1/
 val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
+// Las pantallas del reporte de siniestro bloquean capturas en release; -PsecureScreens=true lo activa en debug para probarlo (HU-MOV-08).
+val secureScreensInDebug = (project.findProperty("secureScreens") as String?) == "true"
 
 android {
     namespace = "com.solventa.app"
@@ -25,7 +27,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "SECURE_SCREENS", "$secureScreensInDebug")
+        }
         release {
+            buildConfigField("boolean", "SECURE_SCREENS", "true")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -64,6 +70,10 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.sqlcipher)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
@@ -87,6 +97,11 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     doFirst {
         check(apiBaseUrl.startsWith("https://")) { "La release necesita -PapiBaseUrl=https://…; se recibió $apiBaseUrl" }
     }
+}
+
+// La base del reporte de siniestro exporta su esquema: sus datos solo existen en el teléfono (ADR 0021, punto 6; HU-MOV-08).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 // Las vistas previas (@Preview) solo existen para el editor de Android Studio; no son código de la app.

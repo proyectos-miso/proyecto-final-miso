@@ -3,8 +3,8 @@
 | Field | Value |
 |---|---|
 | Status | Proposed |
-| Date | 2026-10-22, amended 2026-10-23 |
-| Story | none; amended by HU-MOV-04 |
+| Date | 2026-10-22, amended 2026-10-23 and 2026-11-05 |
+| Story | none; amended by HU-MOV-04 and HU-MOV-08 |
 | Deciders | The team (to be confirmed) |
 
 ## Context
@@ -46,6 +46,9 @@ Option A now, with a planned move to Navigation Compose.
    policy detail, payments or claims), not merely when a second feature exists. It is a new dependency,
    evaluated, through its own ADR, with type-safe routes and the back stack. Authentication becomes one
    nested graph. Amended on 2026-10-23: the single-screen wallet of HU-MOV-04 is one more branch.
+   Amended on 2026-11-05: the claim report of HU-MOV-08 is a linear flow with a `BackHandler` per screen
+   and stays one more branch; the move to Navigation Compose happens with HU-MOV-11, which adds tabs and
+   the claims list and detail.
 4. Back behavior and process death keep sensitive values out of saved state. Passwords, one-time codes,
    tokens and keys never go into `rememberSaveable`, `SavedStateHandle`, route arguments or deep links.
 
@@ -53,9 +56,9 @@ Option A now, with a planned move to Navigation Compose.
 
 - Easier: no new dependency now; the auth flow stays in one ViewModel; tests drive it through state.
 - Harder: until the move, back and deep links are manual, and the order of `when` must stay correct.
-- Migration: the spec of the first feature with several screens includes the navigation ADR and moves the
-  auth screens behind routes. Nothing changes before that. The `rememberSaveable`
-  password and code fields are fixed in their own spec (ADR 0017).
+- Migration: the spec of HU-MOV-11 includes the navigation ADR and moves the auth screens behind routes.
+  Nothing changes before that. The `rememberSaveable` password and code fields are fixed in their own spec
+  (ADR 0017).
 
 ## Security and privacy impact
 

@@ -8,7 +8,7 @@ export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
   const session = authService.currentSession();
 
   const isAuthEndpoint =
-    req.url.includes('/auth/login') || req.url.includes('/auth/refresh');
+    req.url.includes('/auth/login') || req.url.includes('/auth/refresh') || req.url.includes('/auth/logout');
 
   let modifiedReq = req;
   if (session?.accessToken && !isAuthEndpoint) {

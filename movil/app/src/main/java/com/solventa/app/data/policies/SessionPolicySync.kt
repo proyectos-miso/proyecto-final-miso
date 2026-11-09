@@ -43,6 +43,8 @@ class SessionPolicySync(
     private val store: PolicyStore,
     private val scheduler: SyncScheduler,
     private val clock: Clock = Clock.systemUTC(),
+    // Borra lo demás de la cuenta cuando el servidor desvincula el teléfono, como el reporte de siniestro (HU-MOV-08, AC-12).
+    private val onDeviceRejected: suspend (accountEmail: String) -> Unit = {},
 ) : PolicySync {
 
     private val turn = Mutex()
@@ -163,6 +165,8 @@ class SessionPolicySync(
     private suspend fun end(current: OpenSession, reason: SessionEndReason): SyncOutcome {
         if (!session.endIf(current)) return SyncOutcome.NoSession
         if (reason != SessionEndReason.RELOGIN) store.delete(current.email)
+        // Con la sesión vencida el reporte se conserva: no se puede volver a tomar (HU-MOV-08, DEC-08).
+        if (reason == SessionEndReason.DEVICE_REJECTED) withContext(NonCancellable) { onDeviceRejected(current.email) }
         scheduler.cancel()
         return SyncOutcome.SessionEnded(current.email, reason).also(results::tryEmit)
     }

@@ -44,6 +44,7 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ENDPOINT_URL=http://floci:4566
       - S3_BUCKET_POLICIES=solventa-policies-dev
+      - S3_PUBLIC_ENDPOINT_URL=http://localhost:4566
       - SQS_QUEUE_EVENTS=solventa-outbox-events-dev
     depends_on:
       postgres:

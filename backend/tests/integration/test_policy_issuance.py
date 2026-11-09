@@ -11,6 +11,7 @@ from app.core.outbox import OutboxMessageDB
 from app.core.security import create_access_token
 from app.modules.policy.models import PolicyDB
 from app.modules.policy.service import one_year_after, policy_service
+from tests.integration.policy_search_fixtures import BENEFICIARIES
 
 EXPIRED_DETAIL = "La cotización venció: recalcule la tarifa con datos actuales."
 
@@ -29,7 +30,7 @@ async def quote(client: AsyncClient) -> dict:
 
 
 async def issue(client: AsyncClient, quote_id: str, tier: str = "standard"):
-    body = {"quote_id": quote_id, "tier": tier}
+    body = {"quote_id": quote_id, "tier": tier, "beneficiaries": BENEFICIARIES}
     return await client.post("/api/v1/experience/policies", headers=advisor_headers(), json=body)
 
 

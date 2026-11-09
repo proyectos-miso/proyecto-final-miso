@@ -7,6 +7,7 @@ import json
 import logging
 import struct
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -97,8 +98,20 @@ def verify_totp(
     Valida código TOTP con ventana de tolerancia de ±30 segundos (HA-06).
     tolerance_steps=1 permite la ventana actual, -30s y +30s.
     """
+    return totp_step(secret, code, timestamp, tolerance_steps, time_step, digits) is not None
+
+
+def totp_step(
+    secret: str,
+    code: str,
+    timestamp: Optional[int] = None,
+    tolerance_steps: int = 1,
+    time_step: int = 30,
+    digits: int = 6,
+) -> Optional[int]:
+    """Paso de tiempo al que corresponde el código, o None si no es válido; sirve para no aceptarlo dos veces."""
     if not code or len(code.strip()) != digits or not code.strip().isdigit():
-        return False
+        return None
     if timestamp is None:
         timestamp = int(time.time())
 
@@ -114,8 +127,8 @@ def verify_totp(
             digits=digits,
         )
         if hmac.compare_digest(expected_code, code_clean):
-            return True
-    return False
+            return current_step + step_offset
+    return None
 
 
 def create_access_token(
@@ -165,6 +178,8 @@ def create_refresh_token(
         "sub": subject,
         "role": role,
         "type": "refresh",
+        # Identificador para revocarlo al cerrar sesión o al renovar (HU-WEB-15, RC-20).
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": expire,
     }
@@ -225,11 +240,11 @@ def require_roles(allowed_roles: List[str]):
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        token_type = payload.get("type", "access")
-        if token_type == "refresh":
+        # Solo un token de acceso explícito: uno sin tipo o de refresco no abre la API (RC-32).
+        if payload.get("type") != "access":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token de refresco no permitido como token de acceso",
+                detail="Token no permitido como token de acceso",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -372,7 +387,7 @@ async def get_current_partner(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token_type = payload.get("type", "access")
+    token_type = payload.get("type")
     role = payload.get("role")
     partner_id = payload.get("partner_id")
     client_id = payload.get("sub")

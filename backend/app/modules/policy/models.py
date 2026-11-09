@@ -1,9 +1,10 @@
 """Modelos de datos para la emisión de pólizas."""
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Literal, Optional
 from datetime import datetime
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Sequence, String
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, Sequence, String, Text
 from app.core.database import Base
+from app.core.immutable import make_immutable
 from app.modules.claims.models import ClaimSummary
 from app.modules.rating.models import PlanTier, QuoteTierDetail
 
@@ -29,6 +30,29 @@ class PolicyDB(Base):
     holder_document_type = Column(String(8), nullable=True)
     holder_email = Column(String(254), nullable=True)
     holder_phone = Column(String(20), nullable=True)
+    # Carátula guardada en S3 al primer pedido (HU-WEB-16).
+    pdf_s3_key = Column(String(64), nullable=True)
+    # Sube con cada endoso; la carátula nueva lleva su versión (HU-WEB-15).
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+
+
+class PolicyEventDB(Base):
+    """Operaciones sobre la póliza (endosos, cancelación, terminación); no se cambian ni se borran (HA-17)."""
+    __tablename__ = "policy_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    policy_number = Column(String(16), ForeignKey("policies.policy_number"), nullable=False, index=True)
+    kind = Column(String(32), nullable=False)
+    version = Column(Integer, nullable=False)
+    actor = Column(String(120), nullable=False)
+    justification = Column(Text, nullable=False)
+    before = Column(JSON, nullable=True)
+    after = Column(JSON, nullable=True)
+    amount = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+
+make_immutable(PolicyEventDB.__table__, "Las operaciones de una póliza no se pueden modificar ni borrar")
 
 
 class PolicyHolder(BaseModel):
@@ -39,14 +63,39 @@ class PolicyHolder(BaseModel):
     phone: str = Field(..., min_length=7, max_length=20, pattern=r"^\+?[0-9 ]{7,20}$")
 
 
+Relationship = Literal["CONYUGE", "HIJO", "PADRE", "MADRE", "HERMANO", "OTRO"]
+
+
+class Beneficiary(BaseModel):
+    """Beneficiario de una póliza de vida; los porcentajes de todos suman 100 (HU-WEB-15, RC-01)."""
+    name: str = Field(..., min_length=2, max_length=150)
+    document_type: str = Field(..., min_length=2, max_length=8)
+    document_number: str = Field(..., pattern=r"^[0-9]{5,15}$")
+    relationship: Relationship
+    percentage: float = Field(..., gt=0, le=100)
+
+
+def check_beneficiaries(beneficiaries: List[Beneficiary]) -> List[Beneficiary]:
+    if abs(sum(b.percentage for b in beneficiaries) - 100) > 0.001:
+        raise ValueError("Los porcentajes de los beneficiarios deben sumar 100.")
+    if len({b.document_number for b in beneficiaries}) != len(beneficiaries):
+        raise ValueError("Un beneficiario no puede repetirse.")
+    return beneficiaries
+
+
 class PolicyIssueRequest(BaseModel):
     quote_id: str
     tier: PlanTier
-    beneficiaries: List[dict] = Field(default_factory=list)
+    beneficiaries: List[Beneficiary] = Field(..., min_length=1, max_length=10)
     holder: Optional[PolicyHolder] = None
 
+    @field_validator("beneficiaries")
+    @classmethod
+    def _sum_100(cls, value: List[Beneficiary]) -> List[Beneficiary]:
+        return check_beneficiaries(value)
 
-PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED"]
+
+PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED", "TERMINATED"]
 
 
 class PolicySearchItem(BaseModel):
@@ -92,9 +141,18 @@ class PolicyPayment(BaseModel):
     decline_reason: Optional[str] = None
 
 
+class MaskedBeneficiary(BaseModel):
+    name: str
+    document_type: str
+    document: str
+    relationship: str
+    percentage: float
+
+
 class PolicyDetail(BaseModel):
-    """Detalle de operaciones: sin beneficiarios ni datos completos del titular (HU-WEB-09)."""
+    """Detalle de operaciones: titular y beneficiarios con el documento enmascarado (HU-WEB-09, HU-WEB-15)."""
     policy_number: str
+    version: int = 1
     status: PolicyStatus
     plan: PlanTier
     valid_from: datetime
@@ -107,6 +165,53 @@ class PolicyDetail(BaseModel):
     coverages: List[PolicyDetailCoverage]
     payments: List[PolicyPayment]
     claims: List[ClaimSummary]
+    beneficiaries: List[MaskedBeneficiary] = Field(default_factory=list)
+
+
+class EndorsementRequest(BaseModel):
+    """Endoso de beneficiarios o de suma asegurada; la suma solo baja porque no se vuelve a suscribir (RC-21)."""
+    kind: Literal["BENEFICIARIES", "SUM_INSURED"]
+    justification: str = Field(..., min_length=20, max_length=2000)
+    beneficiaries: Optional[List[Beneficiary]] = Field(None, min_length=1, max_length=10)
+    insured_amount: Optional[float] = Field(None, gt=0)
+
+    @field_validator("beneficiaries")
+    @classmethod
+    def _sum_100(cls, value: Optional[List[Beneficiary]]) -> Optional[List[Beneficiary]]:
+        return check_beneficiaries(value) if value is not None else value
+
+
+class CancellationRequest(BaseModel):
+    reason: str = Field(..., min_length=20, max_length=2000)
+
+
+class PolicyOperationResult(BaseModel):
+    policy_number: str
+    status: PolicyStatus
+    version: int
+    refund_amount: Optional[float] = None
+
+
+class AuditEntry(BaseModel):
+    """Una decisión sobre la póliza, en el orden en que ocurrió (RC-19)."""
+    occurred_at: datetime
+    kind: str
+    actor: str
+    summary: str
+    justification: Optional[str] = None
+    amount: Optional[float] = None
+    reference: Optional[str] = None
+
+
+class PolicyAudit(BaseModel):
+    policy_number: str
+    entries: List[AuditEntry]
+
+
+class CaratulaLink(BaseModel):
+    """Enlace prefirmado de la carátula; da acceso al PDF hasta que vence (HU-WEB-16)."""
+    url: str
+    expires_at: datetime
 
 
 class PolicyRecord(BaseModel):

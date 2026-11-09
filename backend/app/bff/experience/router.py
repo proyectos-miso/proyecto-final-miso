@@ -1,11 +1,12 @@
 """Router BFF para canales Web y Móvil (experience-edge) (HU-WEB-13)."""
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.core.idempotency import IdempotencyConflictError
 from app.core.security import require_roles
+from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
 from app.modules.auth.models import LoginRequest, LoginResponse, RefreshTokenRequest
 from app.modules.auth.service import auth_service
 from app.modules.profile.models import (
@@ -18,8 +19,9 @@ from app.modules.profile.models import (
 from app.modules.profile.service import IneligibleAgeError, profile_service
 from app.modules.rating.models import QuoteRequest, QuoteResponse
 from app.modules.rating.service import rating_service
-from app.modules.policy import detail as policy_detail_query, search as policy_search
+from app.modules.policy import detail as policy_detail_query, document as policy_document, search as policy_search
 from app.modules.policy.models import (
+    CaratulaLink,
     PolicyDetail,
     PolicyIssueRequest,
     PolicyRecord,
@@ -60,11 +62,17 @@ async def refresh_token(
     request: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Renovación silenciosa de sesión JWT mediante refresh token (HU-WEB-13)."""
+    """Renovación silenciosa de sesión JWT mediante refresh token (HU-WEB-13); el refresh usado se revoca."""
     return await auth_service.refresh_session(
         session=db,
         refresh_token=request.refresh_token,
     )
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db_session)):
+    """Cierre de sesión del portal: el refresh queda revocado en el backend (HU-WEB-15, RC-20)."""
+    await auth_service.logout(db, request.refresh_token)
 
 
 @router.post(
@@ -161,6 +169,33 @@ async def get_policy_detail(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la póliza.")
     return detail
+
+
+@router.get("/policies/{policy_number}/caratula", response_model=CaratulaLink)
+async def get_policy_caratula(
+    response: Response,
+    policy_number: str = Path(..., pattern=r"^POL-\d{4}-\d{5}$"),
+    partner_id: Optional[str] = Depends(operations_scope),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+):
+    """Enlace de 15 minutos a la carátula en PDF, con el alcance del detalle (HU-WEB-16)."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        link = await policy_document.get_caratula_link(db, storage, policy_number, partner_id)
+    except policy_document.PolicyCancelledError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="La póliza está cancelada y no tiene carátula vigente."
+        )
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La carátula está en generación. Intente de nuevo en unos segundos.",
+            headers={"Retry-After": "5"},
+        )
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la póliza.")
+    return link
 
 
 @router.post(

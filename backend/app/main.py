@@ -7,7 +7,9 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.middleware import TenantContextMiddleware
+from app.core.storage import ensure_emulator_bucket
 from app.bff.experience.router import router as experience_router
+from app.bff.experience.operations_router import router as operations_router
 from app.bff.quote_edge.router import router as quote_edge_router
 from app.bff.auth.router import router as auth_router
 from app.bff.insured.router import router as insured_router
@@ -15,6 +17,7 @@ from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en B
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.policy.models import PolicyDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.claims.service import claim_service
 from app.core.outbox import OutboxMessageDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
@@ -45,24 +48,43 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
             ))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_totp_step INTEGER"))
             await conn.execute(text(
                 "ALTER TABLE policies ADD COLUMN IF NOT EXISTS holder_name VARCHAR(150), "
                 "ADD COLUMN IF NOT EXISTS holder_document_type VARCHAR(8), "
                 "ADD COLUMN IF NOT EXISTS holder_email VARCHAR(254), "
                 "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
             ))
+            # HU-WEB-16: clave de la carátula en S3, vacía hasta el primer pedido.
+            await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(64)"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
             # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
+            # HU-WEB-15: versión de la póliza por endosos y datos del siniestro para el expediente y el dictamen.
+            await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1"))
+            await conn.execute(text(
+                "ALTER TABLE claims ADD COLUMN IF NOT EXISTS origin VARCHAR(16) NOT NULL DEFAULT 'APP', "
+                "ADD COLUMN IF NOT EXISTS coverage_id VARCHAR(32), "
+                "ADD COLUMN IF NOT EXISTS description TEXT, "
+                "ADD COLUMN IF NOT EXISTS parametric_event JSON, "
+                "ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(120), "
+                "ADD COLUMN IF NOT EXISTS expert_id VARCHAR(32) REFERENCES experts(expert_id), "
+                "ADD COLUMN IF NOT EXISTS settled_amount DOUBLE PRECISION"
+            ))
         try:
             async with engine.begin() as conn:
                 await create_search_indexes(conn)
         except Exception as exc:
             print(f"Aviso: sin índices de trigramas para la búsqueda de pólizas: {exc}")
+        try:
+            await ensure_emulator_bucket()
+        except Exception as exc:
+            print(f"Aviso: sin bucket de documentos en el emulador: {exc}")
         async with AsyncSessionLocal() as session:
             await profile_service.seed_default_catalogs(session)
             await rating_service.seed_default_partners(session)
+            await claim_service.seed_experts(session)
             # Después de los socios: el analista de prueba de Banco Aliado se liga a su socio.
             if settings.debug_enabled:
                 await auth_service.seed_default_users(session)
@@ -120,6 +142,7 @@ async def health_check():
 
 # 4. Registro de Routers BFF
 app.include_router(experience_router, prefix=settings.API_V1_STR)
+app.include_router(operations_router, prefix=settings.API_V1_STR)
 app.include_router(quote_edge_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(insured_router, prefix=settings.API_V1_STR)

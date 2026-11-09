@@ -2,12 +2,13 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { PolicyDetail } from '../../core/models/policy.model';
-import { PolicyDetailComponent } from './policy-detail.component';
+import { OPEN_DOWNLOAD, PolicyDetailComponent } from './policy-detail.component';
 
-// Panel de detalle de operaciones (HU-WEB-09: TC-08 y TC-11).
+// Panel de detalle de operaciones (HU-WEB-09: TC-08 y TC-11; HU-WEB-16: TC-11, descarga de la carátula).
 describe('PolicyDetailComponent (HU-WEB-09)', () => {
   let fixture: ComponentFixture<PolicyDetailComponent>;
   let http: HttpTestingController;
+  let opened: ReturnType<typeof vi.fn>;
 
   const detail: PolicyDetail = {
     policy_number: 'POL-2026-00001',
@@ -48,9 +49,10 @@ describe('PolicyDetailComponent (HU-WEB-09)', () => {
   };
 
   beforeEach(async () => {
+    opened = vi.fn();
     await TestBed.configureTestingModule({
       imports: [PolicyDetailComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: OPEN_DOWNLOAD, useValue: opened }],
     }).compileComponents();
     fixture = TestBed.createComponent(PolicyDetailComponent);
     http = TestBed.inject(HttpTestingController);
@@ -81,7 +83,10 @@ describe('PolicyDetailComponent (HU-WEB-09)', () => {
     expect(text()).toContain('SIN-2026-00001');
     expect(text()).toContain('En revisión');
     const headings = Array.from(page().querySelectorAll('h3')).map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Titular', 'Plan y vigencia', 'Coberturas contratadas', 'Historial de pagos', 'Siniestros asociados (1)']);
+    expect(headings).toEqual([
+      'Titular', 'Plan y vigencia', 'Beneficiarios', 'Coberturas contratadas', 'Historial de pagos',
+      'Siniestros asociados (1)', 'Operaciones',
+    ]);
   });
 
   it('TC-08 sin siniestros ni pagos lo dice, y sin titular no muestra contacto', async () => {
@@ -142,5 +147,72 @@ describe('PolicyDetailComponent (HU-WEB-09)', () => {
 
     expect(page().querySelector('img')).toBeNull();
     expect(text()).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  describe('carátula (HU-WEB-16)', () => {
+    const caratula = (number: string) => (req: { url: string }) => req.url.endsWith(`/experience/policies/${number}/caratula`);
+    const button = () => page().querySelector('.btn-download') as HTMLButtonElement;
+    const status = () => page().querySelector('.download-status')?.textContent?.trim() ?? '';
+    const link = { url: 'https://solventa-documents.s3.amazonaws.com/caratulas/POL-2026-00001.pdf?X-Amz-Expires=900', expires_at: '2026-11-01T13:20:00Z' };
+
+    const show = async (data: PolicyDetail = detail) => {
+      await open(data.policy_number);
+      http.expectOne(url(data.policy_number)).flush(data);
+      fixture.detectChanges();
+    };
+
+    it('TC-11 el botón pide el enlace, anuncia el avance y abre la descarga', async () => {
+      await show();
+      expect(button().textContent?.trim()).toBe('Descargar carátula (PDF)');
+      expect(page().querySelector('.download-status')?.getAttribute('role')).toBe('status');
+
+      button().click();
+      fixture.detectChanges();
+      expect(status()).toBe('Preparando la carátula…');
+      expect(button().getAttribute('aria-disabled')).toBe('true');
+
+      http.expectOne(caratula('POL-2026-00001')).flush(link);
+      fixture.detectChanges();
+      expect(opened).toHaveBeenCalledExactlyOnceWith(link.url);
+      expect(status()).toBe('La descarga de la carátula comenzó.');
+      expect(button().getAttribute('aria-disabled')).toBe('false');
+    });
+
+    it('TC-11 cada clic pide un enlace nuevo y mientras prepara ignora otro clic', async () => {
+      await show();
+
+      button().click();
+      button().click();
+      http.expectOne(caratula('POL-2026-00001')).flush(link);
+      button().click();
+      http.expectOne(caratula('POL-2026-00001')).flush({ ...link, url: `${link.url}&nuevo=1` });
+
+      expect(opened).toHaveBeenNthCalledWith(1, link.url);
+      expect(opened).toHaveBeenNthCalledWith(2, `${link.url}&nuevo=1`);
+    });
+
+    it('TC-11 si el almacenamiento no responde dice que está en generación como alerta', async () => {
+      await show();
+
+      button().click();
+      http.expectOne(caratula('POL-2026-00001')).flush(
+        { detail: 'La carátula está en generación. Intente de nuevo en unos segundos.' },
+        { status: 503, statusText: 'Service Unavailable', headers: { 'Retry-After': '5' } },
+      );
+      fixture.detectChanges();
+
+      const alert = page().querySelector('[data-testid="caratula-error"]') as HTMLElement;
+      expect(alert.getAttribute('role')).toBe('alert');
+      expect(alert.textContent).toContain('La carátula está en generación. Intente de nuevo en unos segundos.');
+      expect(text()).not.toContain('503');
+      expect(status()).toBe('');
+      expect(opened).not.toHaveBeenCalled();
+    });
+
+    it('TC-11 una póliza cancelada no ofrece la carátula', async () => {
+      await show({ ...detail, status: 'CANCELLED' });
+
+      expect(button()).toBeNull();
+    });
   });
 });
