@@ -275,10 +275,12 @@ class AuthViewModel(
 
     // Cualquier cuenta entra por aquí con su correo; si aún no tiene huella en el teléfono, se le ofrece activarla.
     fun onAlternativeAccessSelected() {
+        resetOtpCooldown()
         _uiState.update { it.copy(showAlternativeAccess = true) }
     }
 
     fun onBackToBiometrics() {
+        resetOtpCooldown()
         _uiState.update {
             withAccounts(
                 it.copy(showAlternativeAccess = false, status = AuthStatus.IDLE, alternativeLogin = AlternativeLoginState())
@@ -477,10 +479,12 @@ class AuthViewModel(
     }
 
     fun openPasswordRecovery() {
+        resetOtpCooldown()
         _uiState.update { it.copy(showPasswordRecovery = true, recovery = PasswordRecoveryState()) }
     }
 
     fun closePasswordRecovery() {
+        resetOtpCooldown()
         _uiState.update {
             it.copy(
                 showPasswordRecovery = false,
@@ -545,6 +549,12 @@ class AuthViewModel(
                 }
             }
         }
+    }
+
+    // Cada pantalla pide su propio código; el límite real lo pone el servidor (429).
+    private fun resetOtpCooldown() {
+        otpCooldownJob?.cancel()
+        _uiState.update { it.copy(otpCooldownSeconds = 0, otpCooldownEmail = null) }
     }
 
     private fun startOtpCooldown(result: OtpResult, email: String) {
