@@ -7,9 +7,12 @@ from httpx import AsyncClient
 from sqlalchemy import func, insert, select
 
 from app.core.security import create_access_token
+from app.core.storage import StorageUnavailableError, get_document_storage
+from app.main import app
+from app.modules.policy import document as policy_document
 from app.modules.claims.models import ClaimDB, ClaimEventDB
 from app.modules.notifications.service import NotificationService, PushTokenDB
-from app.modules.policy.models import PolicyDB, PolicyEventDB
+from app.modules.policy.models import CaratulaLink, PolicyDB, PolicyEventDB
 from app.modules.policy.operations import policy_operations
 from tests.integration.test_insured_policies_api import MARIA_DOCUMENT, OTHER_DOCUMENT, add_policy, insured_headers
 
@@ -189,3 +192,87 @@ async def test_qr_01_p95_bajo_150_ms_con_10000_siniestros(async_client: AsyncCli
 
     assert len(response.json()["claims"]) == 3
     assert times[int(len(times) * 0.95) - 1] < 0.150
+
+
+class FailingSender:
+    def send(self, tokens, title, body, data):
+        raise RuntimeError("Firebase no responde")
+
+
+@pytest.fixture
+def no_storage():
+    app.dependency_overrides[get_document_storage] = lambda: object()
+    yield
+    app.dependency_overrides.pop(get_document_storage, None)
+
+
+@pytest.mark.parametrize("error, status", [
+    (policy_document.PolicyCancelledError(), 409),
+    (StorageUnavailableError("en generación"), 503),
+])
+async def test_caratula_cancelada_o_en_generacion_responde_claro(async_client: AsyncClient, postgres_session, monkeypatch,
+                                                                no_storage, error, status):
+    await add_policy(postgres_session, "POL-2026-11012", MARIA_DOCUMENT, "ACTIVE", NOW + timedelta(days=200))
+
+    async def failing(*args):
+        raise error
+
+    monkeypatch.setattr(policy_document, "get_caratula_link", failing)
+
+    response = await async_client.get("/api/v1/insured/policies/POL-2026-11012/caratula", headers=insured_headers())
+
+    assert response.status_code == status
+
+
+async def test_caratula_propia_entrega_el_enlace_sin_cache(async_client: AsyncClient, postgres_session, monkeypatch, no_storage):
+    await add_policy(postgres_session, "POL-2026-11014", MARIA_DOCUMENT, "ACTIVE", NOW + timedelta(days=200))
+    link = CaratulaLink(url="https://documentos.example/caratula.pdf", expires_at=NOW + timedelta(minutes=15))
+
+    async def ready(*args):
+        return link
+
+    monkeypatch.setattr(policy_document, "get_caratula_link", ready)
+
+    response = await async_client.get("/api/v1/insured/policies/POL-2026-11014/caratula", headers=insured_headers())
+
+    assert response.status_code == 200
+    assert response.json()["url"] == link.url
+    assert response.headers["cache-control"] == "no-store"
+
+
+async def test_el_mismo_telefono_queda_con_la_ultima_cuenta_que_lo_registra(postgres_session):
+    notifications = NotificationService(lambda: None)
+
+    await notifications.register(postgres_session, OTHER_DOCUMENT, TOKEN)
+    await notifications.register(postgres_session, MARIA_DOCUMENT, TOKEN)
+
+    tokens = list(await postgres_session.scalars(select(PushTokenDB).where(PushTokenDB.token == TOKEN)))
+    assert [t.document_number for t in tokens] == [MARIA_DOCUMENT]
+
+
+async def test_sin_telefono_registrado_o_con_firebase_caido_no_se_envia(postgres_session):
+    sender = FakeSender()
+
+    assert await NotificationService(lambda: sender).claim_changed(postgres_session, MARIA_DOCUMENT, "SIN-1", "PAID") is False
+    await NotificationService(lambda: sender).register(postgres_session, MARIA_DOCUMENT, TOKEN)
+    assert await NotificationService(lambda: FailingSender()).claim_changed(postgres_session, MARIA_DOCUMENT, "SIN-1", "PAID") is False
+    assert sender.sent == []
+
+
+async def test_un_evento_sin_mensaje_para_el_asegurado_no_avisa(postgres_session):
+    sender = FakeSender()
+    await NotificationService(lambda: sender).register(postgres_session, MARIA_DOCUMENT, TOKEN)
+
+    assert await NotificationService(lambda: sender).claim_changed(postgres_session, MARIA_DOCUMENT, "SIN-1", "REPORTED") is False
+    assert sender.sent == []
+
+
+async def test_el_aviso_de_vencimiento_dice_la_poliza_y_la_fecha(postgres_session):
+    sender = FakeSender()
+    await NotificationService(lambda: sender).register(postgres_session, MARIA_DOCUMENT, TOKEN)
+
+    await NotificationService(lambda: sender).renewal_due(postgres_session, MARIA_DOCUMENT, "POL-2026-11013", NOW)
+
+    tokens, body, data = sender.sent[0]
+    assert "POL-2026-11013" in body and "22/10/2026" in body
+    assert data == {"type": "RENEWAL_REMINDER", "policy_number": "POL-2026-11013"}
