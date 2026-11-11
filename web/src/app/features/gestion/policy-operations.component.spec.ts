@@ -88,6 +88,41 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
     expect(changes).toBe(1);
   });
 
+  it('AC-09 registra el endoso de beneficiarios con justificación', async () => {
+    button('Endoso de beneficiarios').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const beneficiaries = [{ name: 'Beneficiaria de prueba', document_type: 'CC', document_number: '52000111', relationship: 'CONYUGE', share: 100 }];
+    fixture.componentInstance.beneficiaries.set(beneficiaries as never);
+    setValue('#opJustificationBen', JUSTIFICATION);
+
+    button('Registrar endoso').click();
+    const call = http.expectOne((req) => req.url.endsWith('/policies/POL-2026-00001/endorsements'));
+    expect(call.request.body).toEqual({ kind: 'BENEFICIARIES', justification: JUSTIFICATION, beneficiaries });
+    call.flush({ policy_number: 'POL-2026-00001', status: 'ACTIVE', version: 3 });
+    fixture.detectChanges();
+
+    expect(page().querySelector('[role="status"]')?.textContent).toContain('versión 3');
+  });
+
+  it('sin beneficiarios completos no se envía el endoso', () => {
+    fixture.componentInstance.endorseBeneficiaries();
+
+    http.expectNone((req) => req.url.endsWith('/endorsements'));
+  });
+
+  it('si la auditoría falla avisa y no se queda cargando', () => {
+    button('Auditoría').click();
+    fixture.detectChanges();
+    expect(page().textContent).toContain('Cargando la auditoría');
+
+    http.expectOne((req) => req.url.endsWith('/audit')).flush({ detail: 'Servicio no disponible.' }, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    expect(page().textContent).not.toContain('Cargando la auditoría');
+    expect(page().querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it('una póliza cancelada o terminada solo deja ver la auditoría', () => {
     fixture.componentRef.setInput('policy', { ...policy, status: 'TERMINATED' });
     fixture.detectChanges();
