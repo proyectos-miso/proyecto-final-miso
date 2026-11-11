@@ -33,6 +33,8 @@ class InMemorySessionTestDouble:
         self.quotes = {}
         self.policies_by_number = {}
         self.policies_by_quote = {}
+        self.consents_by_id = {}
+        self.consents_by_doc = {}
         self.outbox = []
         self.idempotency_records = {}
 
@@ -137,6 +139,33 @@ class InMemorySessionTestDouble:
             except Exception:
                 return Result([])
 
+        if "from consents" in sql_str:
+            items = list(self.consents_by_id.values())
+            try:
+                params = stmt.compile().params
+            except Exception:
+                params = {}
+            doc_filter = None
+            id_filter = None
+            for k, v in params.items():
+                if "document_number" in k:
+                    doc_filter = v
+                elif "id" in k or k == "id_1":
+                    id_filter = v
+            if id_filter and id_filter in self.consents_by_id:
+                return Result([self.consents_by_id[id_filter]])
+            if doc_filter:
+                items = [c for c in items if getattr(c, "document_number", None) == doc_filter]
+
+            def _sort_key(c):
+                dt = getattr(c, "created_at", None)
+                if isinstance(dt, datetime):
+                    return dt.timestamp()
+                return 0.0
+
+            items.sort(key=_sort_key, reverse=True)
+            return Result(items)
+
         if "from quotes" in sql_str:
             try:
                 where_str = str(stmt.whereclause).lower()
@@ -186,12 +215,15 @@ class InMemorySessionTestDouble:
 
     def add(self, obj):
         from app.core.idempotency import IdempotencyRecordDB
-        from app.modules.profile.models import FinancialEntityDB, CityDB
+        from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB
         from app.modules.rating.models import PartnerDB, QuoteDB
         from app.modules.policy.models import PolicyDB
         from app.core.outbox import OutboxMessageDB
 
-        if isinstance(obj, FinancialEntityDB):
+        if isinstance(obj, ConsentDB):
+            self.consents_by_id[obj.id] = obj
+            self.consents_by_doc[obj.document_number] = obj
+        elif isinstance(obj, FinancialEntityDB):
             if not getattr(obj, "id", None):
                 obj.id = len(self.financial_entities) + 1
             self.financial_entities[obj.code] = obj
@@ -249,6 +281,7 @@ async def test_db_session():
     session = InMemorySessionTestDouble()
     await auth_service.seed_default_users(session)
     await profile_service.seed_default_catalogs(session)
+    await profile_service.seed_default_consents(session)
     await rating_service.seed_default_partners(session)
 
     async def override_db():
@@ -282,6 +315,7 @@ async def postgres_session():
     app.dependency_overrides[get_db_session] = override_db
     async with sessions() as session:
         await rating_service.seed_default_partners(session)
+        await profile_service.seed_default_consents(session)
         yield session
     await engine.dispose()
 

@@ -3,6 +3,7 @@ Mismo acceso que la búsqueda: rol analyst y, si el usuario es de un socio, solo
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import select
@@ -34,6 +35,7 @@ from app.modules.policy.models import (
     PolicyOperationResult,
 )
 from app.modules.policy.operations import InvalidEndorsementError, PolicyClosedError, policy_operations
+from app.modules.rating.models import PartnerDB, PartnerStatus
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
@@ -188,6 +190,57 @@ async def cancel_policy(
         return await policy_operations.cancel(db, policy_number, request, user.username)
     except PolicyClosedError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La póliza ya está cancelada o terminada.")
+
+
+@router.post("/policies/{policy_number}/renewal", response_model=PolicyOperationResult)
+async def renew_policy(
+    policy_number: str = Path(..., pattern=POLICY_NUMBER),
+    user: Operator = Depends(operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Renovación de vigencia de póliza activa o vencida (RC-24, AC-16, SR-10)."""
+    await scoped_policy(db, policy_number, user)
+    try:
+        return await policy_operations.renew(db, policy_number, user.username)
+    except PolicyClosedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La póliza está cancelada o terminada y no puede ser renovada.",
+        )
+
+
+class PartnerApprovalRequest(BaseModel):
+    quota_limit: Optional[int] = Field(default=50000, ge=100)
+
+
+@router.post("/partners/{partner_id}/approve")
+async def approve_partner_production(
+    partner_id: str = Path(..., min_length=2, max_length=64),
+    request: Optional[PartnerApprovalRequest] = None,
+    user: Operator = Depends(operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Aprueba un socio en sandbox y lo promueve a producción con cuota ampliada (RC-23, AC-15, SR-09)."""
+    if user.partner_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo operadores centrales de Solventa pueden autorizar socios.",
+        )
+    partner = await db.get(PartnerDB, partner_id)
+    if partner is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Socio no encontrado.")
+    quota = request.quota_limit if request and request.quota_limit else 50000
+    partner.environment = "production"
+    partner.quota_limit = quota
+    partner.status = PartnerStatus.ACTIVE.value
+    await db.commit()
+    return {
+        "status": "APPROVED",
+        "partner_id": partner.partner_id,
+        "environment": partner.environment,
+        "quota_limit": partner.quota_limit,
+        "message": f"Socio {partner.name} promovido a producción con cuota de {partner.quota_limit} cotizaciones/hora.",
+    }
 
 
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)

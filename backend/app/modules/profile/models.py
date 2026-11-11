@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
 from app.core.database import Base
 
 
@@ -21,8 +21,15 @@ class ClientIdentification(BaseModel):
         return today.year - self.birth_date.year - ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))
 
 
+class ConsentOtpRequest(BaseModel):
+    document_number: str = Field(..., min_length=5, max_length=20, json_schema_extra={"example": "1020304050"})
+    document_type: str = Field(default="CC", min_length=2, max_length=10, json_schema_extra={"example": "CC"})
+    phone: Optional[str] = Field(default="3001234567", json_schema_extra={"example": "3001234567"})
+
+
 class ConsentRequest(BaseModel):
     document_number: str = Field(..., min_length=5, max_length=20, json_schema_extra={"example": "1020304050"})
+    document_type: str = Field(default="CC", min_length=2, max_length=10, json_schema_extra={"example": "CC"})
     channel: str = Field(default="web", min_length=2, json_schema_extra={"example": "web"})
     otp_code: str = Field(..., pattern=r"^\d{6}$", json_schema_extra={"example": "839201"})
     terms_accepted: bool = Field(..., json_schema_extra={"example": True})
@@ -42,6 +49,7 @@ class ConsentRequest(BaseModel):
 class ConsentRecord(BaseModel):
     consent_id: str
     document_number: str
+    document_type: str = "CC"
     channel: str = "web"
     purpose: str
     scope: str
@@ -50,6 +58,24 @@ class ConsentRecord(BaseModel):
     consent_hash: str
     granted_at: str
     expires_at: str
+
+
+class ConsentDB(Base):
+    """Registro persistente y auditable de consentimiento informado en PostgreSQL (RC-06)."""
+    __tablename__ = "consents"
+
+    id = Column(String(36), primary_key=True)
+    document_type = Column(String(10), nullable=False, default="CC", index=True)
+    document_number = Column(String(20), nullable=False, index=True)
+    channel = Column(String(50), nullable=False, default="web")
+    purpose = Column(String(255), nullable=False)
+    scope = Column(String(255), nullable=False)
+    validity_days = Column(Integer, nullable=False, default=30)
+    status = Column(String(20), nullable=False, default="GRANTED")
+    consent_hash = Column(String(64), nullable=False)
+    granted_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 # --- Modelos SQLAlchemy de Catálogos (PostgreSQL) ---

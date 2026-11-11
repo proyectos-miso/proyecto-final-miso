@@ -83,3 +83,7 @@ coverage.xml
 
 # SDD: local session state (active spec, worklogs). Never the source of truth.
 .sdd/
+
+# Local runner scripts
+scripts/run-movil-emulator.sh
+

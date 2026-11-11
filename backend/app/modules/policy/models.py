@@ -1,4 +1,5 @@
 """Modelos de datos para la emisión de pólizas."""
+import uuid
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Literal, Optional
 from datetime import datetime
@@ -55,6 +56,24 @@ class PolicyEventDB(Base):
 make_immutable(PolicyEventDB.__table__, "Las operaciones de una póliza no se pueden modificar ni borrar")
 
 
+class PolicySignatureDB(Base):
+    """Firma digital / electrónica de la póliza emitida; inmutable para validez probatoria (RC-02, CTL-07)."""
+    __tablename__ = "policy_signatures"
+
+    signature_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    policy_id = Column(String(16), ForeignKey("policies.policy_number"), nullable=False, index=True)
+    policy_number = Column(String(16), nullable=False)
+    document_type = Column(String(8), nullable=False)
+    document_number = Column(String(32), nullable=False)
+    signed_at = Column(DateTime(timezone=True), nullable=False)
+    otp_code_hash = Column(String(64), nullable=False)
+    pdf_hash_sha256 = Column(String(64), nullable=False)
+    consent_id = Column(String(64), nullable=True)
+
+
+make_immutable(PolicySignatureDB.__table__, "Las firmas de póliza no se pueden modificar ni borrar")
+
+
 class PolicyHolder(BaseModel):
     """Datos del titular del paso 1 del cotizador; el número de documento sale de la cotización."""
     name: str = Field(..., min_length=2, max_length=150)
@@ -88,6 +107,7 @@ class PolicyIssueRequest(BaseModel):
     tier: PlanTier
     beneficiaries: List[Beneficiary] = Field(..., min_length=1, max_length=10)
     holder: Optional[PolicyHolder] = None
+    otp_code: Optional[str] = None
 
     @field_validator("beneficiaries")
     @classmethod
@@ -95,7 +115,7 @@ class PolicyIssueRequest(BaseModel):
         return check_beneficiaries(value)
 
 
-PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED", "TERMINATED"]
+PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED", "TERMINATED", "EXPIRED"]
 
 
 class PolicySearchItem(BaseModel):

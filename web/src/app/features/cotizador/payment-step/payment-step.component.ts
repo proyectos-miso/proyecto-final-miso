@@ -16,6 +16,8 @@ interface PaymentResult {
   receipt?: PaymentReceipt;
   declined?: string;
   failed?: boolean;
+  errorMessage?: string;
+  isDefinitive?: boolean;
 }
 
 // Sin pasarela real, cada opción es el token que devolvería su formulario; nunca datos de tarjeta (HA-15).
@@ -91,14 +93,16 @@ export const PAYMENT_OPTIONS: PaymentOption[] = [
             <strong>{{ detail }}</strong>
           </div>
         }
-        @if (result().failed) {
+        @if (result().failed && !result().declined) {
           <p class="pay-error" role="alert">
-            No se pudo confirmar el pago. Reintente: con la misma clave no se cobrará dos veces.
+            {{ result().errorMessage || 'No se pudo confirmar el pago. Reintente: con la misma clave no se cobrará dos veces.' }}
           </p>
         }
-        <button type="button" class="pay-button" [disabled]="paying()" (click)="pay()">
-          Pagar {{ total() }}
-        </button>
+        @if (!result().isDefinitive) {
+          <button type="button" class="pay-button" [disabled]="paying()" (click)="pay()">
+            Pagar {{ total() }}
+          </button>
+        }
       </section>
     }
   `,
@@ -184,10 +188,26 @@ export class PaymentStepComponent {
       .pipe(finalize(() => this.paying.set(false)))
       .subscribe({
         next: (receipt) => this.result.set({ receipt }),
-        error: (error: HttpErrorResponse) =>
-          this.result.set(
-            error.status === 402 ? { declined: error.error.detail } : { failed: true },
-          ),
+        error: (error: HttpErrorResponse) => {
+          if (error.status === 402) {
+            const detail = error.error?.detail || 'Pago rechazado: fondos insuficientes. Intente con otro medio de pago.';
+            this.result.set({ declined: detail });
+          } else if (error.status === 404) {
+            const msg = error.error?.detail || 'Póliza no encontrada para procesar el pago.';
+            this.result.set({ failed: true, errorMessage: msg, isDefinitive: true, declined: msg });
+          } else if (error.status === 409) {
+            const msg = error.error?.detail || 'La póliza ya cuenta con un pago procesado o en conflicto.';
+            this.result.set({ failed: true, errorMessage: msg, isDefinitive: true, declined: msg });
+          } else if (error.status === 422) {
+            const msg = error.error?.detail || 'Datos de pago no procesables o monto no coincide con la prima.';
+            this.result.set({ failed: true, errorMessage: msg, isDefinitive: true, declined: msg });
+          } else if (error.status === 502) {
+            const msg = error.error?.detail || 'Pasarela de pagos temporalmente no disponible. Reintente con la misma clave: no se cobrará dos veces.';
+            this.result.set({ failed: true, errorMessage: msg, isDefinitive: false });
+          } else {
+            this.result.set({ failed: true, isDefinitive: false });
+          }
+        },
       });
   }
 }

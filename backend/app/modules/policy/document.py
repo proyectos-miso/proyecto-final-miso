@@ -1,4 +1,5 @@
 """Carátula de la póliza en PDF, guardada en S3 y entregada con un enlace de 15 minutos (HU-WEB-16)."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
@@ -82,6 +83,12 @@ def render_caratula(policy: PolicyDB, partner_name: Optional[str], generated_at:
         deductible = coverage.get("deductible", 0.0)
         write(f"{coverage['name']}: {cop(coverage['limit'])}" + (f", deducible {cop(deductible)}" if deductible else ""))
 
+    heading("Constancia de Firma Electrónica")
+    write("Documento suscrito con firma electrónica y verificación OTP de un solo uso.")
+    write(f"Fecha de firma: {colombia(policy.issued_at):%d/%m/%Y a las %H:%M:%S} (hora de Colombia)")
+    canonical_summary = f"POL:{policy.policy_number}|DOC:{policy.insured_document}|ISSUED:{policy.issued_at.isoformat()}|TIER:{conditions.get('tier')}"
+    doc_hash = hashlib.sha256(canonical_summary.encode()).hexdigest()
+    write(f"Hash criptográfico de validez probatoria (SHA-256): {doc_hash}")
 
     pdf.ln(6)
     write(

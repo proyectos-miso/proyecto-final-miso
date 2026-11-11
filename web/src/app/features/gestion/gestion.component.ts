@@ -152,6 +152,7 @@ import { PLAN_LABELS, POLICY_STATUS_OPTIONS, policyStatusLabel } from './policy-
     .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: var(--t-xs); background: var(--n-100); color: var(--n-700); }
     .chip[data-status='ACTIVE'] { background: #e9f7ee; color: #15803d; }
     .chip[data-status='ISSUED'] { background: #fdf4e7; color: #b45309; }
+    .chip[data-status='EXPIRED'] { background: #fef3c7; color: #92400e; }
     .chip[data-status='CANCELLED'] { background: #fdeeee; color: #b91c1c; }
     .more { color: var(--texto-sec); font-size: var(--t-sm); }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

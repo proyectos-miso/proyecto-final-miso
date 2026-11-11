@@ -15,13 +15,13 @@ from app.bff.auth.router import router as auth_router
 from app.bff.insured.router import router as insured_router
 from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.modules.policy.models import PolicyDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.policy.models import PolicyDB, PolicySignatureDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.service import claim_service
 from app.core.outbox import OutboxMessageDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.modules.profile.models import FinancialEntityDB, CityDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.identity import db_models as identity_db_models  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
@@ -61,6 +61,48 @@ async def lifespan(app: FastAPI):
             # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS environment VARCHAR(16) NOT NULL DEFAULT 'PRODUCTION'"))
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS contact_email VARCHAR(254)"))
+            # HU-WEB-12 Brechas: campos de consentimiento y crédito en cotizaciones (RC-06, RC-08)
+            await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS consent_id VARCHAR(36)"))
+            await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS financial_entity VARCHAR(120)"))
+            await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS term_months INTEGER"))
+            await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS birth_date TIMESTAMPTZ"))
+            # HU-WEB-12 Brechas: tabla inmutable policy_signatures (RC-02, CTL-07)
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS policy_signatures (
+                    signature_id VARCHAR(36) PRIMARY KEY,
+                    policy_id VARCHAR(16) NOT NULL REFERENCES policies(policy_number),
+                    policy_number VARCHAR(16) NOT NULL,
+                    document_type VARCHAR(8) NOT NULL,
+                    document_number VARCHAR(32) NOT NULL,
+                    signed_at TIMESTAMPTZ NOT NULL,
+                    otp_code_hash VARCHAR(64) NOT NULL,
+                    pdf_hash_sha256 VARCHAR(64) NOT NULL,
+                    consent_id VARCHAR(64)
+                )
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policy_signatures_policy_id ON policy_signatures(policy_id)"))
+            await conn.execute(text("""
+                CREATE OR REPLACE FUNCTION policy_signatures_immutable() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'Las firmas de póliza no se pueden modificar ni borrar';
+                END;
+                $$ LANGUAGE plpgsql
+            """))
+            await conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger WHERE tgname = 'policy_signatures_no_change'
+                    ) THEN
+                        CREATE TRIGGER policy_signatures_no_change
+                            BEFORE UPDATE OR DELETE ON policy_signatures
+                            FOR EACH ROW EXECUTE FUNCTION policy_signatures_immutable();
+                    END IF;
+                END
+                $$;
+            """))
             # HU-WEB-15: versión de la póliza por endosos y datos del siniestro para el expediente y el dictamen.
             await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1"))
             await conn.execute(text(

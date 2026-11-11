@@ -4,6 +4,7 @@ import { PolicyStatus } from '../../core/models/policy.model';
 export const POLICY_STATUS_OPTIONS: { value: PolicyStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Vigente' },
   { value: 'ISSUED', label: 'Pendiente de pago' },
+  { value: 'EXPIRED', label: 'Vencida' },
   { value: 'CANCELLED', label: 'Cancelada' },
   { value: 'TERMINATED', label: 'Terminada' },
 ];

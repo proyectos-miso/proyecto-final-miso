@@ -279,9 +279,17 @@ async def test_hu_web_03_cotizacion_con_desglose_de_la_prima(async_client: Async
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_hu_web_04_cotizacion_degradada_por_timeout_del_buro(async_client: AsyncClient, postgres_session):
+async def test_hu_web_04_cotizacion_degradada_por_timeout_del_buro(async_client: AsyncClient, postgres_session, monkeypatch):
     """HU-WEB-04: si el buró supera los 400 ms, el canal web responde 200 con la cotización degradada."""
+    import asyncio
     from app.core.security import create_access_token
+    from app.modules.rating.service import rating_service
+
+    async def slow_score(req, delay=0.0):
+        await asyncio.sleep(0.45)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", slow_score)
 
     advisor_token = create_access_token(subject="asesor@solventa.com", role="advisor")
     auth_headers = {"Authorization": f"Bearer {advisor_token}"}
@@ -289,7 +297,6 @@ async def test_hu_web_04_cotizacion_degradada_por_timeout_del_buro(async_client:
     response = await async_client.post(
         "/api/v1/experience/quotes",
         headers=auth_headers,
-        params={"simulated_delay": 0.45},
         json={
             "document_type": "CC",
             "document_number": "1020304050",
@@ -305,17 +312,24 @@ async def test_hu_web_04_cotizacion_degradada_por_timeout_del_buro(async_client:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_hu_web_05_la_cotizacion_queda_guardada_con_su_traza(async_client: AsyncClient, postgres_session):
+async def test_hu_web_05_la_cotizacion_queda_guardada_con_su_traza(async_client: AsyncClient, postgres_session, monkeypatch):
     """HU-WEB-05 / HA-17: la cotización devuelta queda guardada tal cual, con la traza de su degradación."""
+    import asyncio
     from datetime import datetime
     from app.core.security import create_access_token
     from app.modules.rating.models import QuoteDB
+    from app.modules.rating.service import rating_service
+
+    async def slow_score(req, delay=0.0):
+        await asyncio.sleep(0.45)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", slow_score)
 
     advisor_token = create_access_token(subject="asesor@solventa.com", role="advisor")
     response = await async_client.post(
         "/api/v1/experience/quotes",
         headers={"Authorization": f"Bearer {advisor_token}"},
-        params={"simulated_delay": 0.45},
         json={
             "document_type": "CC",
             "document_number": "1020304050",

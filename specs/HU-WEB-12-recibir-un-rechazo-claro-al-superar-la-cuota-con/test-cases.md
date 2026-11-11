@@ -11,18 +11,29 @@
 | SC-05 | UC-04, AC-06 | Dado un socio con cuota agotada, cuando transcurre el tiempo superando quota_reset_at, entonces la cuota se reinicia automáticamente y cotiza con 200 OK | TC-05 |
 | SC-06 | UC-02, QR-01 | Dado un socio con cuota agotada, cuando el backend evalúa la petición, entonces responde 429 de forma ultra-rápida sin invocar buró ni tarificación | TC-06 |
 | SC-07 | UC-02, SR-02, SR-04 | Dado el contrato OpenAPI y los rechazos por cuota, cuando se valida el esquema y los logs, entonces declara 429 y emite el evento PARTNER_QUOTA_EXCEEDED | TC-07 |
+| SC-08 | UC-05, AC-10 | Dado un cliente que ingresa al cotizador, cuando solicita consentimiento con OTP y lo valida, entonces se persiste el consentimiento en base de datos y se autoriza a cotizar | TC-08 |
+| SC-09 | UC-06, AC-07 | Dado un cliente que acepta una cotización, cuando ingresa su OTP de firma, entonces se genera la póliza con constancia inmutable en base de datos y hash SHA-256 en la carátula | TC-09 |
+| SC-10 | UC-07, AC-08 | Dado un fallo en la pasarela de pagos o en la emisión, cuando se retorna un código HTTP (402, 404, 409, 422, 502), entonces el portal muestra un mensaje específico y bloquea reintentos en definitivos | TC-10 |
+| SC-11 | UC-01, AC-13 | Dada una petición de cotización en producción, cuando se envía un parámetro de prueba o simulación como simulated_delay, entonces el parámetro es ignorado y no introduce retrasos | TC-11 |
+| SC-12 | UC-01, AC-14 | Dado un pago procesado desde el portal o API, cuando se registra el cobro, entonces queda asociado al partner_id del token autenticado y no a 'default' | TC-12 |
+| SC-13 | UC-08, AC-15 | Dado un nuevo socio que se registra por autoservicio, cuando completa el formulario, entonces recibe credenciales de sandbox con cuota inicial y permanece en sandbox hasta su aprobación | TC-13 |
+| SC-14 | UC-09, AC-16 | Dada una póliza con fecha de vigencia vencida, cuando ejecuta la rutina de mantenimiento diario, entonces la póliza pasa a estado EXPIRED y habilita la acción de renovación | TC-14 |
+| SC-15 | UC-10, AC-17 | Dado un proceso de cotización, cuando se evalúa la asegurabilidad, entonces se consulta la fuente de Open Data real datos.gov.co con timeout de 400 ms y degradación ante fallo | TC-15 |
+| SC-16 | UC-01, AC-11 | Dada una fecha de nacimiento que corresponda a menor de 18 años o mayor de 75 años, cuando se envía la cotización, entonces el backend responde HTTP 422 | TC-16 |
+| SC-17 | UC-01, AC-12 | Dada una cotización de crédito, cuando se capturan la entidad financiera y el plazo, entonces estos datos se guardan persistentemente junto a la cotización | TC-17 |
+| SC-18 | UC-05, AC-09, QR-03 | Dado el portal web de asesores en producción, cuando se navega por el cotizador y pago, entonces no contiene datos de prueba por defecto y cumple accesibilidad WCAG 2.2 AA | TC-18 |
 
 ## Scenario coverage
 
 | Kind | Applies | Scenarios | Rationale |
 |---|---|---|---|
-| Main flow | YES | SC-01 | Flujo estándar de cotización exitosa con telemetría de cuota |
-| Alternate flows | YES | SC-04, SC-05 | Reintentos idempotentes y reinicio automático de ventana temporal |
-| Invalid input and errors | YES | SC-02 | Cuota agotada y rechazo explícito con 429 |
-| Limits and boundaries | YES | SC-02, SC-05 | Límites numéricos de quota_limit y frontera temporal de reset_at |
-| Related flows before and after | YES | SC-01, SC-02 | Relación entre consumo acumulado de cuota y bloqueo posterior |
-| Several users, sessions, devices or roles | YES | SC-03 | Múltiples socios B2B concurrentes (aislamiento multi-tenant) |
-| State and time (expiry, retries, interruptions, going back, offline) | YES | SC-02, SC-04, SC-05 | Cálculo de Retry-After, vigencia de cuota e idempotencia |
+| Main flow | YES | SC-01, SC-08, SC-09, SC-11, SC-12, SC-13, SC-15, SC-17 | Flujo estándar de cotización, consentimiento, firma y autoservicio de socios |
+| Alternate flows | YES | SC-04, SC-05, SC-10, SC-14 | Reintentos idempotentes, reinicio de cuota, diagnóstico de pagos y renovación |
+| Invalid input and errors | YES | SC-02, SC-10, SC-16 | Cuota agotada, errores diferenciados de cobro y validación de rango de edad |
+| Limits and boundaries | YES | SC-02, SC-05, SC-16 | Límites numéricos de quota_limit, frontera de reset_at y edades 18 y 75 años |
+| Related flows before and after | YES | SC-01, SC-02, SC-08, SC-09 | Dependencia entre consentimiento previo, cotización y posterior firma de póliza |
+| Several users, sessions, devices or roles | YES | SC-03, SC-12, SC-13 | Múltiples socios B2B, roles de asesor, cliente y analista de operaciones |
+| State and time (expiry, retries, interruptions, going back, offline) | YES | SC-02, SC-04, SC-05, SC-14 | Vigencia de cuotas, expiración de pólizas y manejo de idempotencia |
 
 ## Test cases
 
@@ -145,22 +156,209 @@
 | Evidence | backend/tests/integration/test_partner_quote_api.py::test_partner_quote_openapi_spec_documents_429 |
 | Status | PASS |
 
+### TC-08 · Validación y persistencia obligatoria de consentimiento con OTP antes de cotizar
+
+| Field | Value |
+|---|---|
+| Covers | AC-10, SR-05 |
+| Kind | SECURITY |
+| Risk covered | THR-05 |
+| Level | INTEGRATION |
+| Preconditions | Cliente asegurado en cotizador sin consentimiento previo |
+| Procedure | 1. Intentar cotizar sin `consent_id`. 2. Verificar respuesta 422. 3. Solicitar OTP, ingresar código válido y persistir consentimiento. 4. Reintentar cotización con `consent_id` válido. |
+| Expected result | Rechazo inicial con 422 si falta consentimiento; aprobación 200 OK con consentimiento verificado por OTP en PostgreSQL. |
+| Tool or method | pytest backend/tests/integration/test_consent_flow.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_consent_flow.py |
+| Status | PASS |
+
+### TC-09 · Firma de póliza con OTP, inmutabilidad de firma y hash de PDF
+
+| Field | Value |
+|---|---|
+| Covers | AC-07, SR-06 |
+| Kind | SECURITY |
+| Risk covered | THR-06 |
+| Level | INTEGRATION |
+| Preconditions | Cotización aceptada pendiente de emisión |
+| Procedure | 1. Solicitar emisión con código OTP. 2. Verificar creación de fila en `policy_signatures` y hash SHA-256 en carátula. 3. Intentar modificar o eliminar la fila de firma vía SQL. |
+| Expected result | Emisión exitosa con hash estampado y bloqueo por trigger de base de datos ante intento de alteración o borrado de firma. |
+| Tool or method | pytest backend/tests/integration/test_policy_signature.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_policy_signature.py |
+| Status | PASS |
+
+### TC-10 · Mensajes específicos de fallo por código HTTP y control de reintento
+
+| Field | Value |
+|---|---|
+| Covers | AC-08 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | Componente de pago y emisión montado en entorno de pruebas web |
+| Procedure | 1. Simular respuestas 402, 404, 409, 422 y 502 en cobro. 2. Verificar que se muestre el mensaje correspondiente a cada código. 3. Verificar que el botón de reintento no esté disponible en fallos definitivos. |
+| Expected result | Mensajes claros por código y botón de reintento oculto en 402, 404, 409 y 422. |
+| Tool or method | npm test web/src/app/features/cotizador/payment-step/payment-step.component.spec.ts |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | web/src/app/features/cotizador/payment-step/payment-step.component.spec.ts |
+| Status | PASS |
+
+### TC-11 · Supresión de parámetro de simulación simulated_delay en cotización
+
+| Field | Value |
+|---|---|
+| Covers | AC-13, SR-07 |
+| Kind | SECURITY |
+| Risk covered | THR-08 |
+| Level | CONTRACT |
+| Preconditions | Endpoint de cotización expuesto |
+| Procedure | 1. Enviar solicitud de cotización incluyendo parámetro `simulated_delay=5`. 2. Medir tiempo de respuesta y consultar contrato OpenAPI. |
+| Expected result | La solicitud procesa en tiempo normal sin demora simulada y OpenAPI no expone el parámetro. |
+| Tool or method | pytest backend/tests/integration/test_quote_parameters.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_quote_parameters.py |
+| Status | PASS |
+
+### TC-12 · Atribución de cobros al partner_id autenticado del token
+
+| Field | Value |
+|---|---|
+| Covers | AC-14, SR-08 |
+| Kind | SECURITY |
+| Risk covered | THR-09 |
+| Level | INTEGRATION |
+| Preconditions | Transacción de cobro iniciada por usuario con token asociado a socio |
+| Procedure | 1. Ejecutar cobro de prima autenticado. 2. Consultar registro en tabla `payments`. |
+| Expected result | El campo `partner_id` del cobro coincide con el socio del token y no con el valor 'default'. |
+| Tool or method | pytest backend/tests/integration/test_payments_partner.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_payments_partner.py |
+| Status | PASS |
+
+### TC-13 · Registro de socio por autoservicio en sandbox y promoción aprobada
+
+| Field | Value |
+|---|---|
+| Covers | AC-15, SR-09 |
+| Kind | SECURITY |
+| Risk covered | THR-10 |
+| Level | INTEGRATION |
+| Preconditions | Endpoint `POST /partners/register` disponible |
+| Procedure | 1. Registrar nuevo socio por autoservicio. 2. Verificar entrega de credenciales con `environment='sandbox'` y cuota inicial. 3. Ejecutar aprobación a producción por analista. |
+| Expected result | Socio queda en sandbox con cuota asignada; promoción cambia `environment='production'` solo tras aprobación autorizada. |
+| Tool or method | pytest backend/tests/integration/test_partner_registration.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_partner_registration.py |
+| Status | PASS |
+
+### TC-14 · Expiración de pólizas vencidas y flujo de renovación con vigencia
+
+| Field | Value |
+|---|---|
+| Covers | AC-16, SR-10 |
+| Kind | SECURITY |
+| Risk covered | THR-07 |
+| Level | INTEGRATION |
+| Preconditions | Póliza emitida cuya fecha fin de vigencia es anterior a la fecha actual |
+| Procedure | 1. Ejecutar rutina de expiración diaria. 2. Verificar transición a estado `EXPIRED` y evento en auditoría. 3. Invocar endpoint de renovación. |
+| Expected result | La póliza pasa a estado `EXPIRED` y se genera una nueva vigencia renovada con tarifa actual. |
+| Tool or method | pytest backend/tests/integration/test_policy_expiration.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_policy_expiration.py |
+| Status | PASS |
+
+### TC-15 · Consulta de Open Data real en perfilamiento con degradación ante fallo
+
+| Field | Value |
+|---|---|
+| Covers | AC-17 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | INTEGRATION |
+| Preconditions | Servicio de perfilamiento activo |
+| Procedure | 1. Invocar perfilamiento con conexión activa a `datos.gov.co`. 2. Simular indisponibilidad o timeout (>400 ms) en la fuente externa. |
+| Expected result | En éxito incorpora datos de Open Data; ante falla degrada limpiamente al score base sin interrumpir la cotización. |
+| Tool or method | pytest backend/tests/unit/test_quote_validation.py::test_open_data_provider_fallback |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/unit/test_quote_validation.py::test_open_data_provider_fallback |
+| Status | PASS |
+
+### TC-16 · Validación de fecha de nacimiento tipo date y rango de 18 a 75 años
+
+| Field | Value |
+|---|---|
+| Covers | AC-11 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | Servicio `RatingService.create_quote` |
+| Procedure | 1. Enviar cotización con fecha de nacimiento correspondiente a 17 años. 2. Enviar con 76 años. 3. Enviar con fecha futura. 4. Enviar con 35 años. |
+| Expected result | Casos fuera de 18 a 75 años o fechas futuras retornan error 422; edad de 35 años es procesada exitosamente. |
+| Tool or method | pytest backend/tests/unit/test_quote_validation.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/unit/test_quote_validation.py::test_quote_accepts_valid_age |
+| Status | PASS |
+
+### TC-17 · Persistencia de entidad financiera y plazo del crédito en la cotización
+
+| Field | Value |
+|---|---|
+| Covers | AC-12 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | INTEGRATION |
+| Preconditions | Solicitud de cotización de crédito con `financial_entity="Banco Test"` y `term_months=36` |
+| Procedure | 1. Enviar cotización con los datos de crédito. 2. Consultar el registro en la tabla `quotes` de base de datos. |
+| Expected result | Los campos `financial_entity` y `term_months` quedan almacenados correctamente en base de datos. |
+| Tool or method | pytest backend/tests/unit/test_quote_validation.py |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/unit/test_quote_validation.py::test_quote_persists_credit_fields |
+| Status | PASS |
+
+### TC-18 · Eliminación de datos y medios de prueba en producción y verificación de accesibilidad
+
+| Field | Value |
+|---|---|
+| Covers | AC-09, QR-03 |
+| Kind | QUALITY |
+| Risk covered | — |
+| Level | ACCESSIBILITY |
+| Preconditions | Portal web de asesores ejecutándose en entorno de pruebas |
+| Procedure | 1. Inspeccionar campos de formulario en consentimiento y cotizador. 2. Verificar opciones de pago. 3. Auditar cumplimiento de accesibilidad en teclado y contrastes. |
+| Expected result | No aparecen datos de documento ni tarjetas de prueba por defecto, y los componentes cumplen WCAG 2.2 AA. |
+| Tool or method | npm test web/src/app/features/cotizador/cotizador.component.spec.ts |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | web/src/app/features/cotizador/cotizador.component.spec.ts |
+| Status | PASS |
+
 ## Security test coverage
 
 | Category | Applies | Test cases | Rationale |
 |---|---|---|---|
 | Unauthenticated user | YES | TC-01 | Peticiones sin token Bearer son rechazadas con 401 antes de validar cuota |
 | User without permissions | YES | TC-03 | Roles ajenos a 'partner' no pueden acceder a Quote Edge |
-| Access to another user's resources | YES | TC-03 | El socio solo accede a su propio estado de cuota y cotizaciones |
-| Cross-tenant access | YES | TC-03 | Cuotas totalmente aisladas en base de datos por partner_id |
-| Malicious input | YES | TC-02 | Manejo robusto de datos de entrada sin fugas de información |
+| Access to another user's resources | YES | TC-03, TC-12 | El socio solo accede a su propio estado de cuota y no puede desviar cobros |
+| Cross-tenant access | YES | TC-03, TC-12 | Cuotas y cobros totalmente aislados en base de datos por partner_id |
+| Malicious input | YES | TC-02, TC-16 | Manejo robusto de datos de entrada sin fugas de información y validación de tipos |
 | Expired tokens | YES | TC-01 | Tokens JWT expirados son rechazados de inmediato |
 | Revoked sessions | YES | TC-01 | Socios inactivos o revocados no pueden cotizar ni consumir cuota |
-| Tampered data | YES | TC-01 | Tokens manipulados son rechazados por validación criptográfica |
+| Tampered data | YES | TC-01, TC-09 | Tokens manipulados y firmas de pólizas alteradas son detectados y rechazados |
 | Wrong keys or algorithms | YES | TC-01 | Firmas no coincidentes son descartadas inmediatamente |
-| External service failure | YES | TC-02 | Cuando la cuota está agotada, ni siquiera se intenta contactar al buró |
-| Race conditions | YES | TC-03 | Actualizaciones transaccionales en PostgreSQL |
-| Information exposure in errors | YES | TC-02 | Respuesta 429 estandarizada sin stack traces ni datos internos |
+| External service failure | YES | TC-02, TC-15 | Degradación controlada ante indisponibilidad de fuentes externas sin bloquear el flujo |
+| Race conditions | YES | TC-03, TC-09 | Actualizaciones transaccionales en PostgreSQL protegidas con locks y triggers |
+| Information exposure in errors | YES | TC-02, TC-10 | Respuestas 429 y mensajes web estandarizados sin stack traces ni datos internos |
 | Secrets in code or logs | YES | TC-02 | Eventos de auditoría de cuota sin contraseñas ni identificaciones |
-| Insecure configuration | YES | TC-05 | Configuración con ventanas de tiempo explícitas y seguras por defecto |
+| Insecure configuration | YES | TC-05, TC-11 | Supresión de parámetros de depuración y ventanas de tiempo seguras por defecto |
 | Vulnerable dependencies | YES | TC-07 | FastAPI y SQLAlchemy evaluadas periódicamente sin vulnerabilidades |

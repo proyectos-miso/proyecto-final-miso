@@ -21,11 +21,17 @@ const MIN_JUSTIFICATION = 20;
     @if (closed()) {
       <p class="none">La póliza está {{ policy().status === 'CANCELLED' ? 'cancelada' : 'terminada' }}: no admite endosos ni cancelación.</p>
     }
+    @if (policy().status === 'EXPIRED') {
+      <p class="none">La póliza está vencida: no admite endosos ni cancelación.</p>
+    }
     <div class="actions">
-      @if (!closed()) {
+      @if (!closed() && policy().status !== 'EXPIRED') {
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'beneficiaries'" (click)="toggle('beneficiaries')">Endoso de beneficiarios</button>
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'sum'" (click)="toggle('sum')">Endoso de suma asegurada</button>
         <button type="button" class="btn-op danger" [attr.aria-expanded]="panel() === 'cancel'" (click)="toggle('cancel')">Cancelar póliza</button>
+      }
+      @if (canRenew()) {
+        <button type="button" class="btn-op renew" [disabled]="busy()" (click)="renew()">Renovar póliza</button>
       }
       <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'audit'" (click)="toggle('audit')">Auditoría</button>
     </div>
@@ -98,6 +104,8 @@ const MIN_JUSTIFICATION = 20;
     .btn-op[aria-expanded='true'] { background: var(--marca-600); color: #fff; }
     .btn-op.danger { border-color: #b91c1c; color: #b91c1c; }
     .btn-op.danger[aria-expanded='true'] { background: #b91c1c; color: #fff; }
+    .btn-op.renew { border-color: #15803d; color: #15803d; }
+    .btn-op.renew:hover { background: #15803d; color: #fff; }
     button:focus-visible, input:focus, textarea:focus { outline: 3px solid rgba(15, 109, 148, 0.35); outline-offset: 1px; }
     .op { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
     label { font-size: var(--t-xs); font-weight: 600; color: var(--n-700); }
@@ -133,6 +141,17 @@ export class PolicyOperationsComponent {
   readonly minJustification = MIN_JUSTIFICATION;
   readonly cop = COP.format;
   readonly closed = computed(() => ['CANCELLED', 'TERMINATED'].includes(this.policy().status));
+  readonly canRenew = computed(() => {
+    const status = this.policy().status;
+    if (status === 'EXPIRED') return true;
+    if (status === 'ACTIVE' && this.policy().valid_until) {
+      const validUntil = new Date(this.policy().valid_until).getTime();
+      const now = Date.now();
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+      return validUntil - now <= thirtyDaysMs;
+    }
+    return false;
+  });
   readonly justified = computed(() => this.justification().trim().length >= MIN_JUSTIFICATION);
   readonly validAmount = computed(() => {
     const amount = Number(this.amount());
@@ -174,6 +193,13 @@ export class PolicyOperationsComponent {
         result.refund_amount
           ? `Póliza cancelada. Se devolvieron ${this.cop(result.refund_amount)} al titular.`
           : 'Póliza cancelada. No hay prima para devolver.',
+    );
+  }
+
+  renew(): void {
+    this.run(
+      this.policies.renew(this.policy().policy_number),
+      (result) => `Póliza renovada exitosamente. La póliza quedó en estado ${result.status} y versión ${result.version}.`,
     );
   }
 

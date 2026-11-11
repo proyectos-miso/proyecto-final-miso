@@ -129,6 +129,45 @@ class PolicyOperations:
             justification=f"Siniestro de muerte {claim_number} liquidado.", created_at=self.now(),
         ))
 
+    async def renew(
+        self, session: AsyncSession, policy_number: str, actor: str
+    ) -> PolicyOperationResult:
+        """Renueva la vigencia de una póliza vencida o activa por un periodo adicional de un año (RC-24, AC-16)."""
+        policy = await session.scalar(
+            select(PolicyDB).where(PolicyDB.policy_number == policy_number).with_for_update()
+        )
+        if policy is None:
+            raise PolicyClosedError()
+        if policy.status in ("CANCELLED", "TERMINATED"):
+            raise PolicyClosedError()
+
+        now = self.now()
+        from app.modules.policy.service import one_year_after
+        new_valid_until = one_year_after(policy.valid_until if policy.valid_until > now else now)
+        before = {"status": policy.status, "valid_until": policy.valid_until.isoformat()}
+        policy.valid_until = new_valid_until
+        policy.status = "ACTIVE"
+        policy.version = (policy.version or 1) + 1
+        policy.pdf_s3_key = None
+        after = {"status": policy.status, "valid_until": policy.valid_until.isoformat()}
+
+        session.add(PolicyEventDB(
+            policy_number=policy_number,
+            kind="RENEWED",
+            version=policy.version,
+            actor=actor,
+            justification="Renovación de vigencia anual de la póliza",
+            before=before,
+            after=after,
+            created_at=now,
+        ))
+        await session.commit()
+        return PolicyOperationResult(
+            policy_number=policy_number,
+            status=policy.status,
+            version=policy.version,
+        )
+
     async def audit(self, session: AsyncSession, policy: PolicyDB) -> PolicyAudit:
         """Emisión, cobros, endosos, cancelación, siniestros y pagos de la póliza, en orden (RC-19)."""
         entries = [AuditEntry(occurred_at=policy.issued_at, kind="ISSUED", actor="Emisión", summary="Póliza emitida")]
@@ -170,6 +209,8 @@ POLICY_EVENTS = {
     "ENDORSEMENT_SUM_INSURED": "Endoso de suma asegurada",
     "CANCELLED": "Póliza cancelada",
     "TERMINATED": "Póliza terminada",
+    "EXPIRED": "Póliza vencida",
+    "RENEWED": "Póliza renovada",
 }
 CLAIM_EVENTS = {
     "REPORTED": "Siniestro reportado",

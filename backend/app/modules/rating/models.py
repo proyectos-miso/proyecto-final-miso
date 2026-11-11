@@ -1,7 +1,7 @@
 """Modelos de datos para el motor de cotización y canal de socios B2B (HU-WEB-10)."""
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, func
 from app.core.database import Base
@@ -31,10 +31,13 @@ class Coverage(BaseModel):
 class QuoteRequest(BaseModel):
     document_type: str = Field(..., json_schema_extra={"example": "CC"})
     document_number: str = Field(..., json_schema_extra={"example": "123456789"})
-    birth_date: str = Field(..., json_schema_extra={"example": "1990-05-15"})
+    birth_date: Union[date, str] = Field(..., json_schema_extra={"example": "1990-05-15"})
     insured_amount: float = Field(..., gt=0, json_schema_extra={"example": 150000000.0})
     city: str = Field(default="Bogota")
     occupation_risk: int = Field(default=1, ge=1, le=5)
+    financial_entity: Optional[str] = Field(None, json_schema_extra={"example": "BANCOLOMBIA"})
+    term_months: Optional[int] = Field(None, ge=1, le=360, json_schema_extra={"example": 240})
+    consent_id: Optional[str] = Field(None, json_schema_extra={"example": "CNS-A1B2C3D4E5F6"})
 
 
 class PremiumFactor(BaseModel):
@@ -183,7 +186,7 @@ class PartnerQuotaExceededResponse(BaseModel):
 
 
 class PartnerDB(Base):
-    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10, HU-WEB-12)."""
+    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10, HU-WEB-12, RC-23)."""
     __tablename__ = "partners"
 
     partner_id = Column(String(64), primary_key=True, index=True)
@@ -195,11 +198,13 @@ class PartnerDB(Base):
     quota_used = Column(Integer, nullable=False, default=0)
     quota_window_seconds = Column(Integer, nullable=False, default=3600)
     quota_reset_at = Column(DateTime(timezone=True), nullable=True)
+    environment = Column(String(16), nullable=False, default="PRODUCTION")
+    contact_email = Column(String(254), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class QuoteDB(Base):
-    """Cotización calculada, con su traza de degradación y confinamiento opcional por socio (HU-WEB-05, HU-WEB-10)."""
+    """Cotización calculada, con su traza de degradación y confinamiento opcional por socio (HU-WEB-05, HU-WEB-10, RC-06, RC-08)."""
     __tablename__ = "quotes"
 
     quote_id = Column(String(16), primary_key=True)
@@ -211,3 +216,7 @@ class QuoteDB(Base):
     tiers = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    consent_id = Column(String(36), nullable=True)
+    financial_entity = Column(String(120), nullable=True)
+    term_months = Column(Integer, nullable=True)
+    birth_date = Column(DateTime(timezone=True), nullable=True)
