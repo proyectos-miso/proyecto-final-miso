@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Firebase Cloud Messaging solo con google-services.json; sin él la app compila y los avisos salen al sincronizar (HU-MOV-11).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Para el túnel local: ./gradlew assembleDebug -PapiBaseUrl=https://xxxx.trycloudflare.com/api/v1/
 val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
 // Las pantallas del reporte de siniestro bloquean capturas en release; -PsecureScreens=true lo activa en debug para probarlo (HU-MOV-08).
@@ -74,6 +79,8 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)

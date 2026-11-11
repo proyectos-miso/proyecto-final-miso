@@ -1,9 +1,17 @@
 package com.solventa.app
 
+import android.Manifest
 import android.app.Activity
+import android.app.DownloadManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Bundle
+import android.os.Environment
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,7 +39,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.solventa.app.data.auth.AndroidBiometricAuthenticator
 import com.solventa.app.data.claims.AndroidCaptureLocator
 import com.solventa.app.data.claims.AndroidTrustedClock
+import com.solventa.app.data.notifications.AndroidNotificationPoster
+import com.solventa.app.data.notifications.SolventaMessagingService
 import com.solventa.app.domain.auth.BiometricAuthenticator
+import com.solventa.app.ui.claims.ClaimDetailScreen
+import com.solventa.app.ui.claims.ClaimsListScreen
+import com.solventa.app.ui.claims.ClaimsViewModel
 import com.solventa.app.ui.auth.AlternativeLoginScreen
 import com.solventa.app.ui.auth.AuthViewModel
 import com.solventa.app.ui.auth.BiometricEnrollmentDialog
@@ -64,7 +77,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                WalletViewModel(app.policySync, app.policyStore)
+                WalletViewModel(app.policySync, app.policyStore, actions = app.policyActions)
             }
         }
     }
@@ -78,6 +91,32 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val claimsViewModel: ClaimsViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                val app = application as SolventaApplication
+                ClaimsViewModel(app.policySync, app.policyStore)
+            }
+        }
+    }
+
+    // Siniestro que pidió abrir un aviso tocado (HU-MOV-11, AC-08).
+    private var pendingClaim by mutableStateOf<String?>(null)
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(AndroidNotificationPoster.EXTRA_CLAIM_NUMBER)?.let { pendingClaim = it }
+    }
+
+    // Se pide al abrir la billetera; si se niega, los cambios se ven al abrir la app (UC-02).
+    private fun requestNotificationPermission() {
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Al volver de otra app (por ejemplo, de cambiar la hora) se recalcula el aviso de desactualización (HU-MOV-06).
     override fun onResume() {
         super.onResume()
@@ -86,6 +125,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) pendingClaim = intent?.getStringExtra(AndroidNotificationPoster.EXTRA_CLAIM_NUMBER)
+        val app = application as SolventaApplication
         val biometricAuthenticator = AndroidBiometricAuthenticator(this)
         val themeStore = (application as SolventaApplication).themeStore
         val camera = CameraXEvidenceCamera(applicationContext)
@@ -94,6 +135,16 @@ class MainActivity : FragmentActivity() {
             var darkTheme by rememberSaveable { mutableStateOf(themeStore.darkTheme() ?: systemDark) }
             // Solo si el reporte está abierto; no guarda nada del reporte (HU-MOV-08, ADR 0015).
             var claimOpen by rememberSaveable { mutableStateOf(false) }
+            // Mis siniestros y el siniestro abierto: solo el número, que ya está en la copia cifrada (HU-MOV-11).
+            var claimsOpen by rememberSaveable { mutableStateOf(false) }
+            var selectedClaim by rememberSaveable { mutableStateOf<String?>(null) }
+            val authenticated = authViewModel.uiState.collectAsState().value.isAuthenticated
+            LaunchedEffect(authenticated) {
+                if (authenticated) {
+                    requestNotificationPermission()
+                    SolventaMessagingService.registerCurrentToken(app, app::registerPushToken)
+                }
+            }
             // Barras del sistema transparentes y con íconos que contrastan con el tema elegido.
             DisposableEffect(darkTheme) {
                 val transparent = android.graphics.Color.TRANSPARENT
@@ -107,7 +158,7 @@ class MainActivity : FragmentActivity() {
                     contentWindowInsets = WindowInsets.safeDrawing,
                     topBar = {
                         // El reporte de siniestro tiene su propia barra con «atrás» y el paso.
-                        if (!claimOpen) {
+                        if (!claimOpen && !claimsOpen) {
                             BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
                                 darkTheme = !darkTheme
                                 themeStore.saveDarkTheme(darkTheme)
@@ -125,6 +176,15 @@ class MainActivity : FragmentActivity() {
                         claimOpen = claimOpen,
                         onClaimOpenChange = { claimOpen = it },
                         secureScreens = BuildConfig.SECURE_SCREENS,
+                        claimsViewModel = claimsViewModel,
+                        claimsOpen = claimsOpen,
+                        onClaimsOpenChange = { claimsOpen = it },
+                        selectedClaim = selectedClaim,
+                        onSelectedClaimChange = { selectedClaim = it },
+                        pendingClaim = pendingClaim,
+                        onPendingClaimConsumed = { pendingClaim = null },
+                        walletActions = true,
+                        onLoggedOut = { AndroidNotificationPoster.clear(app) },
                     )
                 }
             }
@@ -143,11 +203,36 @@ fun SolventaMobileRoot(
     claimOpen: Boolean = false,
     onClaimOpenChange: (Boolean) -> Unit = {},
     secureScreens: Boolean = false,
+    claimsViewModel: ClaimsViewModel? = null,
+    claimsOpen: Boolean = false,
+    onClaimsOpenChange: (Boolean) -> Unit = {},
+    selectedClaim: String? = null,
+    onSelectedClaimChange: (String?) -> Unit = {},
+    pendingClaim: String? = null,
+    onPendingClaimConsumed: () -> Unit = {},
+    walletActions: Boolean = false,
+    onLoggedOut: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
-    // Sin sesión no hay reporte abierto (HU-MOV-08).
-    LaunchedEffect(uiState.isAuthenticated) { if (!uiState.isAuthenticated) onClaimOpenChange(false) }
+    // Sin sesión no hay reporte ni siniestros abiertos (HU-MOV-08, HU-MOV-11).
+    LaunchedEffect(uiState.isAuthenticated) {
+        if (!uiState.isAuthenticated) {
+            onClaimOpenChange(false)
+            onClaimsOpenChange(false)
+            onSelectedClaimChange(null)
+            claimsViewModel?.close()
+        }
+    }
+    LaunchedEffect(uiState.isAuthenticated, pendingClaim) {
+        if (uiState.isAuthenticated && pendingClaim != null && claimsViewModel != null) {
+            onClaimOpenChange(false)
+            onClaimsOpenChange(true)
+            onSelectedClaimChange(pendingClaim)
+            onPendingClaimConsumed()
+        }
+    }
 
     if (uiState.offerBiometricEnrollment) {
         BiometricEnrollmentDialog(
@@ -163,7 +248,11 @@ fun SolventaMobileRoot(
             onConfirm = {
                 walletViewModel.close()
                 claimViewModel?.close()
+                claimsViewModel?.close()
                 onClaimOpenChange(false)
+                onClaimsOpenChange(false)
+                onSelectedClaimChange(null)
+                onLoggedOut()
                 viewModel.confirmLogout()
             },
             onDismiss = viewModel::cancelLogout,
@@ -185,10 +274,44 @@ fun SolventaMobileRoot(
             LaunchedEffect(email, hasActivePolicy, claimOpen) {
                 if (email != null && !claimOpen) claimViewModel?.refreshEntry(email, hasActivePolicy)
             }
+            // La carátula se descarga en Descargas; el asegurado decide si la abre (HU-MOV-11, AC-10).
+            LaunchedEffect(walletState.caratula) {
+                val caratula = walletState.caratula ?: return@LaunchedEffect
+                walletViewModel.consumeCaratula()
+                val request = DownloadManager.Request(Uri.parse(caratula.url))
+                    .setTitle(context.getString(R.string.wallet_caratula_title, caratula.policyNumber))
+                    .setMimeType("application/pdf")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Caratula-${caratula.policyNumber}.pdf")
+                context.getSystemService(DownloadManager::class.java).enqueue(request)
+                Toast.makeText(context, R.string.wallet_caratula_downloading, Toast.LENGTH_LONG).show()
+            }
             if (claimOpen && claimViewModel != null && camera != null && email != null) {
                 LaunchedEffect(email, walletState.policies) { claimViewModel.open(email, walletState.policies.map { it.policy }) }
                 SecureWindow(secureScreens)
                 ClaimFlow(claimViewModel, camera, onClosed = { onClaimOpenChange(false) }, modifier = modifier)
+            } else if (claimsOpen && claimsViewModel != null && email != null) {
+                LaunchedEffect(email) { claimsViewModel.open(email) }
+                val claimsState by claimsViewModel.uiState.collectAsState()
+                if (selectedClaim != null) {
+                    ClaimDetailScreen(claimsState.claim(selectedClaim), onBack = { onSelectedClaimChange(null) }, modifier = modifier)
+                } else {
+                    val canReport = claimViewModel != null && camera != null && entry != ReportEntry.HIDDEN
+                    ClaimsListScreen(
+                        state = claimsState,
+                        onBack = { onClaimsOpenChange(false) },
+                        onOpen = onSelectedClaimChange,
+                        onReport = if (canReport) {
+                            {
+                                onClaimsOpenChange(false)
+                                onClaimOpenChange(true)
+                            }
+                        } else {
+                            null
+                        },
+                        modifier = modifier,
+                    )
+                }
             } else {
                 WalletScreen(
                     uiState = walletState,
@@ -200,6 +323,15 @@ fun SolventaMobileRoot(
                     onRetry = walletViewModel::retry,
                     reportEntry = if (claimViewModel != null && camera != null) entry else ReportEntry.HIDDEN,
                     onReport = { onClaimOpenChange(true) },
+                    onOpenClaims = if (claimsViewModel != null) {
+                        { onClaimsOpenChange(true) }
+                    } else {
+                        null
+                    },
+                    cardActions = walletActions,
+                    onRenew = walletViewModel::renew,
+                    onDownloadCaratula = walletViewModel::downloadCaratula,
+                    onDismissNotice = walletViewModel::dismissNotice,
                 )
             }
         }

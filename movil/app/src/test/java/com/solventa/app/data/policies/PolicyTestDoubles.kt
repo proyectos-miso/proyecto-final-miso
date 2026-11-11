@@ -1,6 +1,16 @@
 package com.solventa.app.data.policies
 
+import com.solventa.app.domain.claims.ClaimTimelineStep
+import com.solventa.app.domain.claims.ClaimsApi
+import com.solventa.app.domain.claims.ClaimsCopy
+import com.solventa.app.domain.claims.ClaimsResult
+import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.policies.CaratulaResult
 import com.solventa.app.domain.policies.CoverageLimit
+import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.NotificationPoster
+import com.solventa.app.domain.policies.PolicyActions
+import com.solventa.app.domain.policies.RenewalResult
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.PolicyCard
@@ -77,7 +87,21 @@ class InMemoryPolicyStore : PolicyStore {
         deleteGate?.await()
         copies.remove(accountEmail)
         syncTimes.remove(accountEmail)
+        claims.remove(accountEmail)
+        notified.remove(accountEmail)
     }
+
+    val claims = mutableMapOf<String, ClaimsCopy>()
+    val notified = mutableMapOf<String, MutableSet<String>>()
+
+    override suspend fun saveClaims(accountEmail: String, claims: ClaimsCopy): Boolean {
+        if (canWrite) this.claims[accountEmail] = claims
+        return canWrite
+    }
+
+    override suspend fun readClaims(accountEmail: String): ClaimsCopy? = claims[accountEmail]
+
+    override suspend fun markNotified(accountEmail: String, key: String): Boolean = notified.getOrPut(accountEmail) { mutableSetOf() }.add(key)
 }
 
 class FakePoliciesApi(var result: PoliciesResult = PoliciesResult.Loaded(emptyList())) : PoliciesApi {
@@ -186,3 +210,41 @@ fun samplePolicy(number: String = "POL-2026-00001", validUntil: String = "2027-0
     validFrom = Instant.parse("2026-01-01T00:00:00Z"),
     validUntil = Instant.parse(validUntil),
 )
+
+class FakeClaimsApi(var result: ClaimsResult = ClaimsResult.Unavailable) : ClaimsApi {
+    override suspend fun claims(accessToken: String): ClaimsResult = result
+}
+
+class RecordingPoster : NotificationPoster {
+    val posted = mutableListOf<Notice>()
+
+    override fun post(notice: Notice) {
+        posted += notice
+    }
+}
+
+class FakePolicyActions : PolicyActions {
+    var caratula: CaratulaResult = CaratulaResult.Unavailable
+    var renewal: RenewalResult = RenewalResult.Unavailable
+    val renewed = mutableListOf<String>()
+
+    override suspend fun caratula(policyNumber: String): CaratulaResult = caratula
+
+    override suspend fun renew(policyNumber: String): RenewalResult {
+        renewed += policyNumber
+        return renewal
+    }
+
+    override suspend fun registerPushToken(token: String): Boolean = true
+}
+
+fun sampleClaim(number: String = "SIN-2026-00001", status: String = "IN_REVIEW", label: String = "En evaluación", reportedAt: String = "2026-10-01T10:00:00Z") =
+    InsuredClaim(
+        claimNumber = number,
+        policyNumber = "POL-2026-00001",
+        reportedAt = Instant.parse(reportedAt),
+        status = status,
+        statusLabel = label,
+        lastChangeAt = Instant.parse(reportedAt),
+        timeline = listOf(ClaimTimelineStep("RECEIVED", "Recibido", "Recibimos su reporte.", Instant.parse(reportedAt))),
+    )

@@ -7,6 +7,11 @@ import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.RefreshResult
+import com.solventa.app.domain.claims.ClaimsApi
+import com.solventa.app.domain.claims.ClaimsCopy
+import com.solventa.app.domain.claims.ClaimsResult
+import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.NotificationPoster
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.PolicyCard
@@ -43,6 +48,9 @@ class SessionPolicySync(
     private val store: PolicyStore,
     private val scheduler: SyncScheduler,
     private val clock: Clock = Clock.systemUTC(),
+    // Siniestros y avisos de la misma sincronización (HU-MOV-11); sin ellos solo se sincroniza la billetera.
+    private val claimsApi: ClaimsApi? = null,
+    private val notices: NotificationPoster? = null,
     // Borra lo demás de la cuenta cuando el servidor desvincula el teléfono, como el reporte de siniestro (HU-MOV-08, AC-12).
     private val onDeviceRejected: suspend (accountEmail: String) -> Unit = {},
 ) : PolicySync {
@@ -74,6 +82,21 @@ class SessionPolicySync(
     override fun cancel() {
         running.forEach { it.cancel() }
         scheduler.cancel()
+    }
+
+    /**
+     * Llama al servidor con el token de la sesión abierta; con un 401 renueva una vez y repite (HU-MOV-11).
+     * null si no hay sesión con tokens. Un segundo 401 se devuelve tal cual y la próxima sincronización lo resuelve.
+     */
+    suspend fun <T> withAccessToken(unauthorized: (T) -> Boolean, call: suspend (String) -> T): T? = turn.withLock {
+        var current = session.openSession?.takeIf { it.tokens != null } ?: return@withLock null
+        val first = call(checkNotNull(current.tokens).accessToken)
+        if (!unauthorized(first)) return@withLock first
+        when (val step = renew(current)) {
+            is Step.Ready -> current = step.session
+            is Step.Done -> return@withLock null
+        }
+        call(checkNotNull(current.tokens).accessToken)
     }
 
     private suspend fun syncInTurn(online: Boolean): SyncOutcome {
@@ -117,7 +140,7 @@ class SessionPolicySync(
         var renewed = false
         while (true) {
             when (val result = policiesApi.activePolicies(checkNotNull(current.tokens).accessToken)) {
-                is PoliciesResult.Loaded -> return save(current, result.policies)
+                is PoliciesResult.Loaded -> return save(current, result.policies, claims(current))
                 PoliciesResult.Unavailable -> return SyncOutcome.Failed
                 PoliciesResult.Unauthorized -> {
                     if (renewed) return end(current, SessionEndReason.EXPIRED)
@@ -153,12 +176,53 @@ class SessionPolicySync(
     }
 
     // Un cierre de sesión o un cambio de cuenta durante la descarga no guarda en ninguna cuenta (CTL-09).
-    private suspend fun save(current: OpenSession, policies: List<PolicyCard>): SyncOutcome {
+    private suspend fun save(current: OpenSession, policies: List<PolicyCard>, claims: ClaimsCopy?): SyncOutcome {
         if (session.openSession !== current) return SyncOutcome.NoSession
         val syncedAt = clock.instant()
         if (!store.save(current.email, policies, syncedAt)) return SyncOutcome.Failed
-        val copy = WalletCopy(policies.distinctBy(PolicyCard::policyNumber), syncedAt)
+        val unique = policies.distinctBy(PolicyCard::policyNumber)
+        val savedClaims = claims?.let { saveClaims(current.email, it) }
+        notifyRenewals(current.email, unique, syncedAt)
+        val copy = WalletCopy(unique, syncedAt, savedClaims)
         return SyncOutcome.Synced(current.email, copy).also(results::tryEmit)
+    }
+
+    // Los siniestros fallan sin tumbar la billetera: se conserva la copia anterior (HU-MOV-11).
+    private suspend fun claims(current: OpenSession): ClaimsCopy? {
+        val api = claimsApi ?: return null
+        return (api.claims(checkNotNull(current.tokens).accessToken) as? ClaimsResult.Loaded)?.copy
+    }
+
+    // Un cambio de estado frente a la copia anterior produce un aviso que abre ese siniestro (HU-MOV-11, AC-08, RC-15).
+    private suspend fun saveClaims(accountEmail: String, claims: ClaimsCopy): ClaimsCopy? {
+        val previous = store.readClaims(accountEmail)?.claims?.associate { it.claimNumber to it.status }
+        if (!store.saveClaims(accountEmail, claims)) return null
+        val poster = notices ?: return claims
+        if (previous == null) return claims
+        claims.claims
+            .filter { claim -> previous[claim.claimNumber].let { it != null && it != claim.status } }
+            .forEach { claim ->
+                poster.post(
+                    Notice(
+                        key = "claim:${claim.claimNumber}",
+                        title = "Tu siniestro ${claim.claimNumber} cambió de estado",
+                        body = "Estado actual: ${claim.statusLabel}",
+                        claimNumber = claim.claimNumber,
+                    ),
+                )
+            }
+        return claims
+    }
+
+    // Una sola vez por póliza y fin de vigencia (HU-MOV-11, AC-09, RC-27).
+    private suspend fun notifyRenewals(accountEmail: String, policies: List<PolicyCard>, now: java.time.Instant) {
+        val poster = notices ?: return
+        policies.filter { it.expiresSoonAt(now) }.forEach { card ->
+            val key = "renewal:${card.policyNumber}:${card.validUntil.toEpochMilli()}"
+            if (store.markNotified(accountEmail, key)) {
+                poster.post(Notice(key, "Tu póliza ${card.policyNumber} está por vencer", "Vence el ${RENEWAL_DATE.format(card.validUntil.atZone(java.time.ZoneId.systemDefault()))}. Renuévala desde la billetera."))
+            }
+        }
     }
 
     // Solo termina la sesión que tomó esta sincronización; un rechazo tardío no toca otra.
@@ -169,6 +233,10 @@ class SessionPolicySync(
         if (reason == SessionEndReason.DEVICE_REJECTED) withContext(NonCancellable) { onDeviceRejected(current.email) }
         scheduler.cancel()
         return SyncOutcome.SessionEnded(current.email, reason).also(results::tryEmit)
+    }
+
+    private companion object {
+        val RENEWAL_DATE: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")
     }
 
     private sealed interface Step {

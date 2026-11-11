@@ -246,4 +246,37 @@
     <string name="claim_pane_ready">Reporte listo para enviar</string>
     <string name="claim_pane_unavailable">Reporte no disponible</string>
     <string name="claim_pane_cannot_open">No se pudo abrir el reporte</string>
+
+    <!-- Estado del siniestro (HU-MOV-11) -->
+    <string name="claims_title">Mis siniestros</string>
+    <string name="claims_open_button">Mis siniestros</string>
+    <string name="claims_empty">No registra siniestros en este momento</string>
+    <string name="claims_offline">Sin conexión. Está viendo el último estado conocido.</string>
+    <string name="claims_needs_connection">Conéctese a internet para consultar sus siniestros.</string>
+    <string name="claims_last_update">Última actualización: %1$s</string>
+    <string name="claims_row_detail">Póliza %1$s · reportado el %2$s</string>
+    <string name="claims_row_description">Siniestro %1$s, póliza %2$s, reportado el %3$s, estado %4$s</string>
+    <string name="claims_open_detail">Ver el historial</string>
+    <string name="claims_detail_subtitle">Póliza %1$s</string>
+    <string name="claims_timeline_title">Historial</string>
+    <string name="claims_step_description">%1$s, %2$s. %3$s</string>
+    <string name="claims_rejection_title">Motivo del rechazo</string>
+    <string name="claims_review_title">Cómo pedir una revisión</string>
+    <string name="claims_loading">Cargando sus siniestros</string>
+    <string name="claims_not_found">Este siniestro ya no está en la lista.</string>
+    <string name="wallet_expires_soon">Tu póliza vence el %1$s</string>
+    <string name="wallet_renew">Renovar</string>
+    <string name="wallet_download_caratula">Descargar carátula</string>
+    <string name="wallet_renewed">Su póliza quedó renovada hasta el %1$s.</string>
+    <string name="wallet_not_renewable">Esta póliza no se puede renovar todavía.</string>
+    <string name="wallet_caratula_not_found">No encontramos la carátula de esta póliza.</string>
+    <string name="wallet_caratula_cancelled">La póliza está cancelada; su carátula no se puede descargar.</string>
+    <string name="wallet_caratula_generating">La carátula se está generando. Intente de nuevo en unos minutos.</string>
+    <string name="wallet_action_offline">No hay conexión. Intente de nuevo cuando tenga internet.</string>
+    <string name="wallet_action_session">Vuelva a ingresar para completar esta acción.</string>
+    <string name="wallet_caratula_title">Carátula %1$s</string>
+    <string name="wallet_caratula_downloading">Descargando la carátula en Descargas.</string>
+    <string name="wallet_dismiss_message">Cerrar mensaje</string>
+    <string name="notice_channel_name">Avisos de Solventa</string>
+    <string name="notice_public_title">Tiene un aviso de Solventa</string>
 </resources>

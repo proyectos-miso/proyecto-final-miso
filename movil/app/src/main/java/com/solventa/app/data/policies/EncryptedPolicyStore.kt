@@ -4,6 +4,9 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import com.solventa.app.data.claims.ClaimsJson
+import com.solventa.app.domain.claims.ClaimsCopy
+import com.solventa.app.domain.claims.InsuredClaim
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
@@ -19,6 +22,7 @@ import kotlinx.coroutines.withContext
 import net.zetetic.database.sqlcipher.SQLiteNotADatabaseException
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -74,6 +78,41 @@ class EncryptedPolicyStore(
                     Opened.Damaged -> discarded(accountId)
                     Opened.Failed -> StoredCopy.Unavailable
                 }
+            }
+        }
+    }
+
+    override suspend fun saveClaims(accountEmail: String, claims: ClaimsCopy): Boolean = withExisting(accountEmail, false) { db ->
+        val entities = claims.claims.distinctBy(InsuredClaim::claimNumber)
+            .mapIndexed { i, claim -> InsuredClaimEntity(claim.claimNumber, i, ClaimsJson.toJson(claim).toString()) }
+        db.claims().replace(entities, claims.updatedAt.toEpochMilli())
+        true
+    }
+
+    override suspend fun readClaims(accountEmail: String): ClaimsCopy? = withExisting(accountEmail, null) { db ->
+        db.claims().updatedAt()?.let { millis ->
+            val claims = try {
+                db.claims().all().map { ClaimsJson.claim(JSONObject(it.json)) }
+            } catch (e: JSONException) {
+                return@withExisting null
+            }
+            ClaimsCopy(claims, Instant.ofEpochMilli(millis))
+        }
+    }
+
+    override suspend fun markNotified(accountEmail: String, key: String): Boolean = withExisting(accountEmail, false) { db ->
+        db.claims().markNotice(SentNoticeEntity(key)) != -1L
+    }
+
+    // Siniestros y avisos solo viven junto a una copia de la billetera que ya existe; nunca crean ni descartan la base.
+    private suspend fun <T> withExisting(accountEmail: String, otherwise: T, block: suspend (WalletDatabase) -> T): T {
+        val accountId = PassphraseVault.accountId(accountEmail)
+        return inTurn(accountId) {
+            if (!databaseExists(accountId)) return@inTurn otherwise
+            val stored = vault.existing(accountId) as? Unwrapped.Secret ?: return@inTurn otherwise
+            when (val opened = withDatabase(accountId, stored.bytes, block)) {
+                is Opened.Done -> opened.value
+                else -> otherwise
             }
         }
     }
