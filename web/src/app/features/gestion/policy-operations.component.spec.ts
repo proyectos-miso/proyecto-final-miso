@@ -14,7 +14,7 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
   let changes: number;
 
   const policy = {
-    policy_number: 'POL-2026-00001', status: 'ACTIVE', plan: 'premium', insured_amount: 200_000_000,
+    policy_number: 'POL-2026-00001', status: 'ACTIVE', plan: 'premium', insured_amount: 200_000_000, valid_until: '2099-01-01T00:00:00Z',
   } as PolicyDetail;
   const page = () => fixture.nativeElement as HTMLElement;
   const button = (label: string) => [...page().querySelectorAll('button')].find((b) => b.textContent?.trim() === label)!;
@@ -72,6 +72,20 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
     call.flush({ policy_number: 'POL-2026-00001', status: 'CANCELLED', version: 1, refund_amount: 50_000 });
     fixture.detectChanges();
     expect(page().querySelector('[role="status"]')?.textContent?.replace(/\s/g, ' ')).toContain('Se devolvieron');
+  });
+
+  it('HU-MOV-11 renueva por un año una póliza a 30 días o menos de vencer', () => {
+    expect(button('Renovar por un año')).toBeUndefined();
+    const soon = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    fixture.componentRef.setInput('policy', { ...policy, valid_until: soon });
+    fixture.detectChanges();
+
+    button('Renovar por un año').click();
+    http.expectOne((req) => req.url.endsWith('/policies/POL-2026-00001/renewal'))
+      .flush({ policy_number: 'POL-2026-00001', status: 'ACTIVE', version: 2 });
+    fixture.detectChanges();
+    expect(page().querySelector('[role="status"]')?.textContent).toContain('renovada por un año');
+    expect(changes).toBe(1);
   });
 
   it('una póliza cancelada o terminada solo deja ver la auditoría', () => {
