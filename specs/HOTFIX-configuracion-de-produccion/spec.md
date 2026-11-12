@@ -6,7 +6,7 @@
 | Title | Configuracion de produccion |
 | User story | none: hotfix de la revisión de cumplimiento del 2026-10-22 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-22 |
 | Security profile | HIGH |
 
@@ -51,9 +51,11 @@ Fuera de alcance: el proveedor de SMS; un gestor de secretos; rotar las credenci
 | backend/app/main.py | CORS por lista, documentación y siembra del asesor según ENVIRONMENT, canal de socios desmontado |
 | backend/tests/** | Pruebas de configuración, CORS, canal de socios y siembra |
 | backend/.env.example | Llaves y CORS_ORIGINS |
-| terraform/variables.tf | db_password sin valor por defecto; jwt_secret_key y otp_secret_key |
-| terraform/main.tf | Pasa las llaves al módulo ECS |
-| terraform/modules/ecs/** | Variables y entorno de la tarea |
+| terraform/variables.tf | db_password opcional para Secrets Manager; jwt_secret_key y otp_secret_key |
+| terraform/versions.tf | Declaración del proveedor hashicorp/random |
+| terraform/main.tf | Pasa las llaves y secretos al módulo ECS |
+| terraform/modules/rds/** | Generación de contraseña aleatoria y secreto en Secrets Manager cifrado con KMS |
+| terraform/modules/ecs/** | Variables, inyección de ENVIRONMENT e inyección de secretos vía secrets |
 | terraform/environments/local.tfvars.example | Valores para el emulador local |
 | .github/workflows/deploy.yml | TF_VAR_* desde los secretos de CI |
 | .github/workflows/destroy.yml | TF_VAR_* desde los secretos de CI |
@@ -92,6 +94,8 @@ Fuera de alcance: el proveedor de SMS; un gestor de secretos; rotar las credenci
 | AC-06 | WHILE ENVIRONMENT no sea production, THE API SHALL servir la documentación interactiva, sembrar el asesor y los asegurados de prueba y devolver el código de prueba; WHEN sea production, no SHALL hacer ninguna de las tres | STATED |
 | AC-07 | THE API SHALL dejar de servir el canal de socios /api/v1/quote-edge, que responde 404 | STATED |
 | AC-08 | WHEN el ambiente cambia de llave, THE API SHALL rechazar con 401 los tokens firmados con cualquier otra llave | DERIVED: la decisión no dice qué pasa con las sesiones abiertas al cambiar la llave |
+| AC-09 | WHEN se despliega en AWS, THE tarea de ECS SHALL definir ENVIRONMENT con el valor de var.environment (en producción ENVIRONMENT=production) | DERIVED: RC-30; el backend requiere reconocer el ambiente de producción para deshabilitar documentación y semillas de prueba |
+| AC-10 | THE contraseña de RDS SHALL generarse y gestionarse a través de AWS Secrets Manager cifrada con KMS y THE tarea de ECS SHALL inyectarla como secreto mediante secrets en lugar de exponerla en texto plano | DERIVED: RC-33; la contraseña no debe exponerse en texto plano en la definición de la tarea ni en variables de entorno |
 
 ### Quality requirements
 
@@ -185,3 +189,5 @@ Regla 5 de docs/adr/0018-terraform-root-and-modules.md: los secretos son variabl
 | T-08 | Registrar las rutas críticas propias del proyecto para que un cambio en ellas exija un spec | SR-01, SR-03 | CTL-01, CTL-05 | DONE | sdd/security/critical-paths.md |
 | T-09 | Firmas opcionales: la aprobación del PR cuenta como revisión y las decisiones del spec como aceptación | SR-01 | CTL-01 | DONE | sdd/tools/tests/test_spec.py::test_risk_decided_in_the_spec_needs_no_signature |
 | T-07 | Crear en GitHub DB_PASSWORD, JWT_SECRET_KEY y OTP_SECRET_KEY con llaves nuevas antes de fusionar a main | SR-01, SR-03 | CTL-05 | DONE | gh secret list: los tres secretos creados el 2026-10-23 UTC; las llaves se generaron nuevas sin mostrarse y DB_PASSWORD conserva el valor actual |
+| T-10 | Inyectar ENVIRONMENT en la definición de tarea de ECS según el ambiente desplegado | AC-09, SR-06 | CTL-08 | DONE | terraform/modules/ecs/main.tf |
+| T-11 | Gestionar contraseña de RDS en AWS Secrets Manager e inyectarla como secreto en ECS | AC-10, SR-03 | CTL-04, CTL-05, CTL-10 | DONE | terraform/modules/rds/main.tf, terraform/modules/ecs/main.tf |

@@ -135,6 +135,7 @@ N/A: el cambio no agrega servicios externos; GitHub y AWS ya alojan el pipeline 
 | CTL-07 | Canal de socios sin autenticación desmontado | API | EXISTING | THR-05 | TC-06 | T-03 | API2:2023, CWE-306 | — |
 | CTL-08 | Código en la respuesta, cuentas sembradas y documentación solo fuera de production | BACKEND | EXISTING | THR-07 | TC-05, TC-08 | T-03 | CWE-489 | — |
 | CTL-09 | Aislamiento entre inquilinos | DATA | NOT APPLICABLE | — | — | — | — | No hay inquilinos y el canal de socios queda apagado |
+| CTL-10 | Almacenamiento de DB_PASSWORD en AWS Secrets Manager e inyección en ECS vía secrets | INFRA, SECRETS | EXISTING | THR-06, THR-08 | TC-10, TC-14 | T-11 | CWE-522, CWE-798 | — |
 
 ## 10. Cryptography
 

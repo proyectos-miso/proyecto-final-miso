@@ -19,6 +19,16 @@ from app.modules.identity.service import InsuredAuthService, insured_auth_servic
 from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
+from app.modules.auth.models import UserDB  # noqa: F401
+from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401
+from app.modules.policy.models import PolicyDB, PolicyEventDB  # noqa: F401
+from app.modules.claims.models import ClaimDB, ClaimPhotoDB, ClaimEventDB, ExpertDB  # noqa: F401
+from app.core.outbox import OutboxMessageDB  # noqa: F401
+from app.core.idempotency import IdempotencyRecordDB  # noqa: F401
+from app.modules.payments.models import PaymentTransactionDB, PayoutDB  # noqa: F401
+from app.modules.profile.models import FinancialEntityDB, CityDB  # noqa: F401
+from app.modules.identity import db_models as identity_db_models  # noqa: F401
+from app.modules.underwriting.models import UnderwritingRejectionDB  # noqa: F401
 
 
 class InMemorySessionTestDouble:
@@ -271,7 +281,8 @@ async def postgres_session():
 
     engine = create_async_engine(test_url)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 

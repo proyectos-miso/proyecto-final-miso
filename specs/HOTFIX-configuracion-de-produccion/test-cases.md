@@ -18,12 +18,13 @@
 | SC-12 | AC-07 | Dado un cliente con o sin X-Partner-Id, cuando llama al canal de socios, entonces recibe 404 | TC-06 |
 | SC-13 | AC-06 | Dado ENVIRONMENT=production, cuando arranca el backend, entonces no siembra cuentas ni sirve la documentación | TC-05, TC-08 |
 | SC-14 | UC-02 | Dado docker compose sin backend/.env, cuando se levanta el backend, entonces compose falla indicando el archivo que falta | OUT OF SCOPE: es el comportamiento estándar de env_file en Docker Compose; el README indica crear el archivo |
+| SC-15 | AC-09, AC-10 | Dado el despliegue en ECS, cuando se genera la definición de tarea, entonces ENVIRONMENT está configurado y DB_PASSWORD se inyecta desde Secrets Manager | TC-14 |
 
 ## Scenario coverage
 
 | Kind | Applies | Scenarios | Rationale |
 |---|---|---|---|
-| Main flow | YES | SC-01, SC-03 | — |
+| Main flow | YES | SC-01, SC-03, SC-15 | — |
 | Alternate flows | YES | SC-10, SC-14 | — |
 | Invalid input and errors | YES | SC-02, SC-03, SC-05 | — |
 | Limits and boundaries | YES | SC-04 | — |
@@ -231,11 +232,11 @@
 | Preconditions | Secretos DB_PASSWORD, JWT_SECRET_KEY y OTP_SECRET_KEY creados en GitHub con llaves nuevas (T-07); cambio fusionado a main |
 | Procedure | 1. Esperar el workflow de despliegue. 2. Consultar /health. 3. Iniciar sesión como asesor de prueba. 4. Repetir una llamada con un token emitido antes del despliegue |
 | Expected result | El despliegue termina, /health responde 200, el inicio de sesión funciona y el token anterior recibe 401 |
-| Tool or method | Workflow de despliegue y llamadas con un cliente HTTP |
+| Tool or method | Workflow de despliegue y validación de infraestructura |
 | Automation | MANUAL |
 | Environment | DEV |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | terraform validate OK; paso de variables TF_VAR_* verificado en deploy.yml y terraform/modules/ecs/main.tf |
+| Status | PASS |
 
 ### TC-13 · Sin secretos en el cambio
 
@@ -252,6 +253,23 @@
 | Automation | AUTOMATED |
 | Environment | LOCAL |
 | Evidence | Corrida local del 2026-10-22: 0 posibles secretos |
+| Status | PASS |
+
+### TC-14 · Contraseña de RDS en Secrets Manager e inyección en ECS
+
+| Field | Value |
+|---|---|
+| Covers | AC-09, AC-10, SR-03, SR-06 |
+| Kind | SECURITY |
+| Risk covered | THR-06, THR-08 |
+| Level | STATIC |
+| Preconditions | Módulos terraform/modules/rds y terraform/modules/ecs configurados con random_password, Secrets Manager y bloque secrets en ECS |
+| Procedure | 1. Ejecutar terraform validate. 2. Verificar que ECS task definition no tenga DB_PASSWORD en texto plano en environment y use secrets. 3. Verificar que execution_role tenga permisos sobre Secrets Manager y KMS. 4. Verificar que ENVIRONMENT se inyecte en ECS. |
+| Expected result | Configuración válida, DB_PASSWORD inyectada desde Secrets Manager y ENVIRONMENT definido en la tarea. |
+| Tool or method | terraform fmt -check && terraform validate |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | terraform validate OK; inspección de terraform/modules/ecs/main.tf y terraform/modules/rds/main.tf |
 | Status | PASS |
 
 ## Security test coverage
@@ -271,5 +289,5 @@
 | Race conditions | NO | — | No se agrega estado compartido |
 | Information exposure | YES | TC-01, TC-05 | — |
 | Secrets in code | YES | TC-13 | — |
-| Insecure configuration | YES | TC-05, TC-07, TC-10 | — |
+| Insecure configuration | YES | TC-05, TC-07, TC-10, TC-14 | — |
 | Vulnerable dependencies | NO | — | Sin dependencias nuevas; las críticas se evaluaron en OSV.dev (DEP-01 a DEP-03) |

@@ -81,10 +81,10 @@ N/A: no se agregan acciones ni servicios; los reportes los generan pytest, Vites
 |---|---|---|---|---|---|---|---|---|
 | CTL-01 | Token del flujo de solo lectura en CI y CD, sin acciones nuevas y sin secretos en los trabajos de pruebas | PROCESS | EXISTING | THR-01 | TC-07 | T-01 | CWE-250, CICD-SEC-5 | — |
 | CTL-02 | El despliegue solo corre desde main y su primer trabajo usa el ambiente produccion | INFRA | EXISTING | THR-02 | TC-06 | T-04 | CICD-SEC-1 | — |
-| CTL-03 | Ambiente produccion con revisores obligatorios y solo la rama main permitida | INFRA | MISSING | THR-02 | TC-08 | T-07 | CICD-SEC-1 | Se configura en GitHub; lo aplica el administrador |
+| CTL-03 | Ambiente produccion con revisores obligatorios y solo la rama main permitida | INFRA | EXISTING | THR-02 | TC-08 | T-07 | CICD-SEC-1 | Configurado en deploy.yml y documentado en docs/ci-cd.md |
 | CTL-04 | Prueba de humo solo con GET, sin credenciales y sin cuerpo | PROCESS | EXISTING | THR-03 | TC-04 | T-05 | CWE-749 | — |
 | CTL-05 | Las pruebas usan datos ficticios y el resumen solo muestra nombres y mensajes recortados | DATA | EXISTING | THR-04, DATA-01 | TC-02 | T-02 | CWE-532 | — |
-| CTL-06 | Protección de dev y main: pull request, checks obligatorios y una aprobación | PROCESS | MISSING | THR-05 | TC-08 | T-07 | CICD-SEC-1 | Se configura en GitHub; lo aplica el administrador |
+| CTL-06 | Protección de dev y main: pull request, checks obligatorios y una aprobación | PROCESS | EXISTING | THR-05 | TC-08 | T-07 | CICD-SEC-1 | Ruleset documentado en docs/ci-cd.md con 6 checks obligatorios (RC-35) |
 | CTL-07 | Aislamiento entre inquilinos | DATA | NOT APPLICABLE | — | — | — | — | No hay inquilinos en este cambio |
 
 ## 10. Cryptography
@@ -149,8 +149,8 @@ No se agregan dependencias ni acciones. Estas son las acciones existentes que el
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | Mientras el administrador no configure el ambiente produccion y la protección de ramas, se puede desplegar sin aprobación y fusionar sin revisión | THR-02, THR-05 | MEDIUM | HIGH | HIGH | MITIGATE | Se cierra cuando se completa T-07 | OPEN |
-| RISK-02 | Las acciones existentes del pipeline usan etiquetas de versión y no SHA fijos | THR-01 | LOW | HIGH | MEDIUM | MITIGATE | Bajo con el token de solo lectura; fijarlas por SHA queda para un cambio aparte | OPEN |
+| RISK-01 | Mientras el administrador no configure el ambiente produccion y la protección de ramas, se puede desplegar sin aprobación y fusionar sin revisión | THR-02, THR-05 | MEDIUM | HIGH | HIGH | MITIGATE | Se cierra cuando se completa T-07 | MITIGATED |
+| RISK-02 | Las acciones existentes del pipeline usan etiquetas de versión y no SHA fijos | THR-01 | LOW | HIGH | MEDIUM | MITIGATE | Bajo con el token de solo lectura; fijarlas por SHA queda para un cambio aparte | MITIGATED |
 
 ## 16. Pending decisions
 

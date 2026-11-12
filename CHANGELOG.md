@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hotfix · Configuración de producción (`HOTFIX-configuracion-de-produccion`, RC-30, RC-33):**
+  - Inyección explícita de `ENVIRONMENT=production` en la tarea ECS Fargate (`terraform/modules/ecs/main.tf`), garantizando que el backend desactive `/docs`, `/redoc`, `/openapi.json`, impida la siembra de usuarios ficticios y no devuelva códigos OTP en respuestas HTTP (RC-30).
+  - Almacenamiento seguro de `DB_PASSWORD` en AWS Secrets Manager cifrado con KMS (`terraform/modules/rds/main.tf`) con generación automática (`random_password`) e inyección en ECS mediante bloque `secrets` con permisos `secretsmanager:GetSecretValue` y `kms:Decrypt` en `execution_role`, eliminando credenciales en texto plano (RC-33).
+- **Hotfix · Transporte y borde (`HOTFIX-transporte-y-borde`, RC-31):**
+  - Certificado ACM (`aws_acm_certificate`) y listener HTTPS en puerto 443 con política `ELBSecurityPolicy-TLS13-1-2-2021-06` (TLS 1.2+) en el ALB interno Multi-AZ (`terraform/modules/alb/main.tf`).
+  - Redirección automática HTTP a HTTPS (301) en el ALB e ingreso de CloudFront VPC origin exclusivamente sobre HTTPS mediante `origin_protocol_policy = "https-only"` (`terraform/modules/web_hosting/main.tf`), eliminando el tránsito HTTP no cifrado entre CloudFront y el balanceador (RC-31).
+- **Hotfix · CD y resiliencia de infraestructura (`HOTFIX-cd-y-resiliencia-de-infraestructura`, RC-36):**
+  - Inmutabilidad de versiones en ECR mediante etiquetado doble con SHA del commit (`${{ github.sha }}`) y `:latest` en `.github/workflows/deploy.yml` (RC-36).
+  - Configuración de `deployment_circuit_breaker { enable = true, rollback = true }` en `aws_ecs_service.backend` para reversión automática ante fallos en producción (`terraform/modules/ecs/main.tf`).
+  - Resiliencia en RDS PostgreSQL: retención de backups de 7 días, snapshot final obligatorio y protección contra eliminación accidental (`deletion_protection = var.db_deletion_protection`) con valor por defecto `true` (`terraform/modules/rds/main.tf`).
+  - Bloqueo distribuido de estado de Terraform (`tfstate`) mediante DynamoDB en `.github/workflows/deploy.yml` y `destroy.yml`.
+  - Alarmas de CloudWatch para métricas de errores 5XX (`HTTPCode_Target_5XX_Count`) y contenedores no sanos (`UnHealthyHostCount`) en `terraform/modules/alb/main.tf`.
+  - Exigencia de cobertura mínima de 85% (`--cov-fail-under=85`) y actualización de SonarCloud a `sonarqube-scan-action@v6` en `.github/workflows/ci.yml`.
+- **Hotfix · Evidencias CI/CD y rulesets (`HOTFIX-evidencias-ci-cd`, RC-35):**
+  - Cierre y validación de spec `HOTFIX-evidencias-ci-cd` con documentación de reglas de protección de ramas y los 6 status checks obligatorios para `dev` y `main` (Backend CI, Web CI, Mobile CI, Terraform CI, SonarCloud y SDD gate) en `docs/ci-cd.md` (RC-35).
+
+### Removed
+- Eliminación de `.github/workflows/deploy-local.yml` por redundancia con el pipeline unificado de despliegue (RC-36).
+- Eliminación de `specs/pendientes/HOTFIX-produccion.md` tras completar y validar todas sus brechas funcionales (RC-30, RC-31, RC-33, RC-35, RC-36).
+
 ### Fixed
 - Corrección de enrutamiento en CloudFront (`terraform/modules/web_hosting`): configuración del Application Load Balancer (ALB) como origen dinámico y definición de comportamiento de caché prioritario para `/api/*` (con todos los métodos HTTP, reenvío de cabeceras `Authorization`, `Content-Type`, `Idempotency-Key` y bypass de caché) y `/health`, permitiendo que el portal web en producción se comunique exitosamente con el backend BFF.
 - Corrección de conexión a la base de datos PostgreSQL en ECS Fargate: inyección explícita de `DATABASE_URL` hacia la instancia Multi-AZ de RDS en la definición de la tarea Terraform (`terraform/modules/ecs`) y soporte de ensamblado dinámico en `Settings` (`app/core/config.py`) ante la presencia de variables `DB_HOST`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`, corrigiendo el intento de conexión fallido a `localhost:5432` en producción.
