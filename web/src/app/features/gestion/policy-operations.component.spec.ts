@@ -14,7 +14,7 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
   let changes: number;
 
   const policy = {
-    policy_number: 'POL-2026-00001', status: 'ACTIVE', plan: 'premium', insured_amount: 200_000_000,
+    policy_number: 'POL-2026-00001', status: 'ACTIVE', plan: 'premium', insured_amount: 200_000_000, valid_until: '2099-01-01T00:00:00Z',
   } as PolicyDetail;
   const page = () => fixture.nativeElement as HTMLElement;
   const button = (label: string) => [...page().querySelectorAll('button')].find((b) => b.textContent?.trim() === label)!;
@@ -72,6 +72,55 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
     call.flush({ policy_number: 'POL-2026-00001', status: 'CANCELLED', version: 1, refund_amount: 50_000 });
     fixture.detectChanges();
     expect(page().querySelector('[role="status"]')?.textContent?.replace(/\s/g, ' ')).toContain('Se devolvieron');
+  });
+
+  it('HU-MOV-11 renueva por un año una póliza a 30 días o menos de vencer', () => {
+    expect(button('Renovar por un año')).toBeUndefined();
+    const soon = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    fixture.componentRef.setInput('policy', { ...policy, valid_until: soon });
+    fixture.detectChanges();
+
+    button('Renovar por un año').click();
+    http.expectOne((req) => req.url.endsWith('/policies/POL-2026-00001/renewal'))
+      .flush({ policy_number: 'POL-2026-00001', status: 'ACTIVE', version: 2 });
+    fixture.detectChanges();
+    expect(page().querySelector('[role="status"]')?.textContent).toContain('renovada por un año');
+    expect(changes).toBe(1);
+  });
+
+  it('AC-09 registra el endoso de beneficiarios con justificación', async () => {
+    button('Endoso de beneficiarios').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const beneficiaries = [{ name: 'Beneficiaria de prueba', document_type: 'CC', document_number: '52000111', relationship: 'CONYUGE', share: 100 }];
+    fixture.componentInstance.beneficiaries.set(beneficiaries as never);
+    setValue('#opJustificationBen', JUSTIFICATION);
+
+    button('Registrar endoso').click();
+    const call = http.expectOne((req) => req.url.endsWith('/policies/POL-2026-00001/endorsements'));
+    expect(call.request.body).toEqual({ kind: 'BENEFICIARIES', justification: JUSTIFICATION, beneficiaries });
+    call.flush({ policy_number: 'POL-2026-00001', status: 'ACTIVE', version: 3 });
+    fixture.detectChanges();
+
+    expect(page().querySelector('[role="status"]')?.textContent).toContain('versión 3');
+  });
+
+  it('sin beneficiarios completos no se envía el endoso', () => {
+    fixture.componentInstance.endorseBeneficiaries();
+
+    http.expectNone((req) => req.url.endsWith('/endorsements'));
+  });
+
+  it('si la auditoría falla avisa y no se queda cargando', () => {
+    button('Auditoría').click();
+    fixture.detectChanges();
+    expect(page().textContent).toContain('Cargando la auditoría');
+
+    http.expectOne((req) => req.url.endsWith('/audit')).flush({ detail: 'Servicio no disponible.' }, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    expect(page().textContent).not.toContain('Cargando la auditoría');
+    expect(page().querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it('una póliza cancelada o terminada solo deja ver la auditoría', () => {

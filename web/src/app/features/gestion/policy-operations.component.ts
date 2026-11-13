@@ -11,6 +11,7 @@ import { BeneficiariesEditorComponent } from '../shared/beneficiaries-editor.com
 
 type Panel = 'beneficiaries' | 'sum' | 'cancel' | 'audit' | null;
 const MIN_JUSTIFICATION = 20;
+const RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Operaciones del analista sobre la póliza: endosos, cancelación y auditoría (HU-WEB-15). */
 @Component({
@@ -25,6 +26,9 @@ const MIN_JUSTIFICATION = 20;
       @if (!closed()) {
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'beneficiaries'" (click)="toggle('beneficiaries')">Endoso de beneficiarios</button>
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'sum'" (click)="toggle('sum')">Endoso de suma asegurada</button>
+        @if (renewable()) {
+          <button type="button" class="btn-op" [disabled]="busy()" (click)="renew()">Renovar por un año</button>
+        }
         <button type="button" class="btn-op danger" [attr.aria-expanded]="panel() === 'cancel'" (click)="toggle('cancel')">Cancelar póliza</button>
       }
       <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'audit'" (click)="toggle('audit')">Auditoría</button>
@@ -133,6 +137,9 @@ export class PolicyOperationsComponent {
   readonly minJustification = MIN_JUSTIFICATION;
   readonly cop = COP.format;
   readonly closed = computed(() => ['CANCELLED', 'TERMINATED'].includes(this.policy().status));
+  readonly renewable = computed(
+    () => this.policy().status === 'EXPIRED' || new Date(this.policy().valid_until).getTime() - Date.now() <= RENEWAL_WINDOW_MS,
+  );
   readonly justified = computed(() => this.justification().trim().length >= MIN_JUSTIFICATION);
   readonly validAmount = computed(() => {
     const amount = Number(this.amount());
@@ -164,6 +171,13 @@ export class PolicyOperationsComponent {
         kind: 'SUM_INSURED', justification: this.justification().trim(), insured_amount: Number(this.amount()),
       }),
       (result) => `Endoso registrado. La póliza quedó en la versión ${result.version}.`,
+    );
+  }
+
+  renew(): void {
+    this.run(
+      this.policies.renew(this.policy().policy_number),
+      (result) => `Póliza renovada por un año. Quedó en la versión ${result.version}.`,
     );
   }
 

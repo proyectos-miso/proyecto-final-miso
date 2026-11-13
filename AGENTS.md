@@ -65,6 +65,10 @@ Non-negotiable:
   story needs but does not say.
 - No product change on a story branch without the story's spec package; every commit there names the story.
 - Never read or print secret files, secrets, tokens, passwords or one-time codes — not even partially.
+  Only exception: the test credentials of the local seeds already committed in the code
+  (`DEFAULT_SEED_PASSWORD` and `DEFAULT_SEED_TOTP_SECRET` in `backend/app/modules/auth/service.py`) may be
+  shown to the user for local testing. Never those of DEV, STAGING or production, real keys (Firebase,
+  AWS, Twilio), tokens or codes sent to a real phone.
 - No real personal data in tests, fixtures, logs, docs or prompts.
 - No commits or pushes to protected branches, no force-push, no `--no-verify`.
 - Never declare a security state above the one the validator computes; never claim legal compliance.

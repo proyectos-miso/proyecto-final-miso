@@ -33,7 +33,12 @@ from app.modules.policy.models import (
     PolicyDB,
     PolicyOperationResult,
 )
-from app.modules.policy.operations import InvalidEndorsementError, PolicyClosedError, policy_operations
+from app.modules.policy.operations import (
+    InvalidEndorsementError,
+    NotRenewableError,
+    PolicyClosedError,
+    policy_operations,
+)
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
@@ -188,6 +193,23 @@ async def cancel_policy(
         return await policy_operations.cancel(db, policy_number, request, user.username)
     except PolicyClosedError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La póliza ya está cancelada o terminada.")
+
+
+@router.post("/policies/{policy_number}/renewal", response_model=PolicyOperationResult)
+async def renew_policy(
+    policy_number: str = Path(..., pattern=POLICY_NUMBER),
+    user: Operator = Depends(operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Renovación por un año desde 30 días antes del vencimiento (HU-MOV-11, RC-24)."""
+    await scoped_policy(db, policy_number, user)
+    try:
+        return await policy_operations.renew(db, policy_number, user.username)
+    except NotRenewableError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La póliza se puede renovar desde 30 días antes de su vencimiento, si no está cancelada ni terminada.",
+        )
 
 
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)

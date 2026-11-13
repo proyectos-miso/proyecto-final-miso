@@ -1,7 +1,7 @@
 """Operaciones del analista sobre una póliza: endosos, cancelación, terminación y auditoría (HU-WEB-15).
 Cada una queda en `policy_events`, que no se puede cambiar ni borrar (RC-17, RC-19, RC-21)."""
 import calendar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, List
 
 from sqlalchemy import select
@@ -20,9 +20,15 @@ from app.modules.policy.models import (
     PolicyOperationResult,
 )
 from app.modules.policy.search import mask_document
-from app.modules.policy.service import included_coverages, insured_amount
+from app.modules.policy.service import included_coverages, insured_amount, one_year_after
 
 CLOSED = ("CANCELLED", "TERMINATED")
+RENEWAL_WINDOW = timedelta(days=30)
+AUTOMATIC = "Proceso automático"
+
+
+class NotRenewableError(Exception):
+    """Faltan más de 30 días para el vencimiento, o la póliza está cancelada o terminada."""
 
 
 class PolicyClosedError(Exception):
@@ -119,6 +125,69 @@ class PolicyOperations:
             policy_number=policy_number, status=policy.status, version=policy.version or 1, refund_amount=refund
         )
 
+    async def renew(self, session: AsyncSession, policy_number: str, actor: str) -> PolicyOperationResult:
+        """Un año más desde el fin de la vigencia actual, con la misma prima (HU-MOV-11, RC-24).
+        Si ya había vencido, el periodo nuevo queda pendiente de pago hasta que el asesor lo cobre."""
+        policy = await session.scalar(
+            select(PolicyDB).where(PolicyDB.policy_number == policy_number).with_for_update()
+        )
+        now = self.now()
+        if policy.status in CLOSED or policy.valid_until - now > RENEWAL_WINDOW:
+            raise NotRenewableError()
+        before = {"valid_until": policy.valid_until.isoformat(), "status": policy.status}
+        policy.valid_until = one_year_after(policy.valid_until)
+        if policy.status == "EXPIRED":
+            policy.status = "ISSUED"
+        policy.version = (policy.version or 1) + 1
+        policy.pdf_s3_key = None
+        session.add(PolicyEventDB(
+            policy_number=policy_number, kind="RENEWED", version=policy.version, actor=actor,
+            justification="Renovación por un año con la prima vigente.", before=before,
+            after={"valid_until": policy.valid_until.isoformat(), "status": policy.status}, created_at=now,
+        ))
+        await session.commit()
+        return PolicyOperationResult(
+            policy_number=policy_number, status=policy.status, version=policy.version, valid_until=policy.valid_until
+        )
+
+    async def expire_due(self, session: AsyncSession) -> int:
+        """Marca vencidas las pólizas cuya vigencia ya terminó (tarea diaria)."""
+        now = self.now()
+        due = list(await session.scalars(
+            select(PolicyDB).where(PolicyDB.status.in_(("ACTIVE", "ISSUED")), PolicyDB.valid_until <= now)
+            .with_for_update(skip_locked=True)
+        ))
+        for policy in due:
+            policy.status = "EXPIRED"
+            session.add(PolicyEventDB(
+                policy_number=policy.policy_number, kind="EXPIRED", version=policy.version or 1, actor=AUTOMATIC,
+                justification="Terminó la vigencia sin renovación.", created_at=now,
+            ))
+        await session.commit()
+        return len(due)
+
+    async def remind_renewals(self, session: AsyncSession, notify) -> int:
+        """Avisa una sola vez por versión a las pólizas vigentes que vencen en 30 días o menos (RC-27)."""
+        now = self.now()
+        reminded = select(PolicyEventDB.policy_number).where(
+            PolicyEventDB.kind == "RENEWAL_REMINDER", PolicyEventDB.version == PolicyDB.version
+        ).where(PolicyEventDB.policy_number == PolicyDB.policy_number).exists()
+        due = list(await session.scalars(
+            select(PolicyDB).where(
+                PolicyDB.status == "ACTIVE", PolicyDB.valid_until > now, PolicyDB.valid_until <= now + RENEWAL_WINDOW,
+                ~reminded,
+            )
+        ))
+        for policy in due:
+            session.add(PolicyEventDB(
+                policy_number=policy.policy_number, kind="RENEWAL_REMINDER", version=policy.version or 1,
+                actor=AUTOMATIC, justification=f"Vence el {policy.valid_until:%d/%m/%Y}.", created_at=now,
+            ))
+        await session.commit()
+        for policy in due:
+            await notify(session, policy.insured_document, policy.policy_number, policy.valid_until)
+        return len(due)
+
     def terminate(self, session: AsyncSession, policy: PolicyDB, claim_number: str, actor: str) -> None:
         """Un siniestro de muerte liquidado termina la póliza; no hace commit (RC-17)."""
         if policy.status in CLOSED:
@@ -170,6 +239,9 @@ POLICY_EVENTS = {
     "ENDORSEMENT_SUM_INSURED": "Endoso de suma asegurada",
     "CANCELLED": "Póliza cancelada",
     "TERMINATED": "Póliza terminada",
+    "RENEWED": "Póliza renovada",
+    "EXPIRED": "Póliza vencida",
+    "RENEWAL_REMINDER": "Aviso de vencimiento enviado",
 }
 CLAIM_EVENTS = {
     "REPORTED": "Siniestro reportado",
