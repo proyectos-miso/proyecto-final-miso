@@ -72,6 +72,30 @@ resource "aws_iam_role_policy_attachment" "execution_standard" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Permiso para que la tarea ECS obtenga la contraseña de RDS desde Secrets Manager (RC-33)
+resource "aws_iam_role_policy" "execution_secrets" {
+  name = "${var.project_name}-ecs-execution-secrets-${var.environment}"
+  role = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "GetRdsPasswordSecret"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.db_password_secret_arn]
+      },
+      {
+        Sid      = "DecryptRdsPasswordKms"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.db_kms_key_arn]
+      }
+    ]
+  })
+}
+
 # IAM Role para la aplicación dentro del contenedor (acceso a S3 y SQS)
 resource "aws_iam_role" "task" {
   name = "${var.project_name}-ecs-task-role-${var.environment}"
@@ -151,8 +175,8 @@ resource "aws_ecs_task_definition" "backend" {
           value = "8000"
         },
         {
-          name  = "DATABASE_URL"
-          value = "postgresql+asyncpg://${var.db_user}:${var.db_password}@${var.db_host}:5432/${var.db_name}"
+          name  = "ENVIRONMENT"
+          value = var.environment
         },
         {
           name  = "DB_HOST"
@@ -165,10 +189,6 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "DB_USER"
           value = var.db_user
-        },
-        {
-          name  = "DB_PASSWORD"
-          value = var.db_password
         },
         {
           name  = "JWT_SECRET_KEY"
@@ -189,6 +209,13 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "S3_DOCUMENTS_BUCKET"
           value = var.s3_bucket_name
+        }
+      ]
+
+      secrets = [
+        {
+          name      = "DB_PASSWORD"
+          valueFrom = var.db_password_secret_arn
         }
       ]
 
@@ -215,6 +242,11 @@ resource "aws_ecs_service" "backend" {
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = 2
   launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = var.private_subnet_ids

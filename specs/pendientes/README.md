@@ -17,7 +17,7 @@ Cuando un tercero que no tenemos es necesario (pasarela bancaria, oráculo de vu
 | [HU-MOV-09.md](HU-MOV-09.md) | Envío sin señal (#75) | David | RC-12 |
 | [HU-MOV-10.md](HU-MOV-10.md) | Radicado (#76) | David | RC-13, RC-14, RC-26 |
 | En `specs/HU-WEB-15-dictamen-y-liquidacion/` | Dictamen y liquidación (#115) | Juan Camilo | RC-01, RC-05, RC-17, RC-18, RC-19, RC-20, RC-21, RC-22, RC-28, RC-29 (ya en el spec) |
-| [HOTFIX-produccion.md](HOTFIX-produccion.md) | Hotfix de producción, seguridad y CI/CD | Oscar | RC-30, RC-31, RC-33, RC-35, RC-36 |
+| Completado en `hotfix/produccion` | Hotfix de producción, seguridad y CI/CD | Oscar | RC-30, RC-31, RC-33, RC-35, RC-36 (cerrados) |
 
 ## Recorridos y dónde se resuelven
 

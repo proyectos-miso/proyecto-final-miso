@@ -69,7 +69,7 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Ejecutar pruebas unitarias y cobertura (pytest)
-        run: poetry run pytest --junitxml=test-results/junit.xml
+        run: poetry run pytest --cov-fail-under=85 --junitxml=test-results/junit.xml
 
       - name: Resumen de pruebas
         if: always()
@@ -238,7 +238,7 @@ jobs:
 
       - name: Analizar con SonarCloud
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v6
 
       - name: Aviso de configuración pendiente
         if: env.SONAR_TOKEN == ''

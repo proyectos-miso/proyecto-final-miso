@@ -6,7 +6,7 @@
 | Title | Transporte y borde |
 | User story | none: hotfix de la revisión de cumplimiento del 2026-10-22 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-22 |
 | Security profile | HIGH |
 
@@ -75,6 +75,7 @@ Fuera de alcance: dominio propio con certificado ACM y TLS 1.2 mínimo para los 
 | AC-05 | WHEN se pide una ruta del portal sin extensión o se recarga, THE CloudFront SHALL servir index.html | DERIVED: quitar la conversión global de errores rompería los enlaces directos del portal |
 | AC-06 | THE build de producción del portal SHALL no tener scripts inline | DERIVED: la CSP estricta bloquearía el script que Angular inserta para el CSS crítico y el portal quedaría sin estilos |
 | AC-07 | WHEN la infraestructura no existe, THE plan de Terraform SHALL calcularse sin errores | DERIVED: el despliegue recrea todo después de cada apagado y el plan falló el 2026-10-25 |
+| AC-08 | THE balanceador SHALL exponer un listener HTTPS en el puerto 443 con certificado ACM y política TLS 1.2+ (ELBSecurityPolicy-TLS13-1-2-2021-06), y el VPC origin de CloudFront SHALL comunicarse exclusivamente mediante origin_protocol_policy = "https-only" | DERIVED: RC-31; proteger en tránsito los datos sensibles entre CloudFront y el backend |
 
 ### Quality requirements
 
@@ -165,3 +166,4 @@ docs/adr/0020-private-load-balancer-behind-cloudfront.md
 | T-05 | Build de producción del portal sin scripts inline | AC-06, SR-03 | CTL-03 | DONE | web/angular.json |
 | T-06 | ADR 0020 | AC-01, AC-02 | — | DONE | docs/adr/0020-private-load-balancer-behind-cloudfront.md |
 | T-07 | VPC origin decidido por un booleano conocido en el plan y prueba del plan en el CI | AC-07 | — | DONE | terraform/modules/web_hosting/main.tf, terraform/tests/plan_desde_cero.tftest.hcl |
+| T-08 | Configurar certificado ACM, listener HTTPS 443 y origin_protocol_policy https-only en CloudFront VPC origin | AC-08, SR-01 | CTL-01, CTL-08 | DONE | terraform/modules/alb/main.tf, terraform/modules/web_hosting/main.tf |

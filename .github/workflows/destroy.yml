@@ -46,6 +46,7 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           STATE_BUCKET="solventa-tfstate-${ACCOUNT_ID}"
+          DYNAMODB_TABLE="solventa-tfstate-lock-${ACCOUNT_ID}"
           REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
 
           echo "Conectando al bucket de estado: $STATE_BUCKET en $REGION..."
@@ -57,7 +58,8 @@ jobs:
           terraform init \
             -backend-config="bucket=${STATE_BUCKET}" \
             -backend-config="key=production/terraform.tfstate" \
-            -backend-config="region=${REGION}"
+            -backend-config="region=${REGION}" \
+            -backend-config="dynamodb_table=${DYNAMODB_TABLE}"
 
       - name: Limpieza preventiva de buckets S3 gestionados
         run: |

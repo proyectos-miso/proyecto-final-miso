@@ -41,6 +41,17 @@ variable "db_user" {
 variable "db_password" {
   type      = string
   sensitive = true
+  default   = null
+}
+
+variable "db_password_secret_arn" {
+  description = "ARN del secreto en Secrets Manager con la contraseña de RDS (RC-33)"
+  type        = string
+}
+
+variable "db_kms_key_arn" {
+  description = "ARN de la llave KMS utilizada para cifrar el secreto de RDS (RC-33)"
+  type        = string
 }
 
 variable "jwt_secret_key" {

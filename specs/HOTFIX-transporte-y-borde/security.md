@@ -84,6 +84,7 @@ N/A: no se agregan servicios externos; AWS ya aloja el sistema.
 | CTL-05 | Rutas del portal reescritas solo en el origen S3; la API conserva sus códigos | WEB, INFRA | EXISTING | THR-05 | TC-02, TC-06 | T-04 | CWE-755 | — |
 | CTL-06 | HSTS de un año | WEB | EXISTING | THR-06 | TC-05 | T-03 | CWE-319 | — |
 | CTL-07 | Aislamiento entre inquilinos | DATA | NOT APPLICABLE | — | — | — | — | No hay inquilinos en este cambio |
+| CTL-08 | Canal HTTPS hacia el ALB con certificado ACM y TLS 1.2+ | INFRA | EXISTING | THR-01 | TC-01, TC-10 | T-08 | CWE-319 | — |
 
 ## 10. Cryptography
 
@@ -93,7 +94,7 @@ N/A: no se agregan servicios externos; AWS ya aloja el sistema.
 |---|---|
 | Protects | DATA-01, DATA-02 |
 | Type | TLS |
-| Algorithm or service | TLS de CloudFront con el certificado por defecto de cloudfront.net |
+| Algorithm or service | TLS 1.2 o superior (TLSv1.2) con el certificado de CloudFront y ELBSecurityPolicy-TLS13-1-2-2021-06 en el balanceador |
 | Rationale | Cifra el tramo que cruza internet desde el usuario |
 | Key management | AWS administra el certificado por defecto |
 | Permissions | Solo AWS |

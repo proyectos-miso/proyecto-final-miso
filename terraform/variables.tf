@@ -23,14 +23,21 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña de PostgreSQL en RDS. Sin valor por defecto: llega como TF_VAR_db_password desde los secretos de CI"
+  description = "Contraseña de PostgreSQL en RDS. Si no se suministra externamente, se genera con random_password y se guarda en Secrets Manager (RC-33)"
   type        = string
   sensitive   = true
+  default     = null
 
   validation {
-    condition     = length(var.db_password) >= 12 && length(var.db_password) <= 41 && !can(regex("[/@\" ]", var.db_password))
+    condition     = var.db_password == null || (length(var.db_password) >= 12 && length(var.db_password) <= 41 && !can(regex("[/@\" ]", var.db_password)))
     error_message = "db_password debe tener entre 12 y 41 caracteres, sin /, @, comillas dobles ni espacios."
   }
+}
+
+variable "db_deletion_protection" {
+  description = "Habilitar protección contra eliminación accidental de la base de datos RDS"
+  type        = bool
+  default     = true
 }
 
 variable "jwt_secret_key" {
