@@ -90,14 +90,15 @@ const RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
             </li>
           }
         </ol>
+      } @else {
+        <p class="none">Cargando la auditoría…</p>
       }
     }
   `,
   styles: [`
-    h3 { margin: 0 0 12px; font-size: var(--t-md); font-weight: 700; color: var(--n-900); }
+    h3 { font-size: var(--t-sm); color: var(--n-700); margin: 20px 0 8px; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .btn-op { min-height: 38px; padding: 0 14px; border: 1px solid var(--borde); border-radius: 8px; background: #fff; color: var(--n-800); font-size: var(--t-xs); font-weight: 600; cursor: pointer; transition: all 0.15s; }
-    .btn-op:hover { background: var(--fondo); }
+    .btn-op { min-height: 40px; padding: 0 12px; border: 1px solid var(--marca-600); border-radius: 8px; background: var(--superficie); color: var(--marca-600); font-weight: 600; cursor: pointer; }
     .btn-op[aria-expanded='true'] { background: var(--marca-600); color: #fff; }
     .btn-op.danger { border-color: #b91c1c; color: #b91c1c; }
     .btn-op.danger[aria-expanded='true'] { background: #b91c1c; color: #fff; }

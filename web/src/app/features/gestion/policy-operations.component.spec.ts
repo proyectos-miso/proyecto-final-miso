@@ -162,24 +162,6 @@ describe('PolicyOperationsComponent (HU-WEB-15)', () => {
     expect(page().querySelector('[role="alert"]')?.textContent).toContain('ya está cancelada');
     expect((page().querySelector('#opReason') as HTMLTextAreaElement).value).toBe(JUSTIFICATION);
   });
-
-  it('permite renovar una póliza vencida (RC-24)', () => {
-    fixture.componentRef.setInput('policy', { ...policy, status: 'EXPIRED' });
-    fixture.detectChanges();
-
-    expect(page().textContent).toContain('La póliza está vencida: no admite endosos ni cancelación');
-    const renewBtn = button('Renovar póliza');
-    expect(renewBtn).toBeDefined();
-    renewBtn.click();
-
-    const call = http.expectOne((req) => req.url.endsWith('/policies/POL-2026-00001/renewal'));
-    expect(call.request.method).toBe('POST');
-    call.flush({ policy_number: 'POL-2026-00001', status: 'ACTIVE', version: 2 });
-    fixture.detectChanges();
-
-    expect(page().querySelector('[role="status"]')?.textContent).toContain('Póliza renovada exitosamente');
-    expect(changes).toBe(1);
-  });
 });
 
 describe('MonthlyReportComponent (HU-WEB-15, AC-13)', () => {

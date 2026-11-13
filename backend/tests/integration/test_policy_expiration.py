@@ -85,11 +85,11 @@ async def test_policy_expiration_and_renewal_flow(
     )
     assert renew_resp.status_code == 200
     renew_data = renew_resp.json()
-    assert renew_data["status"] == "ACTIVE"
+    assert renew_data["status"] == "ISSUED"
 
-    # 6. Confirmar que la póliza quedó activa y con vigencia extendida
+    # 6. Confirmar que la póliza vencida renovada queda emitida (pendiente de pago) y con vigencia extendida
     await postgres_session.refresh(policy)
-    assert policy.status == "ACTIVE"
+    assert policy.status == "ISSUED"
     assert policy.valid_until > datetime.now(timezone.utc)
 
     # 7. Verificar evento de renovación en auditoría
