@@ -11,6 +11,7 @@ import { BeneficiariesEditorComponent } from '../shared/beneficiaries-editor.com
 
 type Panel = 'beneficiaries' | 'sum' | 'cancel' | 'audit' | null;
 const MIN_JUSTIFICATION = 20;
+const RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Operaciones del analista sobre la póliza: endosos, cancelación y auditoría (HU-WEB-15). */
 @Component({
@@ -21,17 +22,14 @@ const MIN_JUSTIFICATION = 20;
     @if (closed()) {
       <p class="none">La póliza está {{ policy().status === 'CANCELLED' ? 'cancelada' : 'terminada' }}: no admite endosos ni cancelación.</p>
     }
-    @if (policy().status === 'EXPIRED') {
-      <p class="none">La póliza está vencida: no admite endosos ni cancelación.</p>
-    }
     <div class="actions">
-      @if (!closed() && policy().status !== 'EXPIRED') {
+      @if (!closed()) {
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'beneficiaries'" (click)="toggle('beneficiaries')">Endoso de beneficiarios</button>
         <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'sum'" (click)="toggle('sum')">Endoso de suma asegurada</button>
+        @if (renewable()) {
+          <button type="button" class="btn-op" [disabled]="busy()" (click)="renew()">Renovar por un año</button>
+        }
         <button type="button" class="btn-op danger" [attr.aria-expanded]="panel() === 'cancel'" (click)="toggle('cancel')">Cancelar póliza</button>
-      }
-      @if (canRenew()) {
-        <button type="button" class="btn-op renew" [disabled]="busy()" (click)="renew()">Renovar póliza</button>
       }
       <button type="button" class="btn-op" [attr.aria-expanded]="panel() === 'audit'" (click)="toggle('audit')">Auditoría</button>
     </div>
@@ -92,20 +90,17 @@ const MIN_JUSTIFICATION = 20;
             </li>
           }
         </ol>
-      } @else {
-        <p class="none">Cargando la auditoría…</p>
       }
     }
   `,
   styles: [`
-    h3 { font-size: var(--t-sm); color: var(--n-700); margin: 20px 0 8px; }
+    h3 { margin: 0 0 12px; font-size: var(--t-md); font-weight: 700; color: var(--n-900); }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .btn-op { min-height: 40px; padding: 0 12px; border: 1px solid var(--marca-600); border-radius: 8px; background: var(--superficie); color: var(--marca-600); font-weight: 600; cursor: pointer; }
+    .btn-op { min-height: 38px; padding: 0 14px; border: 1px solid var(--borde); border-radius: 8px; background: #fff; color: var(--n-800); font-size: var(--t-xs); font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-op:hover { background: var(--fondo); }
     .btn-op[aria-expanded='true'] { background: var(--marca-600); color: #fff; }
     .btn-op.danger { border-color: #b91c1c; color: #b91c1c; }
     .btn-op.danger[aria-expanded='true'] { background: #b91c1c; color: #fff; }
-    .btn-op.renew { border-color: #15803d; color: #15803d; }
-    .btn-op.renew:hover { background: #15803d; color: #fff; }
     button:focus-visible, input:focus, textarea:focus { outline: 3px solid rgba(15, 109, 148, 0.35); outline-offset: 1px; }
     .op { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
     label { font-size: var(--t-xs); font-weight: 600; color: var(--n-700); }
@@ -141,17 +136,9 @@ export class PolicyOperationsComponent {
   readonly minJustification = MIN_JUSTIFICATION;
   readonly cop = COP.format;
   readonly closed = computed(() => ['CANCELLED', 'TERMINATED'].includes(this.policy().status));
-  readonly canRenew = computed(() => {
-    const status = this.policy().status;
-    if (status === 'EXPIRED') return true;
-    if (status === 'ACTIVE' && this.policy().valid_until) {
-      const validUntil = new Date(this.policy().valid_until).getTime();
-      const now = Date.now();
-      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-      return validUntil - now <= thirtyDaysMs;
-    }
-    return false;
-  });
+  readonly renewable = computed(
+    () => this.policy().status === 'EXPIRED' || new Date(this.policy().valid_until).getTime() - Date.now() <= RENEWAL_WINDOW_MS,
+  );
   readonly justified = computed(() => this.justification().trim().length >= MIN_JUSTIFICATION);
   readonly validAmount = computed(() => {
     const amount = Number(this.amount());
@@ -186,6 +173,13 @@ export class PolicyOperationsComponent {
     );
   }
 
+  renew(): void {
+    this.run(
+      this.policies.renew(this.policy().policy_number),
+      (result) => `Póliza renovada por un año. Quedó en la versión ${result.version}.`,
+    );
+  }
+
   cancel(): void {
     this.run(
       this.policies.cancel(this.policy().policy_number, this.justification().trim()),
@@ -193,13 +187,6 @@ export class PolicyOperationsComponent {
         result.refund_amount
           ? `Póliza cancelada. Se devolvieron ${this.cop(result.refund_amount)} al titular.`
           : 'Póliza cancelada. No hay prima para devolver.',
-    );
-  }
-
-  renew(): void {
-    this.run(
-      this.policies.renew(this.policy().policy_number),
-      (result) => `Póliza renovada exitosamente. La póliza quedó en estado ${result.status} y versión ${result.version}.`,
     );
   }
 

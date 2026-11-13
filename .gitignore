@@ -84,6 +84,6 @@ coverage.xml
 # SDD: local session state (active spec, worklogs). Never the source of truth.
 .sdd/
 
-# Local runner scripts
-scripts/run-movil-emulator.sh
-
+# Firebase (HU-MOV-11): configuración local, no se versiona
+movil/app/google-services.json
+movil/.kotlin/

@@ -59,6 +59,25 @@ class EncryptedPolicyStoreFlowTest {
         assertEquals(StoredCopy.Missing, store.read(OTHER_EMAIL))
     }
 
+    // HU-MOV-11 AC-04 y AC-11: los siniestros viven en la misma copia, los avisos se marcan una vez y todo se borra junto.
+    @Test
+    fun `guarda los siniestros con la copia, marca cada aviso una vez y los borra con ella`() = runBlocking {
+        val claims = com.solventa.app.domain.claims.ClaimsCopy(listOf(sampleClaim("SIN-2"), sampleClaim("SIN-1")), LATER)
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        assertFalse(store.saveClaims(EMAIL, claims))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.saveClaims(EMAIL, claims))
+        assertEquals(claims, store.readClaims(EMAIL))
+        assertTrue(store.markNotified(EMAIL, "renewal:POL"))
+        assertFalse(store.markNotified(EMAIL, "renewal:POL"))
+        assertNull(store.readClaims(OTHER_EMAIL))
+
+        store.delete(EMAIL)
+        assertNull(store.readClaims(EMAIL))
+    }
+
     // HU-MOV-07 TC-02: la copia se reemplaza sin duplicar, una póliza repetida se guarda una vez y save informa.
     @Test
     fun `reemplaza sin duplicar, quita repetidas e informa si escribio`() = runBlocking {

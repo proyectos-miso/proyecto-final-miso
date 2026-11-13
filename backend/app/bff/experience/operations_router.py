@@ -34,7 +34,12 @@ from app.modules.policy.models import (
     PolicyDB,
     PolicyOperationResult,
 )
-from app.modules.policy.operations import InvalidEndorsementError, PolicyClosedError, policy_operations
+from app.modules.policy.operations import (
+    InvalidEndorsementError,
+    NotRenewableError,
+    PolicyClosedError,
+    policy_operations,
+)
 from app.modules.rating.models import PartnerDB, PartnerStatus
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
@@ -198,14 +203,14 @@ async def renew_policy(
     user: Operator = Depends(operator),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Renovación de vigencia de póliza activa o vencida (RC-24, AC-16, SR-10)."""
+    """Renovación por un año desde 30 días antes del vencimiento (HU-MOV-11, RC-24)."""
     await scoped_policy(db, policy_number, user)
     try:
         return await policy_operations.renew(db, policy_number, user.username)
-    except PolicyClosedError:
+    except NotRenewableError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="La póliza está cancelada o terminada y no puede ser renovada.",
+            detail="La póliza se puede renovar desde 30 días antes de su vencimiento, si no está cancelada ni terminada.",
         )
 
 
@@ -241,8 +246,6 @@ async def approve_partner_production(
         "quota_limit": partner.quota_limit,
         "message": f"Socio {partner.name} promovido a producción con cuota de {partner.quota_limit} cotizaciones/hora.",
     }
-
-
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)
 async def audit_policy(
     policy_number: str = Path(..., pattern=POLICY_NUMBER),

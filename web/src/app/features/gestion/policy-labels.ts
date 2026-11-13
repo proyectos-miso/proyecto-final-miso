@@ -7,6 +7,7 @@ export const POLICY_STATUS_OPTIONS: { value: PolicyStatus; label: string }[] = [
   { value: 'EXPIRED', label: 'Vencida' },
   { value: 'CANCELLED', label: 'Cancelada' },
   { value: 'TERMINATED', label: 'Terminada' },
+  { value: 'EXPIRED', label: 'Vencida' },
 ];
 
 export const PLAN_LABELS: Record<PlanTier, string> = { basic: 'Básico', standard: 'Estándar', premium: 'Premium' };

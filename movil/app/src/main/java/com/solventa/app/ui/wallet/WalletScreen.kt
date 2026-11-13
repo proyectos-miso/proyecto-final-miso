@@ -47,7 +47,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
@@ -79,6 +81,11 @@ fun WalletScreen(
     onRetry: () -> Unit = {},
     reportEntry: ReportEntry = ReportEntry.HIDDEN,
     onReport: () -> Unit = {},
+    onOpenClaims: (() -> Unit)? = null,
+    cardActions: Boolean = false,
+    onRenew: (String) -> Unit = {},
+    onDownloadCaratula: (String) -> Unit = {},
+    onDismissNotice: () -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -117,6 +124,13 @@ fun WalletScreen(
                             .fillMaxWidth()
                             .padding(top = 8.dp),
                     )
+                }
+                if (cardActions) {
+                    item(key = "cardActions") {
+                        CardActions(current, uiState.actionInProgress, onRenew = { onRenew(current.policy.policyNumber) }) {
+                            onDownloadCaratula(current.policy.policyNumber)
+                        }
+                    }
                 }
                 // Debajo del carné, como el mockup 1 (HU-MOV-08, AC-06).
                 if (reportEntry != ReportEntry.HIDDEN) item(key = "report") { ReportButton(reportEntry, onReport) }
@@ -157,6 +171,12 @@ fun WalletScreen(
         if (current == null && !uiState.loading && reportEntry != ReportEntry.HIDDEN) {
             item(key = "report") { ReportButton(reportEntry, onReport) }
         }
+        uiState.notice?.let { notice ->
+            item(key = "notice") { NoticeBanner(notice, uiState.renewedUntil, onDismissNotice) }
+        }
+        if (onOpenClaims != null && !uiState.loading) {
+            item(key = "claims") { SecondaryButton(stringResource(R.string.claims_open_button), onOpenClaims, Modifier.fillMaxWidth()) }
+        }
         uiState.lastSync?.let { lastSync ->
             item(key = "lastSync") { LastSync(lastSync) }
         }
@@ -181,6 +201,58 @@ fun WalletScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Aviso de vencimiento con «Renovar» y descarga de la carátula (HU-MOV-11, AC-09, AC-10). */
+@Composable
+private fun CardActions(card: WalletCard, busy: Boolean, onRenew: () -> Unit, onDownload: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        if (card.expiresSoon) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        stringResource(R.string.wallet_expires_soon, formatShortDate(card.policy.validUntil)),
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = onRenew, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(stringResource(R.string.wallet_renew))
+                    }
+                }
+            }
+        }
+        SecondaryButton(stringResource(R.string.wallet_download_caratula), onDownload, Modifier.fillMaxWidth(), enabled = !busy)
+    }
+}
+
+@Composable
+private fun NoticeBanner(notice: WalletNotice, renewedUntil: Instant?, onDismiss: () -> Unit) {
+    val text = when (notice) {
+        WalletNotice.RENEWED -> stringResource(R.string.wallet_renewed, renewedUntil?.let(::formatShortDate).orEmpty())
+        WalletNotice.NOT_RENEWABLE -> stringResource(R.string.wallet_not_renewable)
+        WalletNotice.CARATULA_NOT_FOUND -> stringResource(R.string.wallet_caratula_not_found)
+        WalletNotice.CARATULA_CANCELLED -> stringResource(R.string.wallet_caratula_cancelled)
+        WalletNotice.CARATULA_GENERATING -> stringResource(R.string.wallet_caratula_generating)
+        WalletNotice.OFFLINE -> stringResource(R.string.wallet_action_offline)
+        WalletNotice.SESSION -> stringResource(R.string.wallet_action_session)
+    }
+    Column(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
+        val icon = when (notice) {
+            WalletNotice.RENEWED -> R.drawable.ic_check_circle
+            WalletNotice.OFFLINE -> R.drawable.ic_cloud_off
+            WalletNotice.SESSION -> R.drawable.ic_lock
+            else -> R.drawable.ic_clock
+        }
+        WarningBanner(text, icon = icon)
+        TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp).align(Alignment.End)) {
+            Text(stringResource(R.string.wallet_dismiss_message))
         }
     }
 }

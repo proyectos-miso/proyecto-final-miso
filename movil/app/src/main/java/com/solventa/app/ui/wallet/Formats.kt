@@ -18,3 +18,7 @@ fun formatDate(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String 
 
 fun formatDateTime(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
     DATE_TIME_FORMAT.format(instant.atZone(zone))
+
+private val SHORT_DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy", COLOMBIA)
+
+fun formatShortDate(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String = SHORT_DATE_FORMAT.format(instant.atZone(zone))

@@ -210,6 +210,7 @@ class PolicyOperationResult(BaseModel):
     status: PolicyStatus
     version: int
     refund_amount: Optional[float] = None
+    valid_until: Optional[datetime] = None
 
 
 class AuditEntry(BaseModel):

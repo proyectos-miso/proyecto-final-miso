@@ -1,4 +1,5 @@
 """Punto de entrada principal del backend monolito modular de Solventa."""
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, status
@@ -18,6 +19,8 @@ from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registr
 from app.modules.policy.models import PolicyDB, PolicySignatureDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.service import claim_service
+from app.modules.notifications.service import PushTokenDB, notification_service  # noqa: F401 - registrar tablas
+from app.modules.policy.operations import policy_operations
 from app.core.outbox import OutboxMessageDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
@@ -28,6 +31,22 @@ from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
 from app.modules.policy.search import create_search_indexes
+
+
+async def run_policy_lifecycle() -> None:
+    """Vence las pólizas sin renovar y avisa las que vencen en 30 días (HU-MOV-11, RC-24 y RC-27)."""
+    async with AsyncSessionLocal() as session:
+        await policy_operations.expire_due(session)
+        await policy_operations.remind_renewals(session, notification_service.renewal_due)
+
+
+async def daily_policy_lifecycle() -> None:
+    while True:
+        try:
+            await run_policy_lifecycle()
+        except Exception as exc:
+            print(f"Aviso: no se pudo revisar el vencimiento de las pólizas: {exc}")
+        await asyncio.sleep(24 * 3600)
 
 
 @asynccontextmanager
@@ -133,7 +152,9 @@ async def lifespan(app: FastAPI):
             await insured_auth_service.seed_default_account(session)
     except Exception as exc:
         print(f"Aviso de inicialización de base de datos en arranque: {exc}")
+    lifecycle = asyncio.create_task(daily_policy_lifecycle())
     yield
+    lifecycle.cancel()
 
 
 def docs_urls(enabled: bool) -> dict:
