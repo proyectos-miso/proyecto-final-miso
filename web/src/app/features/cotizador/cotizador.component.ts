@@ -1,4 +1,5 @@
 import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
@@ -18,7 +19,8 @@ import { COP } from '../../core/money';
 
 interface Emission {
   policy?: PolicyRecord;
-  error?: 'expired' | 'failed';
+  error?: 'expired' | 'failed' | 'signature';
+  message?: string;
 }
 
 @Component({
@@ -27,6 +29,7 @@ interface Emission {
   imports: [
     BeneficiariesEditorComponent,
     CommonModule,
+    FormsModule,
     ClientDataStepComponent,
     ConsentStepComponent,
     PaymentStepComponent,
@@ -167,10 +170,28 @@ interface Emission {
             </div>
           } @else {
             <app-beneficiaries-editor legend="Beneficiarios de la póliza" (changed)="beneficiaries.set($event)" />
+            <div class="signature">
+              <p class="signature-help">El titular firma la póliza con el código que recibe por SMS.</p>
+              <button type="button" class="signature-send" [disabled]="sendingCode() || !client()?.phone" (click)="requestSignatureCode()">
+                {{ sendingCode() ? 'Enviando…' : (codeSent() ? 'Reenviar código de firma' : 'Enviar código de firma') }}
+              </button>
+              @if (codeSent()) {
+                <small class="signature-sent" role="status">Código enviado al teléfono del titular.</small>
+              }
+              @if (debugCode(); as code) {
+                <small class="signature-sent">Código de prueba (solo en local): {{ code }}</small>
+              }
+              <label for="signatureCode">Código de firma</label>
+              <input id="signatureCode" name="signatureCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                [ngModel]="signatureCode()" (ngModelChange)="signatureCode.set($event)" />
+            </div>
             @if (emission().error === 'failed') {
               <p class="issue-error" role="alert">No se pudo emitir la póliza. Intente de nuevo.</p>
             }
-            <button type="button" class="issue-button" [disabled]="issuing() || !beneficiaries()" (click)="issuePolicy()">
+            @if (emission().error === 'signature') {
+              <p class="issue-error" role="alert">{{ emission().message }}</p>
+            }
+            <button type="button" class="issue-button" [disabled]="issuing() || !beneficiaries() || !validCode()" (click)="issuePolicy()">
               Emitir póliza
             </button>
           }
@@ -261,6 +282,50 @@ interface Emission {
       margin: 0;
       color: #b91c1c;
       font-size: 0.8125rem;
+    }
+    .signature {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+    .signature-help {
+      margin: 0;
+      color: #475569;
+      font-size: 0.8125rem;
+    }
+    .signature-send {
+      justify-self: start;
+      min-height: 40px;
+      padding: 0 12px;
+      border: 1px solid #0b5474;
+      border-radius: 8px;
+      background: #fff;
+      color: #0b5474;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .signature-send:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .signature-sent {
+      color: #15803d;
+      font-size: 0.8125rem;
+    }
+    .signature label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #334155;
+    }
+    .signature input {
+      max-width: 160px;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font: inherit;
+      letter-spacing: 0.2em;
     }
     .tier-tabs {
       display: flex;
@@ -418,6 +483,12 @@ export class CotizadorComponent {
     computation: () => ({}),
   });
   readonly issuing = signal(false);
+  // RC-02: la emisión exige el código de firma que recibe el titular.
+  readonly signatureCode = signal('');
+  readonly sendingCode = signal(false);
+  readonly codeSent = signal(false);
+  readonly debugCode = signal<string | null>(null);
+  readonly validCode = computed(() => /^\d{6}$/.test(this.signatureCode().trim()));
   // HU-WEB-15: beneficiarios válidos (suman 100 %) o null mientras falte algo.
   readonly beneficiaries = signal<Beneficiary[] | null>(null);
 
@@ -433,6 +504,23 @@ export class CotizadorComponent {
     };
   }
 
+  requestSignatureCode(): void {
+    const client = this.client();
+    if (!client?.phone) return;
+    this.sendingCode.set(true);
+    this.policies
+      .requestSignatureOtp(client.document_number, client.phone, client.document_type)
+      .pipe(finalize(() => this.sendingCode.set(false)))
+      .subscribe({
+        next: (sent) => {
+          this.codeSent.set(true);
+          this.debugCode.set(sent.debug_code ?? null);
+        },
+        error: (error: HttpErrorResponse) =>
+          this.emission.set({ error: 'signature', message: extractErrorMessage(error, 'No se pudo enviar el código de firma.') }),
+      });
+  }
+
   issuePolicy(): void {
     this.issuing.set(true);
     this.policies
@@ -441,11 +529,17 @@ export class CotizadorComponent {
         tier: this.selectedTier(),
         holder: this.holder(),
         beneficiaries: this.beneficiaries() ?? [],
+        otp_code: this.signatureCode().trim(),
       })
       .pipe(finalize(() => this.issuing.set(false)))
       .subscribe({
         next: (policy) => this.emission.set({ policy }),
-        error: (error: HttpErrorResponse) => this.emission.set({ error: error.status === 409 ? 'expired' : 'failed' }),
+        error: (error: HttpErrorResponse) => {
+          if (error.status === 409) this.emission.set({ error: 'expired' });
+          else if (error.status === 422) {
+            this.emission.set({ error: 'signature', message: extractErrorMessage(error, 'Revise el código de firma.') });
+          } else this.emission.set({ error: 'failed' });
+        },
       });
   }
 }

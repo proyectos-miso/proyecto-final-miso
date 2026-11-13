@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
   CaratulaLink,
   EndorsementRequest,
+  OtpSent,
   PolicyAudit,
   PolicyOperationResult,
   PolicyDetail,
@@ -30,8 +31,8 @@ export class PolicyService {
     documentNumber: string,
     phone?: string,
     documentType: string = 'CC',
-  ): Observable<{ status: string; message: string }> {
-    return this.http.post<{ status: string; message: string }>(
+  ): Observable<OtpSent> {
+    return this.http.post<OtpSent>(
       `${this.baseUrl}/experience/policies/otp-request`,
       {
         document_number: documentNumber,

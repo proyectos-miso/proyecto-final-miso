@@ -155,6 +155,9 @@ interface ConsentResult {
               @if (otpSent()) {
                 <small class="otp-sent-msg">Código OTP enviado al teléfono del cliente.</small>
               }
+              @if (debugCode(); as code) {
+                <small class="otp-sent-msg">Código de prueba (solo en local): {{ code }}</small>
+              }
             </div>
           </div>
 
@@ -540,6 +543,7 @@ export class ConsentStepComponent {
   readonly registering = signal<boolean>(false);
   readonly requestingOtp = signal<boolean>(false);
   readonly otpSent = signal<boolean>(false);
+  readonly debugCode = signal<string | null>(null);
   readonly result = signal<ConsentResult>({});
 
   requestOtp(): void {
@@ -550,8 +554,9 @@ export class ConsentStepComponent {
     this.consentService.requestOtp(doc, phone).pipe(
       finalize(() => this.requestingOtp.set(false))
     ).subscribe({
-      next: () => {
+      next: (sent) => {
         this.otpSent.set(true);
+        this.debugCode.set(sent.debug_code ?? null);
       },
       error: (err: HttpErrorResponse) => {
         this.result.set({
