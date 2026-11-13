@@ -44,6 +44,7 @@ async def test_consent_flow_mandatory_otp_and_persistence_before_quote(
     )
     assert otp_req_resp.status_code == 200
     assert otp_req_resp.json()["status"] == "OTP_SENT"
+    code = otp_req_resp.json()["debug_code"]
 
     # 3. Registrar el consentimiento con código canónico de prueba
     consent_reg_resp = await async_client.post(
@@ -52,7 +53,7 @@ async def test_consent_flow_mandatory_otp_and_persistence_before_quote(
         json={
             "document_number": doc_number,
             "channel": "web",
-            "otp_code": "839201",
+            "otp_code": code,
             "terms_accepted": True,
             "purpose": "Perfilamiento actuarial y cotización de crédito hipotecario",
             "scope": "Capacidad de pago y scoring",

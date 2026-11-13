@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.modules.payments.models import PaymentTransactionDB
 from tests.integration.policy_search_fixtures import BENEFICIARIES
+from tests.integration.otp_fixtures import signature_code
 
 
 def partner_advisor_headers(partner_id: str = "bancolombia", **extra) -> dict:
@@ -45,7 +46,7 @@ async def test_charge_premium_assigns_partner_id_from_authenticated_token(
             "quote_id": quote_id,
             "tier": "standard",
             "beneficiaries": BENEFICIARIES,
-            "otp_code": "839201",
+            "otp_code": await signature_code(async_client, headers),
         },
     )
     assert issue_resp.status_code == 200

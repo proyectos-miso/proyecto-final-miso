@@ -555,10 +555,7 @@ class InsuredAuthService:
             )
         )
         if phone:
-            try:
-                await self.sms.send(phone, f"Solventa: su código de verificación es {code}. Vence en 5 minutos.")
-            except SmsDeliveryError:
-                pass
+            await self.sms.send(phone, f"Solventa: su código de verificación es {code}. Vence en 5 minutos.")
         await session.commit()
         return code
 
@@ -569,8 +566,11 @@ class InsuredAuthService:
         purpose: str,
         code: str,
         document_type: str = "CC",
+        commit: bool = True,
     ) -> bool:
-        """Valida el código de un solo uso para un documento. Si es correcto lo elimina (one-time use)."""
+        """Valida el código de un solo uso para un documento y, si es correcto, lo consume.
+        Con commit=False el consumo queda en la transacción de quien llama (la emisión), y la fila
+        bloqueada hace esperar a otra petición con el mismo código hasta que esa transacción termine."""
         now = self._clock()
         stmt = (
             select(DocumentOtpDB)
@@ -578,12 +578,10 @@ class InsuredAuthService:
                 DocumentOtpDB.document_number == document_number,
                 DocumentOtpDB.purpose == purpose,
             )
+            .with_for_update()
         )
         otp = (await session.execute(stmt)).scalars().first()
         if otp is None:
-            # Fallback seguro para código de prueba canónico en tests
-            if code == "839201":
-                return True
             return False
 
         if now > otp.expires_at:
@@ -593,10 +591,6 @@ class InsuredAuthService:
 
         expected_hash = self._document_code_hash(document_number, purpose, code)
         if not hmac.compare_digest(otp.code_hash, expected_hash):
-            if code == "839201":
-                await session.delete(otp)
-                await session.commit()
-                return True
             otp.attempts += 1
             if otp.attempts >= policy.MAX_CODE_ATTEMPTS:
                 await session.delete(otp)
@@ -604,7 +598,8 @@ class InsuredAuthService:
             return False
 
         await session.delete(otp)
-        await session.commit()
+        if commit:
+            await session.commit()
         return True
 
 

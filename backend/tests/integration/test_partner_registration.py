@@ -25,6 +25,7 @@ async def test_partner_self_registration_sandbox_and_production_approval(
     }
     reg_resp = await async_client.post(
         "/api/v1/quote-edge/partners/register",
+        headers=analyst_headers(),
         json=reg_payload,
     )
     assert reg_resp.status_code == 201
@@ -69,3 +70,29 @@ async def test_partner_self_registration_sandbox_and_production_approval(
     await postgres_session.refresh(partner)
     assert partner.environment == "production"
     assert partner.quota_limit == 50000
+
+
+@pytest.mark.integration
+async def test_sin_sesion_o_desde_un_socio_no_se_registran_socios(async_client: AsyncClient, postgres_session):
+    await auth_service.seed_default_users(postgres_session)
+    payload = {"name": "Socio Sin Permiso", "contact_email": "contacto@sinpermiso.example.com"}
+    from_partner = {"Authorization": f"Bearer {create_access_token(subject='analista@bancoaliado.example', role='analyst')}"}
+
+    anonymous = await async_client.post("/api/v1/quote-edge/partners/register", json=payload)
+    partner = await async_client.post("/api/v1/quote-edge/partners/register", headers=from_partner, json=payload)
+
+    assert anonymous.status_code == 401
+    assert partner.status_code == 403
+    assert await postgres_session.scalar(select(PartnerDB).where(PartnerDB.name == "Socio Sin Permiso")) is None
+
+
+@pytest.mark.integration
+async def test_el_correo_del_socio_debe_ser_valido(async_client: AsyncClient, postgres_session):
+    await auth_service.seed_default_users(postgres_session)
+
+    response = await async_client.post(
+        "/api/v1/quote-edge/partners/register", headers=analyst_headers(),
+        json={"name": "Socio Correo", "contact_email": "no-es-un-correo"},
+    )
+
+    assert response.status_code == 422
