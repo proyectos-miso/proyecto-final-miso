@@ -4,6 +4,13 @@ import android.app.Application
 import android.app.KeyguardManager
 import com.solventa.app.data.auth.HttpAuthApi
 import com.solventa.app.data.claims.EncryptedClaimStore
+import com.solventa.app.data.claims.HttpClaimsApi
+import com.solventa.app.data.notifications.AndroidNotificationPoster
+import com.solventa.app.data.policies.HttpPolicyActionsApi
+import com.solventa.app.data.policies.SessionPolicyActions
+import com.solventa.app.domain.policies.NotificationPoster
+import com.solventa.app.domain.policies.PolicyActions
+import kotlinx.coroutines.launch
 import com.solventa.app.data.policies.EncryptedPolicyStore
 import com.solventa.app.data.policies.HttpPoliciesApi
 import com.solventa.app.data.policies.KeystoreWalletKeys
@@ -52,16 +59,31 @@ class SolventaApplication : Application(), PolicySyncHost {
         EncryptedClaimStore(this, PassphraseVault.forClaims(this, KeystoreWalletKeys(isDeviceLocked = keyguard::isDeviceLocked)))
     }
 
-    override val policySync: PolicySync by lazy {
+    val notificationPoster: NotificationPoster by lazy { AndroidNotificationPoster(this) }
+
+    private val sessionSync: SessionPolicySync by lazy {
         SessionPolicySync(
             sessionRepository, authApi, policiesApi, policyStore, WorkManagerSyncScheduler(this),
             onDeviceRejected = { claimStore.delete(it) },
+            claimsApi = HttpClaimsApi(BuildConfig.API_BASE_URL),
+            notices = notificationPoster,
         )
+    }
+
+    override val policySync: PolicySync get() = sessionSync
+
+    val policyActions: PolicyActions by lazy { SessionPolicyActions(sessionSync, HttpPolicyActionsApi(BuildConfig.API_BASE_URL)) }
+
+    /** Registra el token de avisos para la cuenta con sesión; sin sesión no hace nada (HU-MOV-11). */
+    fun registerPushToken(token: String) {
+        if (sessionRepository.openSession == null) return
+        appScope.launch { runCatching { policyActions.registerPushToken(token) } }
     }
 
     override fun onCreate() {
         super.onCreate()
         // SQLCipher escribe en logcat la ruta de la base cuando no abre; la app no registra nada de la copia (CTL-06).
         Logger.setTarget(NoopTarget())
+        AndroidNotificationPoster.ensureChannel(this)
     }
 }

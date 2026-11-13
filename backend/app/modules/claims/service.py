@@ -27,6 +27,7 @@ from app.modules.claims.models import (
     ExpertDB,
 )
 from app.modules.claims.parametric import ParametricRule, matching_rule
+from app.modules.notifications.service import notification_service
 from app.modules.payments.payouts import Payee, payout_service
 from app.modules.policy.detail import mask_phone
 from app.modules.policy.models import PolicyDB
@@ -197,6 +198,17 @@ class ClaimService:
 
     def event(self, session: AsyncSession, claim: ClaimDB, kind: str, actor: str, **fields) -> None:
         session.add(ClaimEventDB(claim_number=claim.claim_number, kind=kind, actor=actor, created_at=self.now(), **fields))
+        session.info.setdefault("claim_notices", []).append((claim.policy_number, claim.claim_number, kind))
+
+    async def commit(self, session: AsyncSession) -> None:
+        """Confirma y después avisa al asegurado; el aviso nunca deshace ni frena la decisión (HU-MOV-11)."""
+        await session.commit()
+        for policy_number, claim_number, kind in session.info.pop("claim_notices", []):
+            document = await session.scalar(
+                select(PolicyDB.insured_document).where(PolicyDB.policy_number == policy_number)
+            )
+            if document:
+                await notification_service.claim_changed(session, document, claim_number, kind)
 
     async def assign(
         self, session: AsyncSession, claim_number: str, request: ClaimAssignRequest, actor: str,
@@ -215,7 +227,7 @@ class ClaimService:
                 raise InvalidSettlementError("El perito no existe.")
             claim.expert_id = expert.expert_id
             self.event(session, claim, "EXPERT_ASSIGNED", actor, detail={"expert": expert.name, "city": expert.city})
-        await session.commit()
+        await self.commit(session)
 
     async def decide(
         self, session: AsyncSession, claim_number: str, request: ClaimDecisionRequest, actor: str,
@@ -229,13 +241,13 @@ class ClaimService:
             claim.status = "REJECTED"
             claim.assigned_to = claim.assigned_to or actor
             self.event(session, claim, "REJECTED", actor, justification=request.justification)
-            await session.commit()
+            await self.commit(session)
             return
         if request.amount is None:
             raise InvalidSettlementError("Registre el valor a pagar.")
         await self.settle(session, claim, policy, request.coverage_id or claim.coverage_id, request.amount,
                           actor, request.justification)
-        await session.commit()
+        await self.commit(session)
 
     async def settle(
         self, session: AsyncSession, claim: ClaimDB, policy: PolicyDB, coverage_id: Optional[str], amount: float,
@@ -273,7 +285,7 @@ class ClaimService:
         payouts = await payout_service.for_reference(session, claim_number, "INDEMNITY")
         await payout_service.execute(session, payouts)
         self.mark_paid(session, claim, payouts)
-        await session.commit()
+        await self.commit(session)
 
     # -- Registro (HU-MOV-09 y HU-MOV-10) -------------------------------------------------------
 
@@ -296,7 +308,7 @@ class ClaimService:
         rule = matching_rule(parametric_event) if origin == "PARAMETRIC" else None
         if rule:
             await self.settle_parametric(session, claim, rule)
-        await session.commit()
+        await self.commit(session)
         return claim
 
     async def settle_parametric(self, session: AsyncSession, claim: ClaimDB, rule: ParametricRule) -> None:

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Avisos de cambio de estado del siniestro y de vencimiento (HU-MOV-11). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- WorkManager los agrega; la sincronización no los usa: sin sesión tras reiniciar no hay nada que sincronizar (HU-MOV-07). -->
@@ -34,6 +36,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Avisos del servidor por Firebase; sin google-services.json Firebase no se inicia y no recibe nada (HU-MOV-11). -->
+        <service
+            android:name=".data.notifications.SolventaMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

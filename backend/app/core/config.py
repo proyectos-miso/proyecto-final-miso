@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     SQS_EVENTS_URL: Optional[str] = None
     # Solo con Floci detrás de docker compose: dirección del emulador que alcanza el navegador (HU-WEB-16).
     S3_PUBLIC_ENDPOINT_URL: Optional[str] = None
+    # HU-MOV-11: ruta del JSON de la cuenta de servicio de Firebase; sin ella no se envían push.
+    FIREBASE_CREDENTIALS_FILE: Optional[str] = None
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
 
     @field_validator("JWT_SECRET_KEY", "OTP_SECRET_KEY")
     @classmethod

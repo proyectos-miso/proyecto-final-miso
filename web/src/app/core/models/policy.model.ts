@@ -27,7 +27,7 @@ export interface PolicyIssueRequest {
   holder?: PolicyHolder;
 }
 
-export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED' | 'TERMINATED';
+export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED' | 'TERMINATED' | 'EXPIRED';
 
 /** Fila de la búsqueda de operaciones: documento enmascarado y sin datos de contacto (HU-WEB-08). */
 export interface PolicySearchItem {

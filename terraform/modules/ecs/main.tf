@@ -199,6 +199,10 @@ resource "aws_ecs_task_definition" "backend" {
           value = var.otp_secret_key
         },
         {
+          name  = "FIREBASE_CREDENTIALS_JSON"
+          value = var.firebase_credentials_json
+        },
+        {
           name  = "SQS_EVENTS_URL"
           value = var.sqs_queue_url
         },

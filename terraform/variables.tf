@@ -51,6 +51,13 @@ variable "jwt_secret_key" {
   }
 }
 
+variable "firebase_credentials_json" {
+  description = "Cuenta de servicio de Firebase (JSON) para los push de HU-MOV-11. Llega como TF_VAR_firebase_credentials_json desde los secretos de CI; vacía, no hay push"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "otp_secret_key" {
   description = "Llave del MAC de los códigos de un solo uso, distinta de la de los tokens. Llega como TF_VAR_otp_secret_key"
   type        = string

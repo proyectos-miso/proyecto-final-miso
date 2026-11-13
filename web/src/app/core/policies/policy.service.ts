@@ -51,6 +51,13 @@ export class PolicyService {
   }
 
   /** Cancelación a pedido del cliente con devolución proporcional (HU-WEB-15). */
+  renew(policyNumber: string): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/renewal`,
+      {},
+    );
+  }
+
   cancel(policyNumber: string, reason: string): Observable<PolicyOperationResult> {
     return this.http.post<PolicyOperationResult>(
       `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/cancellation`,

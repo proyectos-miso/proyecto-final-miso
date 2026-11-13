@@ -66,6 +66,13 @@ variable "otp_secret_key" {
   sensitive   = true
 }
 
+variable "firebase_credentials_json" {
+  description = "Cuenta de servicio de Firebase para los push (HU-MOV-11); vacía, el backend no envía push"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "sqs_queue_url" {
   type = string
 }

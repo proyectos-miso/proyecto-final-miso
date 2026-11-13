@@ -95,7 +95,7 @@ class PolicyIssueRequest(BaseModel):
         return check_beneficiaries(value)
 
 
-PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED", "TERMINATED"]
+PolicyStatus = Literal["ISSUED", "ACTIVE", "CANCELLED", "TERMINATED", "EXPIRED"]
 
 
 class PolicySearchItem(BaseModel):
@@ -190,6 +190,7 @@ class PolicyOperationResult(BaseModel):
     status: PolicyStatus
     version: int
     refund_amount: Optional[float] = None
+    valid_until: Optional[datetime] = None
 
 
 class AuditEntry(BaseModel):

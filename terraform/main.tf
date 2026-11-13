@@ -44,25 +44,26 @@ module "storage_events" {
 module "ecs" {
   source = "./modules/ecs"
 
-  project_name           = var.project_name
-  environment            = var.environment
-  vpc_id                 = module.vpc.vpc_id
-  private_subnet_ids     = module.vpc.private_subnet_ids
-  alb_security_group_id  = module.alb.alb_security_group_id
-  target_group_arn       = module.alb.target_group_arn
-  ecr_image_url          = "${module.ecr.repository_url}:latest"
-  db_host                = module.rds.address
-  db_name                = module.rds.db_name
-  db_user                = var.db_username
-  db_password            = var.db_password
-  db_password_secret_arn = module.rds.db_password_secret_arn
-  db_kms_key_arn         = module.rds.kms_key_arn
-  jwt_secret_key         = var.jwt_secret_key
-  otp_secret_key         = var.otp_secret_key
-  sqs_queue_url          = module.storage_events.sqs_queue_url
-  s3_bucket_name         = module.storage_events.s3_bucket_name
-  s3_bucket_arn          = module.storage_events.s3_bucket_arn
-  storage_kms_key_arn    = module.storage_events.kms_key_arn
+  project_name              = var.project_name
+  environment               = var.environment
+  vpc_id                    = module.vpc.vpc_id
+  private_subnet_ids        = module.vpc.private_subnet_ids
+  alb_security_group_id     = module.alb.alb_security_group_id
+  target_group_arn          = module.alb.target_group_arn
+  ecr_image_url             = "${module.ecr.repository_url}:latest"
+  db_host                   = module.rds.address
+  db_name                   = module.rds.db_name
+  db_user                   = var.db_username
+  db_password               = var.db_password
+  db_password_secret_arn    = module.rds.db_password_secret_arn
+  db_kms_key_arn            = module.rds.kms_key_arn
+  jwt_secret_key            = var.jwt_secret_key
+  otp_secret_key            = var.otp_secret_key
+  firebase_credentials_json = var.firebase_credentials_json
+  sqs_queue_url             = module.storage_events.sqs_queue_url
+  s3_bucket_name            = module.storage_events.s3_bucket_name
+  s3_bucket_arn             = module.storage_events.s3_bucket_arn
+  storage_kms_key_arn       = module.storage_events.kms_key_arn
 }
 
 module "web_hosting" {

@@ -598,6 +598,20 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `cambiar de pantalla reinicia la espera para pedir codigo`() {
+        viewModel.openPasswordRecovery()
+        viewModel.requestRecoveryCode(EMAIL)
+        assertFalse(viewModel.uiState.value.canRequestOtp(EMAIL))
+
+        viewModel.closePasswordRecovery()
+
+        assertEquals(0, viewModel.uiState.value.otpCooldownSeconds)
+        assertTrue(viewModel.uiState.value.canRequestOtp(EMAIL))
+        advanceSeconds(60)
+        assertEquals(0, viewModel.uiState.value.otpCooldownSeconds)
+    }
+
+    @Test
     fun `TC-S1-10 servidor pide esperar antes de otro codigo`() {
         authApi.otpResult = OtpResult.TooManyRequests(retryAfterSeconds = 25)
 
