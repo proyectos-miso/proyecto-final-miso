@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
-from typing import Tuple
+from typing import Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
