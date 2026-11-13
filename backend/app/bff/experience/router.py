@@ -1,12 +1,15 @@
 """Router BFF para canales Web y Móvil (experience-edge) (HU-WEB-13)."""
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.idempotency import IdempotencyConflictError
 from app.core.security import require_roles
+from app.core.sms import SmsDeliveryError
+from app.modules.identity.service import PURPOSE_POLICY_SIGNATURE, insured_auth_service
 from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
 from app.modules.auth.models import LoginRequest, LoginResponse, RefreshTokenRequest
 from app.modules.auth.service import auth_service
@@ -31,7 +34,14 @@ from app.modules.policy.models import (
     PolicyStatus,
 )
 from app.modules.rating.models import PartnerDB, PartnerStatus
-from app.modules.policy.service import PolicyNotFoundError, QuoteExpiredError, QuoteNotFoundError, policy_service
+from app.modules.policy.service import (
+    InvalidSignatureError,
+    PolicyNotFoundError,
+    QuoteExpiredError,
+    QuoteNotFoundError,
+    SignatureRequiredError,
+    policy_service,
+)
 from app.modules.payments.models import PaymentChargeRequest, PaymentReceipt
 from app.modules.payments.gateway import GatewayUnavailableError
 from app.modules.payments.service import (
@@ -99,21 +109,31 @@ async def request_consent_otp(
     request: ConsentOtpRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Solicita el envío del código OTP de verificación de consentimiento para el cliente (RC-06)."""
+    """Envía al cliente el código para autorizar el tratamiento de datos (RC-06)."""
+    code = await send_document_otp(lambda: profile_service.request_otp_async(
+        session=db,
+        document_number=request.document_number,
+        phone=request.phone,
+        document_type=request.document_type,
+    ))
+    return otp_sent(request.document_number, "Código de verificación enviado al cliente", code)
+
+
+def otp_sent(document_number: str, message: str, code: str) -> Dict[str, Any]:
+    """Con SMS de consola y en desarrollo el código vuelve como código de prueba, igual que el ingreso de la app."""
+    expose = insured_auth_service.sms.exposes_code and settings.debug_enabled
+    return {"status": "OTP_SENT", "document_number": document_number, "message": message,
+            "debug_code": code if expose else None}
+
+
+async def send_document_otp(send) -> str:
     try:
-        await profile_service.request_otp_async(
-            session=db,
-            document_number=request.document_number,
-            phone=request.phone,
-            document_type=request.document_type,
+        return await send()
+    except SmsDeliveryError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo enviar el código. Intente de nuevo en unos minutos.",
         )
-        return {
-            "status": "OTP_SENT",
-            "document_number": request.document_number,
-            "message": "Código de verificación enviado al cliente",
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post(
@@ -231,10 +251,9 @@ async def get_policy_caratula(
 
 
 class PolicySignatureOtpRequest(BaseModel):
-    document_number: str
-    phone: Optional[str] = None
-    document_type: str = "CC"
-    quote_id: Optional[str] = None
+    document_number: str = Field(..., min_length=5, max_length=20)
+    phone: str = Field(..., min_length=7, max_length=20)
+    document_type: str = Field(default="CC", min_length=2, max_length=10)
 
 
 @router.post(
@@ -245,25 +264,15 @@ async def request_policy_signature_otp(
     request: PolicySignatureOtpRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Solicita el envío del código OTP para la firma electrónica de la póliza (RC-02)."""
-    try:
-        from app.modules.identity.service import insured_auth_service, PURPOSE_POLICY_SIGNATURE
-        phone = request.phone or "+573001234567"
-        await insured_auth_service.request_document_otp(
-            session=db,
-            document_number=request.document_number,
-            purpose=PURPOSE_POLICY_SIGNATURE,
-            document_type=request.document_type,
-            phone=phone,
-        )
-        return {
-            "status": "OTP_SENT",
-            "document_number": request.document_number,
-            "purpose": "policy_signature",
-            "message": "Código de verificación para firma de póliza enviado al cliente",
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    """Envía al titular el código de firma electrónica de la póliza (RC-02)."""
+    code = await send_document_otp(lambda: insured_auth_service.request_document_otp(
+        session=db,
+        document_number=request.document_number,
+        purpose=PURPOSE_POLICY_SIGNATURE,
+        document_type=request.document_type,
+        phone=request.phone,
+    ))
+    return otp_sent(request.document_number, "Código de firma enviado al titular", code)
 
 
 @router.post(
@@ -284,6 +293,16 @@ async def issue_policy(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="La cotización venció: recalcule la tarifa con datos actuales.",
+        )
+    except SignatureRequiredError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Envíe el código de firma electrónica que recibió el titular para emitir la póliza.",
+        )
+    except InvalidSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="El código de firma electrónica no es válido o ya venció. Solicite uno nuevo.",
         )
 
 

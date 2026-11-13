@@ -14,6 +14,7 @@ from app.core.security import (
     get_current_partner,
     log_partner_security_event,
 )
+from app.bff.experience.router import operations_scope
 from app.modules.policy.models import (
     PartnerPolicyIssueRequest,
     PartnerPolicyResponse,
@@ -88,7 +89,7 @@ async def issue_partner_token(
 
 class PartnerRegistrationRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
-    contact_email: str = Field(..., max_length=254)
+    contact_email: str = Field(..., max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class PartnerRegistrationResponse(BaseModel):
@@ -110,12 +111,18 @@ class PartnerRegistrationResponse(BaseModel):
 )
 async def register_partner_sandbox(
     request: PartnerRegistrationRequest,
+    partner_scope: Optional[str] = Depends(operations_scope),
     db: AsyncSession = Depends(get_db_session),
 ):
     """
     Registro por autoservicio de nuevos socios B2B (RC-23, AC-15, SR-09).
     Entrega credenciales inmediatas confinadas a entorno 'sandbox' con cuota acotada (1.000 req/h).
     """
+    if partner_scope is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el equipo de alianzas de Solventa puede registrar socios.",
+        )
     import secrets
     from app.core.security import get_password_hash
     from app.modules.rating.models import PartnerStatus

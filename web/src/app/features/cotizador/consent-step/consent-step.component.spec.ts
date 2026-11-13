@@ -37,6 +37,27 @@ describe('ConsentStepComponent (HU-WEB-01)', () => {
 
   afterEach(() => http.verify());
 
+  it('RC-06 pide el código al cliente y en local muestra el código de prueba', () => {
+    component.requestOtp();
+    const call = http.expectOne('/api/v1/experience/consent/otp-request');
+    expect(call.request.body.document_number).toBe('1020304050');
+    call.flush({ status: 'OTP_SENT', message: 'Código de verificación enviado al cliente', debug_code: '615204' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Código OTP enviado al teléfono del cliente');
+    expect(fixture.nativeElement.textContent).toContain('Código de prueba (solo en local): 615204');
+  });
+
+  it('RC-06 si el código no se puede enviar avisa sin mostrar código de prueba', () => {
+    component.requestOtp();
+    http.expectOne('/api/v1/experience/consent/otp-request')
+      .flush({ detail: 'No se pudo enviar el código.' }, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Código de prueba');
+    expect(component.result().error).toContain('No se pudo enviar el código');
+  });
+
   it('debe crearse el componente de consentimiento', () => {
     expect(component).toBeTruthy();
   });

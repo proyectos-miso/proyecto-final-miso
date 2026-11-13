@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Eliminación de `specs/pendientes/HOTFIX-produccion.md` tras completar y validar todas sus brechas funcionales (RC-30, RC-31, RC-33, RC-35, RC-36).
 
 ### Security
+- **Hotfix · Correcciones de HU-WEB-12 (`HOTFIX-correcciones-de-hu-web-12`):** el consentimiento y la firma de la póliza ya no aceptan un código fijo ni eximen un documento; el portal envía el código de firma al titular antes de emitir y, en local, muestra el código de prueba; el registro de socios exige un analista de Solventa y un correo válido; los códigos piden teléfono, responden 503 si el SMS falla y no exponen errores internos; diez emisiones simultáneas con el mismo código siguen dejando una póliza; vuelve la etiqueta «Vencida» y se quita el código muerto que marcaba SonarCloud.
 - Restricción estricta de edad asegurable (`RC-07`): validación de tipo `birth_date: date` en el motor de tarificación (`RatingService.create_quote`) que rechaza con HTTP 422 a solicitantes fuera del rango de 18 a 75 años o con fechas futuras.
 - Inmutabilidad de firmas electrónicas de póliza (`RC-02`): tabla relacional `policy_signatures` en PostgreSQL con trigger `make_immutable` que impide la modificación o eliminación de firmas registradas con OTP.
 - Control de cuota y rate-limiting RFC 6585 (`HU-WEB-12`): bloqueo de peticiones excedentes con código HTTP 429, cabecera `Retry-After` y registro de eventos de auditoría `PARTNER_QUOTA_EXCEEDED`.

@@ -35,6 +35,14 @@ class PolicyNotFoundError(Exception):
     pass
 
 
+class SignatureRequiredError(Exception):
+    """La emisión exige el código de firma electrónica que recibió el titular (RC-02)."""
+
+
+class InvalidSignatureError(Exception):
+    """El código de firma no coincide, venció o ya se usó."""
+
+
 def one_year_after(moment: datetime) -> datetime:
     """Mismo día y hora del año siguiente; el 29 de febrero pasa al 28."""
     try:
@@ -63,7 +71,17 @@ class PolicyService:
         quote = await session.get(QuoteDB, request.quote_id)
         if quote is None:
             raise QuoteNotFoundError()
-        policy = await self.find_by_quote(session, quote.quote_id) or await self.create(session, quote, request)
+        quote_id = quote.quote_id
+        policy = await self.find_by_quote(session, quote_id)
+        if policy is None:
+            try:
+                policy = await self.create(session, quote, request)
+            except InvalidSignatureError:
+                # Otra petición con el mismo código ya emitió la póliza de esta cotización: se devuelve esa.
+                await session.rollback()
+                policy = await self.find_by_quote(session, quote_id)
+                if policy is None:
+                    raise
         return PolicyRecord.model_validate(policy)
 
     async def find_by_quote(self, session: AsyncSession, quote_id: str) -> Optional[PolicyDB]:
@@ -75,28 +93,19 @@ class PolicyService:
         if quote.expires_at <= issued_at:
             raise QuoteExpiredError()
 
-        doc_type = request.holder.document_type if request.holder else getattr(quote, "document_type", "CC") or "CC"
-        if request.otp_code:
-            from app.modules.identity.service import insured_auth_service, PURPOSE_POLICY_SIGNATURE
-            otp_valid = await insured_auth_service.verify_document_otp(
-                session=session,
-                document_number=quote.document_number,
-                purpose=PURPOSE_POLICY_SIGNATURE,
-                code=request.otp_code,
-                document_type=doc_type,
-            )
-            if not otp_valid:
-                from fastapi import HTTPException, status
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Código OTP de firma electrónica inválido o expirado.",
-                )
-        elif quote.document_number != "1020304050":
-            from fastapi import HTTPException, status
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="El código OTP de firma electrónica es obligatorio para emitir la póliza.",
-            )
+        doc_type = request.holder.document_type if request.holder else "CC"
+        if not request.otp_code:
+            raise SignatureRequiredError()
+        from app.modules.identity.service import PURPOSE_POLICY_SIGNATURE, insured_auth_service
+        if not await insured_auth_service.verify_document_otp(
+            session=session,
+            document_number=quote.document_number,
+            purpose=PURPOSE_POLICY_SIGNATURE,
+            code=request.otp_code,
+            document_type=doc_type,
+            commit=False,
+        ):
+            raise InvalidSignatureError()
 
         sequence = await session.scalar(select(POLICY_NUMBER_SEQ.next_value()))
         policy = await session.scalar(
@@ -121,7 +130,7 @@ class PolicyService:
         if policy:
             canonical_summary = f"POL:{policy.policy_number}|DOC:{policy.insured_document}|ISSUED:{policy.issued_at.isoformat()}|TIER:{policy.conditions.get('tier')}"
             pdf_hash = hashlib.sha256(canonical_summary.encode()).hexdigest()
-            otp_code_hash = hashlib.sha256((request.otp_code or "canonical_test_otp").encode()).hexdigest()
+            otp_code_hash = hashlib.sha256(request.otp_code.encode()).hexdigest()
 
             signature = PolicySignatureDB(
                 signature_id=str(uuid.uuid4()),

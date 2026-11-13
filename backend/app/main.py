@@ -80,7 +80,9 @@ async def lifespan(app: FastAPI):
             # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
-            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS environment VARCHAR(16) NOT NULL DEFAULT 'PRODUCTION'"))
+            await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS environment VARCHAR(16) NOT NULL DEFAULT 'production'"))
+            await conn.execute(text("ALTER TABLE partners ALTER COLUMN environment SET DEFAULT 'production'"))
+            await conn.execute(text("UPDATE partners SET environment = lower(environment) WHERE environment <> lower(environment)"))
             await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS contact_email VARCHAR(254)"))
             # HU-WEB-12 Brechas: campos de consentimiento y crédito en cotizaciones (RC-06, RC-08)
             await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS consent_id VARCHAR(36)"))
