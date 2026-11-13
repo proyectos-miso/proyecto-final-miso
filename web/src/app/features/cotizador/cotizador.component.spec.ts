@@ -149,6 +149,8 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
         insured_amount: 200_000_000,
         city: 'Medellín',
         occupation_risk: 2,
+        financial_entity: 'Davivienda',
+        term_months: 180,
       });
 
       call.flush(quote);

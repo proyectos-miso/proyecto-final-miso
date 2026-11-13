@@ -1,5 +1,6 @@
 """Router BFF para canales Web y Móvil (experience-edge) (HU-WEB-13)."""
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.modules.auth.service import auth_service
 from app.modules.profile.models import (
     CityResponse,
     ClientIdentification,
+    ConsentOtpRequest,
     ConsentRecord,
     ConsentRequest,
     FinancialEntityResponse,
@@ -90,14 +92,42 @@ async def validate_client(client: ClientIdentification):
 
 
 @router.post(
+    "/consent/otp-request",
+    dependencies=[Depends(require_roles(["advisor"]))],
+)
+async def request_consent_otp(
+    request: ConsentOtpRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Solicita el envío del código OTP de verificación de consentimiento para el cliente (RC-06)."""
+    try:
+        await profile_service.request_otp_async(
+            session=db,
+            document_number=request.document_number,
+            phone=request.phone,
+            document_type=request.document_type,
+        )
+        return {
+            "status": "OTP_SENT",
+            "document_number": request.document_number,
+            "message": "Código de verificación enviado al cliente",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
     "/consent",
     response_model=ConsentRecord,
     dependencies=[Depends(require_roles(["advisor"]))],
 )
-async def submit_consent(consent: ConsentRequest):
-    """Registra consentimiento auditable de Open Finance (HU-WEB-01 / TC-S1-04)."""
+async def submit_consent(
+    consent: ConsentRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Registra consentimiento auditable de Open Finance en PostgreSQL validando OTP (HU-WEB-01, RC-06)."""
     try:
-        return profile_service.register_consent(consent)
+        return await profile_service.register_consent_async(db, consent)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -107,9 +137,12 @@ async def submit_consent(consent: ConsentRequest):
     response_model=ConsentRecord,
     dependencies=[Depends(require_roles(["advisor"]))],
 )
-async def get_consent(document_number: str):
-    """Consulta el consentimiento activo de un cliente para auditoría (HU-WEB-01)."""
-    record = profile_service.get_consent(document_number)
+async def get_consent(
+    document_number: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Consulta el consentimiento activo de un cliente para auditoría (HU-WEB-01, RC-06)."""
+    record = await profile_service.get_consent_async(db, document_number)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consentimiento no encontrado")
     return record
@@ -122,12 +155,11 @@ async def get_consent(document_number: str):
 )
 async def create_quote(
     request: QuoteRequest,
-    simulated_delay: float = 0.0,
     db: AsyncSession = Depends(get_db_session),
 ):
     """Calcula y guarda la cotización; si el buró supera el timeout, la entrega degradada con perfil parcial."""
     try:
-        return await rating_service.create_quote(db, request, simulated_bureau_delay=simulated_delay)
+        return await rating_service.create_quote(db, request)
     except NotImplementedError as exc:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
 
@@ -198,6 +230,42 @@ async def get_policy_caratula(
     return link
 
 
+class PolicySignatureOtpRequest(BaseModel):
+    document_number: str
+    phone: Optional[str] = None
+    document_type: str = "CC"
+    quote_id: Optional[str] = None
+
+
+@router.post(
+    "/policies/otp-request",
+    dependencies=[Depends(require_roles(["advisor"]))],
+)
+async def request_policy_signature_otp(
+    request: PolicySignatureOtpRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Solicita el envío del código OTP para la firma electrónica de la póliza (RC-02)."""
+    try:
+        from app.modules.identity.service import insured_auth_service, PURPOSE_POLICY_SIGNATURE
+        phone = request.phone or "+573001234567"
+        await insured_auth_service.request_document_otp(
+            session=db,
+            document_number=request.document_number,
+            purpose=PURPOSE_POLICY_SIGNATURE,
+            document_type=request.document_type,
+            phone=phone,
+        )
+        return {
+            "status": "OTP_SENT",
+            "document_number": request.document_number,
+            "purpose": "policy_signature",
+            "message": "Código de verificación para firma de póliza enviado al cliente",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post(
     "/policies",
     response_model=PolicyRecord,
@@ -207,7 +275,7 @@ async def issue_policy(
     request: PolicyIssueRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Emite la póliza de una cotización vigente; repetir la emisión devuelve la misma póliza (HU-WEB-05)."""
+    """Emite la póliza de una cotización vigente; repetir la emisión devuelve la misma póliza (HU-WEB-05, RC-02)."""
     try:
         return await policy_service.issue_policy(db, request)
     except QuoteNotFoundError:
@@ -235,16 +303,17 @@ PAYMENT_ERRORS = {
 @router.post(
     "/payments/charge",
     response_model=PaymentReceipt,
-    dependencies=[Depends(require_roles(["advisor"]))],
 )
 async def charge_premium(
     request: PaymentChargeRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=1, max_length=128),
+    claims: Dict[str, Any] = Depends(require_roles(["advisor"])),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Cobra la prima una sola vez; reintentar con la misma clave repite la respuesta sin otro cargo (HU-WEB-06)."""
+    """Cobra la prima una sola vez; reintentar con la misma clave repite la respuesta sin otro cargo (HU-WEB-06, RC-10)."""
     try:
-        return await payment_service.process_charge(db, request, idempotency_key)
+        partner_id = claims.get("partner_id")
+        return await payment_service.process_charge(db, request, idempotency_key, partner_id=partner_id)
     except tuple(PAYMENT_ERRORS) as exc:
         status_code, detail = PAYMENT_ERRORS[type(exc)]
         raise HTTPException(status_code=status_code, detail=detail or str(exc))

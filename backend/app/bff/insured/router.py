@@ -16,6 +16,7 @@ from app.modules.policy import document as policy_document
 from app.modules.policy.models import CaratulaLink, InsuredPolicies, PolicyDB, PolicyOperationResult
 from app.modules.policy.operations import NotRenewableError, policy_operations
 from app.modules.policy.service import policy_service
+from sqlalchemy import select
 
 router = APIRouter(prefix="/insured", tags=["Asegurado"])
 

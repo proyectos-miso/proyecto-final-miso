@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
-from typing import Tuple
+from typing import Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,12 +77,13 @@ class PaymentService:
         self.gateway = gateway
 
     async def process_charge(
-        self, session: AsyncSession, request: PaymentChargeRequest, idempotency_key: str, partner_id: str = "default"
+        self, session: AsyncSession, request: PaymentChargeRequest, idempotency_key: str, partner_id: Optional[str] = None
     ) -> PaymentReceipt:
-        """Cobra la prima una sola vez; con una clave ya usada repite su respuesta sin volver a la pasarela."""
+        """Cobra la prima una sola vez; con una clave ya usada repite su respuesta sin volver a la pasarela (HU-WEB-06, RC-10)."""
         policy = await policy_service.lock(session, request.policy_number)
-        saved = await find_response(session, partner_id, idempotency_key, request)
-        return replay(saved or await self.charge(session, policy, request, idempotency_key, partner_id))
+        effective_partner_id = partner_id or policy.partner_id or "default"
+        saved = await find_response(session, effective_partner_id, idempotency_key, request)
+        return replay(saved or await self.charge(session, policy, request, idempotency_key, effective_partner_id))
 
     async def charge(
         self, session: AsyncSession, policy: PolicyDB, request: PaymentChargeRequest, idempotency_key: str,

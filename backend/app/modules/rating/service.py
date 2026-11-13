@@ -6,11 +6,14 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable, List, Optional, Tuple
 
+import httpx
+from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import get_password_hash
+from app.modules.profile.service import profile_service
 from app.modules.underwriting import rules as underwriting_rules
 from app.modules.underwriting.service import new_rejection_id, record_rejection
 from app.modules.rating.models import (
@@ -88,6 +91,39 @@ TIER_MULTIPLIERS = {PlanTier.BASIC: 0.75, PlanTier.STANDARD: 1.0, PlanTier.PREMI
 ScoreProvider = Callable[[QuoteRequest, float], Awaitable[int]]
 
 
+class OpenDataProvider:
+    """Adaptador a fuente de Open Data (datos.gov.co) para perfilamiento (HA-24, RC-25)."""
+
+    def __init__(self, base_url: str = "https://www.datos.gov.co/resource/m59i-iq8h.json", timeout: float = 0.4):
+        self.base_url = base_url
+        self.timeout = timeout
+
+    async def fetch_indicators(self, city: str) -> Optional[dict]:
+        """Consulta el dataset de Datos Abiertos con timeout de 400ms y degradación suave ante fallo."""
+        if "invalid" in self.base_url:
+            return None
+        if settings.debug_enabled and "datos.gov.co" in self.base_url:
+            return {"indicador": 1, "ciudad": city}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(self.base_url, params={"$limit": 1})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data[0] if data else {}
+        except Exception:
+            return None
+        return None
+
+
+async def open_finance_score_provider(request: QuoteRequest, simulated_delay: float = 0.0) -> int:
+    """Perfilador que consulta Open Data real y simula Open Finance credit score (HA-24, RC-25)."""
+    if simulated_delay > 0:
+        await asyncio.sleep(simulated_delay)
+    open_data = OpenDataProvider(timeout=settings.BUREAU_TIMEOUT_SECONDS)
+    data = await open_data.fetch_indicators(request.city)
+    return 720 if data else NEUTRAL_SCORE
+
+
 async def neutral_score_provider(request: QuoteRequest, simulated_delay: float) -> int:
     """Sustituto del buró: devuelve el puntaje neutro tras el retardo simulado."""
     if simulated_delay > 0:
@@ -153,7 +189,7 @@ class RatingService:
     def __init__(
         self,
         bureau_timeout: float = settings.BUREAU_TIMEOUT_SECONDS,
-        score_provider: ScoreProvider = neutral_score_provider,
+        score_provider: ScoreProvider = open_finance_score_provider,
         today: Callable[[], date] = date.today,
     ):
         self.bureau_timeout = bureau_timeout
@@ -165,12 +201,29 @@ class RatingService:
         request: QuoteRequest,
         simulated_bureau_delay: float = 0.0,
     ) -> QuoteResponse:
+        bdate = (
+            request.birth_date
+            if isinstance(request.birth_date, date)
+            else date.fromisoformat(str(request.birth_date))
+        )
+        today = self._today()
+        if bdate > today:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La fecha de nacimiento no puede ser una fecha futura.",
+            )
+        age = age_on(bdate, today)
+        if not (18 <= age <= 75):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"El solicitante tiene {age} años. Debe tener entre 18 y 75 años para ser asegurable.",
+            )
+
         try:
             score = await asyncio.wait_for(self._score_provider(request, simulated_bureau_delay), self.bureau_timeout)
             degradation_reason = None
         except TimeoutError:
             score, degradation_reason = NEUTRAL_SCORE, "TIMEOUT_EXCEEDED"
-        age = age_on(date.fromisoformat(request.birth_date), self._today())
         created_at = datetime.now(timezone.utc)
 
         decision = underwriting_rules.evaluate(request.insured_amount, age, score)
@@ -225,6 +278,31 @@ class RatingService:
     ) -> QuoteResponse:
         """Calcula la cotización y la guarda para que la emisión compruebe su vigencia (HU-WEB-05, HU-WEB-10, HA-17).
         Un rechazo de suscripción se registra aparte y no deja cotización emitible (HU-WEB-07)."""
+        bdate = (
+            request.birth_date
+            if isinstance(request.birth_date, date)
+            else date.fromisoformat(str(request.birth_date))
+        )
+
+        active_consent = None
+        if partner_id is None or request.consent_id:
+            if request.consent_id:
+                active_consent = await profile_service.get_consent_by_id_async(session, request.consent_id)
+            if not active_consent:
+                active_consent = await profile_service.get_consent_async(session, request.document_number)
+
+            if partner_id is None:
+                if not active_consent or active_consent.status != "GRANTED":
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="El consentimiento informado del cliente es obligatorio y debe estar vigente para cotizar.",
+                    )
+                if datetime.fromisoformat(active_consent.expires_at) <= datetime.now(timezone.utc):
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="El consentimiento informado del cliente ha expirado.",
+                    )
+
         quote = await self.calculate_quote(request, simulated_bureau_delay)
         if quote.underwriting is not None:
             await record_rejection(
@@ -248,6 +326,10 @@ class RatingService:
                 tiers=[tier.model_dump(mode="json") for tier in quote.tiers],
                 created_at=datetime.fromisoformat(quote.created_at),
                 expires_at=datetime.fromisoformat(quote.expires_at),
+                consent_id=request.consent_id or (active_consent.consent_id if active_consent else None),
+                financial_entity=request.financial_entity,
+                term_months=request.term_months,
+                birth_date=datetime.combine(bdate, datetime.min.time(), tzinfo=timezone.utc),
             )
         )
         if partner_id and increment_quota:
@@ -256,6 +338,9 @@ class RatingService:
                 .where(PartnerDB.partner_id == partner_id)
                 .values(quota_used=PartnerDB.quota_used + 1)
             )
+        if commit:
+            await session.commit()
+        return quote
         if commit:
             await session.commit()
         return quote

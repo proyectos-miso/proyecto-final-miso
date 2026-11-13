@@ -128,19 +128,33 @@ interface ConsentResult {
 
             <div class="form-row">
               <label for="otpCode">Código OTP de verificación (SMS cliente)</label>
-              <input
-                id="otpCode"
-                name="otpCode"
-                type="text"
-                inputmode="numeric"
-                pattern="[0-9]{6}"
-                maxlength="6"
-                autocomplete="one-time-code"
-                [ngModel]="otpCode()"
-                (ngModelChange)="otpCode.set($event)"
-                [disabled]="registering()"
-                required
-              />
+              <div class="otp-input-group">
+                <input
+                  id="otpCode"
+                  name="otpCode"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]{6}"
+                  maxlength="6"
+                  autocomplete="one-time-code"
+                  placeholder="000000"
+                  [ngModel]="otpCode()"
+                  (ngModelChange)="otpCode.set($event)"
+                  [disabled]="registering()"
+                  required
+                />
+                <button
+                  type="button"
+                  class="request-otp-button"
+                  (click)="requestOtp()"
+                  [disabled]="requestingOtp() || !docNumber()"
+                >
+                  {{ requestingOtp() ? 'Enviando...' : (otpSent() ? 'Reenviar código' : 'Solicitar código') }}
+                </button>
+              </div>
+              @if (otpSent()) {
+                <small class="otp-sent-msg">Código OTP enviado al teléfono del cliente.</small>
+              }
             </div>
           </div>
 
@@ -473,6 +487,35 @@ interface ConsentResult {
         cursor: pointer;
         transition: all 0.15s ease;
       }
+      .otp-input-group {
+        display: flex;
+        gap: 8px;
+      }
+      .request-otp-button {
+        padding: 8px 12px;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        color: #0f172a;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.15s ease;
+      }
+      .request-otp-button:hover:not(:disabled) {
+        background: #e2e8f0;
+      }
+      .request-otp-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .otp-sent-msg {
+        color: #16a34a;
+        font-size: 0.8125rem;
+        margin-top: 4px;
+        display: block;
+      }
       .back-button:hover {
         background: #f1f5f9;
         border-color: #94a3b8;
@@ -483,7 +526,7 @@ interface ConsentResult {
 export class ConsentStepComponent {
   readonly clientData = input<ClientIdentification | null>(null);
   readonly riskData = input<RiskData | null>(null);
-  readonly documentNumber = input<string>('1020304050');
+  readonly documentNumber = input<string>('');
   readonly consentGranted = output<ConsentRecord>();
   readonly requestBack = output<void>();
 
@@ -495,7 +538,28 @@ export class ConsentStepComponent {
   readonly otpCode = signal<string>('');
   readonly termsAccepted = signal<boolean>(false);
   readonly registering = signal<boolean>(false);
+  readonly requestingOtp = signal<boolean>(false);
+  readonly otpSent = signal<boolean>(false);
   readonly result = signal<ConsentResult>({});
+
+  requestOtp(): void {
+    const doc = this.docNumber();
+    if (!doc) return;
+    this.requestingOtp.set(true);
+    const phone = this.clientData()?.phone;
+    this.consentService.requestOtp(doc, phone).pipe(
+      finalize(() => this.requestingOtp.set(false))
+    ).subscribe({
+      next: () => {
+        this.otpSent.set(true);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.result.set({
+          error: extractErrorMessage(err, 'No fue posible enviar el código OTP.'),
+        });
+      },
+    });
+  }
 
   readonly purpose = signal<string>(
     'Perfilamiento y cotización de seguro de vida hipotecario con Open Finance',
