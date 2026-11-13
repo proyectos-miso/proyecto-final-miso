@@ -25,6 +25,7 @@ export interface PolicyIssueRequest {
   tier: PlanTier;
   beneficiaries: Beneficiary[];
   holder?: PolicyHolder;
+  otp_code?: string;
 }
 
 export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED' | 'TERMINATED' | 'EXPIRED';

@@ -30,6 +30,7 @@ describe('ConsentStepComponent (HU-WEB-01)', () => {
 
     fixture = TestBed.createComponent(ConsentStepComponent);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('documentNumber', '1020304050');
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
   });

@@ -25,6 +25,22 @@ export class PolicyService {
     return this.http.post<PolicyRecord>(`${this.baseUrl}/experience/policies`, request);
   }
 
+  /** Solicita OTP para la firma digital de la póliza (RC-02). */
+  requestSignatureOtp(
+    documentNumber: string,
+    phone?: string,
+    documentType: string = 'CC',
+  ): Observable<{ status: string; message: string }> {
+    return this.http.post<{ status: string; message: string }>(
+      `${this.baseUrl}/experience/policies/otp-request`,
+      {
+        document_number: documentNumber,
+        phone,
+        document_type: documentType,
+      },
+    );
+  }
+
   /** Búsqueda de operaciones (HU-WEB-08); el alcance por socio lo decide el servidor. */
   searchPolicies(query: string, status: PolicyStatus | '' = ''): Observable<PolicySearchResponse> {
     let params = new HttpParams().set('q', query.trim());
@@ -51,17 +67,18 @@ export class PolicyService {
   }
 
   /** Cancelación a pedido del cliente con devolución proporcional (HU-WEB-15). */
-  renew(policyNumber: string): Observable<PolicyOperationResult> {
-    return this.http.post<PolicyOperationResult>(
-      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/renewal`,
-      {},
-    );
-  }
-
   cancel(policyNumber: string, reason: string): Observable<PolicyOperationResult> {
     return this.http.post<PolicyOperationResult>(
       `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/cancellation`,
       { reason },
+    );
+  }
+
+  /** Renovación anual de la póliza (RC-24). */
+  renew(policyNumber: string): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/renewal`,
+      {},
     );
   }
 

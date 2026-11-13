@@ -8,6 +8,9 @@ export interface QuoteRequest {
   insured_amount: number;
   city?: string;
   occupation_risk?: number;
+  financial_entity?: string;
+  term_months?: number;
+  consent_id?: string;
 }
 
 export interface PremiumFactor {

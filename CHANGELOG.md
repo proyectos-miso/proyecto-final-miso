@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Eliminación de `.github/workflows/deploy-local.yml` por redundancia con el pipeline unificado de despliegue (RC-36).
 - Eliminación de `specs/pendientes/HOTFIX-produccion.md` tras completar y validar todas sus brechas funcionales (RC-30, RC-31, RC-33, RC-35, RC-36).
 
+### Security
+- Restricción estricta de edad asegurable (`RC-07`): validación de tipo `birth_date: date` en el motor de tarificación (`RatingService.create_quote`) que rechaza con HTTP 422 a solicitantes fuera del rango de 18 a 75 años o con fechas futuras.
+- Inmutabilidad de firmas electrónicas de póliza (`RC-02`): tabla relacional `policy_signatures` en PostgreSQL con trigger `make_immutable` que impide la modificación o eliminación de firmas registradas con OTP.
+- Control de cuota y rate-limiting RFC 6585 (`HU-WEB-12`): bloqueo de peticiones excedentes con código HTTP 429, cabecera `Retry-After` y registro de eventos de auditoría `PARTNER_QUOTA_EXCEEDED`.
+
 ### Fixed
 - Corrección de enrutamiento en CloudFront (`terraform/modules/web_hosting`): configuración del Application Load Balancer (ALB) como origen dinámico y definición de comportamiento de caché prioritario para `/api/*` (con todos los métodos HTTP, reenvío de cabeceras `Authorization`, `Content-Type`, `Idempotency-Key` y bypass de caché) y `/health`, permitiendo que el portal web en producción se comunique exitosamente con el backend BFF.
 - Corrección de conexión a la base de datos PostgreSQL en ECS Fargate: inyección explícita de `DATABASE_URL` hacia la instancia Multi-AZ de RDS en la definición de la tarea Terraform (`terraform/modules/ecs`) y soporte de ensamblado dinámico en `Settings` (`app/core/config.py`) ante la presencia de variables `DB_HOST`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`, corrigiendo el intento de conexión fallido a `localhost:5432` en producción.
@@ -39,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Changed
+- Diagnóstico y manejo granular de errores de pago en portal web (`RC-03`): el componente `payment-step` maneja respuestas diferenciadas según código HTTP (402, 404, 409, 422, 502) y deshabilita la opción de reintento ante fallos definitivos.
+- Atribución de pagos multi-tenant al socio autenticado (`RC-10`): extracción estricta del `partner_id` desde los claims verificados del token JWT en el servicio de pagos y BFF en lugar de asignar el valor genérico 'default'.
 - Montos del portal y de la app en pesos con el código de la moneda (`$ 250.000.000 COP`) para que el símbolo $ no se lea como dólares (HU-MOV-04).
 - App móvil con el diseño del mockup: barra de la marca, ingreso con huella y acceso alterno, tema claro u oscuro que se cambia desde la barra e ícono con el escudo de Solventa (HU-MOV-04).
 - Validación y restricciones en el formulario de captura de datos (`ClientDataStepComponent`): restricción del campo de número de documento a valores numéricos y restricción de la fecha de nacimiento para impedir fechas futuras.
@@ -52,8 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actualización de archivo `README.md` con permisos adicionales requeridos para el despliegue con el workflow de CD desde Github (`application-autoscaling`, `cloudwatch`, `kms`).
 - Actualización de la documentación en `README.md` y `backend/README.md`, sustituyendo la referencia residual de LocalStack por Floci e incorporando instrucciones explícitas para la ejecución del servidor backend mediante Poetry (`uvicorn`) y Docker Compose.
 
+### Removed
+- Supresión de parámetros de simulación en cotización (`RC-09`): eliminación total del parámetro público `simulated_delay` en los contratos y endpoints de cotización de producción (`POST /api/v1/quote-edge/quotes` y `POST /api/v1/experience/quotes`).
+- Limpieza de datos de prueba en portal web de producción (`RC-04`): remoción de cédulas precargadas y opciones de medios de pago simulados sin fondos en los formularios de consentimiento, cotizador y pago del portal web.
+
 ### Added
-- HU-MOV-11: el asegurado consulta sus siniestros con línea de tiempo en lenguaje claro y copia cifrada sin conexión (`GET /insured/claims`), recibe push por Firebase Cloud Messaging al cambiar el estado y antes del vencimiento, descarga su carátula y renueva su póliza por un año desde la app o el portal; tarea diaria de vencimiento (RC-15, RC-16, RC-24, RC-27, RC-40).
+- **Brechas funcionales de HU-WEB-12 (RC-02 a RC-25):**
+  - **Firma digital e inmutabilidad de pólizas (RC-02):** Implementación de firma electrónica con OTP para emisión de pólizas, tabla relacional inmutable `policy_signatures` en PostgreSQL con trigger `make_immutable` y estampado de hash criptográfico SHA-256 en la carátula PDF (`FE-WEB-02`, criterio 4).
+  - **Consentimiento informado con OTP y persistencia relacional (RC-06):** Tabla relacional `consents` en PostgreSQL para autorización de tratamiento de datos personales, endpoints `POST /api/v1/experience/consents/otp-request` y `POST /api/v1/experience/consents`, y validación obligatoria de `consent_id` verificado previo a cotizar.
+  - **Captura y persistencia de crédito hipotecario (RC-08):** Incorporación de campos `financial_entity` y `term_months` en la solicitud de cotización `QuoteRequest` y persistencia en la tabla `quotes`.
+  - **Alta de socios B2B por autoservicio en sandbox (RC-23):** Endpoint público `POST /api/v1/quote-edge/partners/register` para registro de socios con credenciales de sandbox (`client_id`, API key, cuota inicial de 100 cotizaciones) y endpoint protegido `POST /api/v1/experience/operations/partners/{id}/approve` para aprobación formal a entorno de producción (`FE-WEB-05`, `HA-23`).
+  - **Adaptador a Open Data real y simulación Open Finance (RC-25):** Integración con API de datos abiertos de Colombia (`datos.gov.co`) y simulación Open Finance detrás de interfaz unificada de perfilamiento, con timeout de 400 ms y degradación transparente a score crediticio base ante fallos de conexión (`HA-24`).
+- **HU-MOV-11 · Consultar el estado de mi siniestro (RC-15, RC-16, RC-24, RC-27, RC-40):**
+  - El asegurado consulta sus siniestros con línea de tiempo en lenguaje claro y copia cifrada sin conexión (`GET /insured/claims`), recibe push por Firebase Cloud Messaging al cambiar el estado y antes del vencimiento, descarga su carátula y renueva su póliza por un año desde la app o el portal; tarea diaria de vencimiento `EXPIRED` (`daily_policy_lifecycle`).
 - **HU-WEB-12 · Recibir un rechazo claro al superar la cuota contratada (#66, #227, #228, #229, #230):**
   - Backend y Control de Cuota por Ventana (#227): Implementación de límites de solicitudes por socio con ventana de tiempo configurable (`PARTNER_QUOTA_WINDOW_SECONDS`, por defecto 3600s / 1 hora) y reinicio automático de consumo en `PartnerDB` (`quota_window_seconds`, `quota_reset_at`). Consumo atómico compartido entre réplicas mediante transacciones en PostgreSQL.
   - Respuesta HTTP 429 y Cabeceras Estándar (#228): Emisión de error HTTP `429 Too Many Requests` cuando `quota_used >= quota_limit`, incorporando cabecera estándar `Retry-After` con los segundos exactos restantes hasta la renovación, y cabeceras de telemetría `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` y `X-RateLimit-Reset-Time` tanto en respuestas 200 OK como 429. Cuerpo de respuesta estructurado en JSON (`PartnerQuotaExceededResponse`) indicando motivo legible y timestamp ISO-8601 de renovación.

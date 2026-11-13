@@ -31,6 +31,24 @@ class InsuredOtpDB(Base):
     __table_args__ = (Index("ix_insured_otps_user_purpose", "user_id", "purpose"),)
 
 
+class DocumentOtpDB(Base):
+    """Código de un solo uso vinculado a documento de identidad para consentimientos o firmas (RC-02, RC-06)."""
+    __tablename__ = "document_otps"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    document_type = Column(String(10), nullable=False, default="CC")
+    document_number = Column(String(20), nullable=False, index=True)
+    purpose = Column(String(30), nullable=False)  # "consent", "policy_signature"
+    code_hash = Column(String(64), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_document_otps_doc_purpose", "document_type", "document_number", "purpose"),
+    )
+
+
 class InsuredDeviceDB(Base):
     __tablename__ = "insured_devices"
 

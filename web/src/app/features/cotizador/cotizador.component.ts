@@ -372,6 +372,9 @@ export class CotizadorComponent {
       insured_amount: risk.insured_amount,
       city: risk.city,
       occupation_risk: risk.occupation_risk,
+      ...(risk.financial_entity ? { financial_entity: risk.financial_entity } : {}),
+      ...(risk.term_months ? { term_months: risk.term_months } : {}),
+      ...(this.consent()?.consent_id ? { consent_id: this.consent()!.consent_id } : {}),
     };
 
     this.quoting.set(true);

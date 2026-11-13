@@ -67,6 +67,17 @@ class AuthService:
         totp_secret: str,
         partner_id: Optional[str],
     ) -> UserDB:
+        existing = await self.get_user_by_username(session, username)
+        if existing is not None:
+            existing.hashed_password = hashed_password
+            existing.full_name = full_name.strip()
+            existing.role = role
+            existing.totp_secret = totp_secret.strip().upper()
+            existing.partner_id = partner_id
+            existing.is_active = True
+            await session.commit()
+            return existing
+
         user = UserDB(
             username=username.strip().lower(),
             hashed_password=hashed_password,
@@ -185,10 +196,14 @@ class AuthService:
 
     def generate_session_tokens(self, user: UserDB) -> LoginResponse:
         """Genera tokens de acceso y de refresco para el usuario autenticado."""
+        claims = {"advisor_name": user.full_name}
+        if getattr(user, "partner_id", None):
+            claims["partner_id"] = user.partner_id
+
         access_token = create_access_token(
             subject=user.username,
             role=user.role,
-            claims={"advisor_name": user.full_name},
+            claims=claims,
         )
         refresh_token = create_refresh_token(
             subject=user.username,

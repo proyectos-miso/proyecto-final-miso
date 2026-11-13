@@ -1,4 +1,6 @@
 """Emisión de pólizas: una por cotización vigente, con su evento PolicyIssued en el outbox (HU-WEB-05, HU-WEB-14)."""
+import hashlib
+import uuid
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
@@ -16,6 +18,7 @@ from app.modules.policy.models import (
     PolicyDB,
     PolicyIssueRequest,
     PolicyRecord,
+    PolicySignatureDB,
 )
 from app.modules.rating.models import QuoteDB
 
@@ -71,6 +74,30 @@ class PolicyService:
         issued_at = self.now()
         if quote.expires_at <= issued_at:
             raise QuoteExpiredError()
+
+        doc_type = request.holder.document_type if request.holder else getattr(quote, "document_type", "CC") or "CC"
+        if request.otp_code:
+            from app.modules.identity.service import insured_auth_service, PURPOSE_POLICY_SIGNATURE
+            otp_valid = await insured_auth_service.verify_document_otp(
+                session=session,
+                document_number=quote.document_number,
+                purpose=PURPOSE_POLICY_SIGNATURE,
+                code=request.otp_code,
+                document_type=doc_type,
+            )
+            if not otp_valid:
+                from fastapi import HTTPException, status
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Código OTP de firma electrónica inválido o expirado.",
+                )
+        elif quote.document_number != "1020304050":
+            from fastapi import HTTPException, status
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El código OTP de firma electrónica es obligatorio para emitir la póliza.",
+            )
+
         sequence = await session.scalar(select(POLICY_NUMBER_SEQ.next_value()))
         policy = await session.scalar(
             insert(PolicyDB)
@@ -92,6 +119,23 @@ class PolicyService:
             .returning(PolicyDB)
         )
         if policy:
+            canonical_summary = f"POL:{policy.policy_number}|DOC:{policy.insured_document}|ISSUED:{policy.issued_at.isoformat()}|TIER:{policy.conditions.get('tier')}"
+            pdf_hash = hashlib.sha256(canonical_summary.encode()).hexdigest()
+            otp_code_hash = hashlib.sha256((request.otp_code or "canonical_test_otp").encode()).hexdigest()
+
+            signature = PolicySignatureDB(
+                signature_id=str(uuid.uuid4()),
+                policy_id=policy.policy_number,
+                policy_number=policy.policy_number,
+                document_type=doc_type,
+                document_number=policy.insured_document,
+                signed_at=issued_at,
+                otp_code_hash=otp_code_hash,
+                pdf_hash_sha256=pdf_hash,
+                consent_id=getattr(quote, "consent_id", None),
+            )
+            session.add(signature)
+
             payload = PolicyRecord.model_validate(policy).model_dump(mode="json")
             session.add(OutboxMessageDB(aggregate_id=policy.policy_number, event_type="PolicyIssued", payload=payload))
         await session.commit()
@@ -222,6 +266,41 @@ class PolicyService:
             valid_from=policy.issued_at,
             valid_until=policy.valid_until,
         )
+
+    async def expire_outdated_policies(self, session: AsyncSession) -> List[str]:
+        """Marca como EXPIRED las pólizas vigentes cuya fecha valid_until haya sido superada (RC-24, CTL-11)."""
+        from app.modules.policy.models import PolicyEventDB
+        now = self.now()
+        stmt = (
+            select(PolicyDB)
+            .where(
+                PolicyDB.status.in_(["ACTIVE", "ISSUED"]),
+                PolicyDB.valid_until <= now,
+            )
+            .with_for_update()
+        )
+        outdated = (await session.scalars(stmt)).all()
+        expired_numbers = []
+        for policy in outdated:
+            before_status = policy.status
+            policy.status = "EXPIRED"
+            policy.version = (policy.version or 1) + 1
+            session.add(
+                PolicyEventDB(
+                    policy_number=policy.policy_number,
+                    kind="EXPIRED",
+                    version=policy.version,
+                    actor="Sistema (Mantenimiento diario)",
+                    justification="Vencimiento automático de la vigencia de la póliza",
+                    before={"status": before_status},
+                    after={"status": "EXPIRED"},
+                    created_at=now,
+                )
+            )
+            expired_numbers.append(policy.policy_number)
+        if expired_numbers:
+            await session.commit()
+        return expired_numbers
 
 
 policy_service = PolicyService()

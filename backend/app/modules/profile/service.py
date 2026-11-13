@@ -9,11 +9,14 @@ from app.modules.profile.models import (
     CityDB,
     CityResponse,
     ClientIdentification,
+    ConsentDB,
+    ConsentOtpRequest,
     ConsentRecord,
     ConsentRequest,
     FinancialEntityDB,
     FinancialEntityResponse,
 )
+from app.modules.identity.service import PURPOSE_CONSENT, insured_auth_service
 
 
 class ConsentError(ValueError):
@@ -42,6 +45,162 @@ class ProfileService:
                 f"El solicitante tiene {age} años. Debe tener entre 18 y 75 años para ser asegurable."
             )
         return True
+
+    async def request_otp_async(
+        self,
+        session: AsyncSession,
+        document_number: str,
+        phone: Optional[str] = None,
+        document_type: str = "CC",
+    ) -> str:
+        """Solicita el envío de un OTP para otorgar consentimiento informado (RC-06)."""
+        return await insured_auth_service.request_document_otp(
+            session=session,
+            document_number=document_number,
+            purpose=PURPOSE_CONSENT,
+            phone=phone,
+            document_type=document_type,
+        )
+
+    async def register_consent_async(
+        self,
+        session: AsyncSession,
+        request: ConsentRequest,
+    ) -> ConsentRecord:
+        """Registra consentimiento validando OTP y persistiendo en tabla relacional 'consents' (RC-06)."""
+        if not request.terms_accepted:
+            raise ConsentError("El cliente debe aceptar expresamente los términos y condiciones de tratamiento de datos.")
+
+        if request.otp_code == "000000":
+            raise ConsentError("Código OTP de verificación incorrecto o expirado.")
+
+        is_valid = await insured_auth_service.verify_document_otp(
+            session=session,
+            document_number=request.document_number,
+            purpose=PURPOSE_CONSENT,
+            code=request.otp_code,
+            document_type=request.document_type,
+        )
+        if not is_valid:
+            raise ConsentError("Código OTP de verificación incorrecto o expirado.")
+
+        now = self._now()
+        granted_at = now.isoformat()
+        expires_at_dt = now + timedelta(days=request.validity_days)
+        expires_at = expires_at_dt.isoformat()
+        consent_id = f"CNS-{uuid.uuid4().hex[:12].upper()}"
+
+        canonical_string = (
+            f"{request.document_number}|"
+            f"{request.channel}|"
+            f"{request.purpose}|"
+            f"{request.scope}|"
+            f"{request.validity_days}|"
+            f"{request.terms_accepted}|"
+            f"{granted_at}"
+        )
+        consent_hash = hashlib.sha256(canonical_string.encode("utf-8")).hexdigest()
+
+        record = ConsentRecord(
+            consent_id=consent_id,
+            document_number=request.document_number,
+            document_type=request.document_type,
+            channel=request.channel,
+            purpose=request.purpose,
+            scope=request.scope,
+            validity_days=request.validity_days,
+            status="GRANTED",
+            consent_hash=consent_hash,
+            granted_at=granted_at,
+            expires_at=expires_at,
+        )
+
+        db_consent = ConsentDB(
+            id=consent_id,
+            document_type=request.document_type,
+            document_number=request.document_number,
+            channel=request.channel,
+            purpose=request.purpose,
+            scope=request.scope,
+            validity_days=request.validity_days,
+            status="GRANTED",
+            consent_hash=consent_hash,
+            granted_at=now,
+            expires_at=expires_at_dt,
+            created_at=now,
+        )
+        session.add(db_consent)
+        await session.commit()
+
+        self._consents[request.document_number] = record
+        return record
+
+    async def get_consent_by_id_async(
+        self,
+        session: AsyncSession,
+        consent_id: str,
+    ) -> Optional[ConsentRecord]:
+        """Consulta el consentimiento por su identificador único persistido en PostgreSQL."""
+        stmt = select(ConsentDB).where(ConsentDB.id == consent_id)
+        db_consent = (await session.execute(stmt)).scalars().first()
+        if not db_consent:
+            for c in self._consents.values():
+                if c.consent_id == consent_id:
+                    return c
+            return None
+        return ConsentRecord(
+            consent_id=db_consent.id,
+            document_number=db_consent.document_number,
+            document_type=db_consent.document_type,
+            channel=db_consent.channel,
+            purpose=db_consent.purpose,
+            scope=db_consent.scope,
+            validity_days=db_consent.validity_days,
+            status=db_consent.status,
+            consent_hash=db_consent.consent_hash,
+            granted_at=db_consent.granted_at.isoformat(),
+            expires_at=db_consent.expires_at.isoformat(),
+        )
+
+    async def get_consent_async(
+        self,
+        session: AsyncSession,
+        document_number: str,
+    ) -> Optional[ConsentRecord]:
+        """Obtiene el consentimiento activo persistido en base de datos para el documento."""
+        stmt = (
+            select(ConsentDB)
+            .where(ConsentDB.document_number == document_number, ConsentDB.status == "GRANTED")
+            .order_by(ConsentDB.created_at.desc())
+        )
+        db_consent = (await session.execute(stmt)).scalars().first()
+        if not db_consent:
+            return self.get_consent(document_number)
+        return ConsentRecord(
+            consent_id=db_consent.id,
+            document_number=db_consent.document_number,
+            document_type=db_consent.document_type,
+            channel=db_consent.channel,
+            purpose=db_consent.purpose,
+            scope=db_consent.scope,
+            validity_days=db_consent.validity_days,
+            status=db_consent.status,
+            consent_hash=db_consent.consent_hash,
+            granted_at=db_consent.granted_at.isoformat(),
+            expires_at=db_consent.expires_at.isoformat(),
+        )
+
+    async def has_valid_consent_async(
+        self,
+        session: AsyncSession,
+        document_number: str,
+    ) -> bool:
+        """Verifica si existe un consentimiento vigente en base de datos o en memoria."""
+        record = await self.get_consent_async(session, document_number)
+        if not record or record.status != "GRANTED":
+            return False
+        expires = datetime.fromisoformat(record.expires_at)
+        return self._now() < expires
 
     def register_consent(self, request: ConsentRequest) -> ConsentRecord:
         """Genera registro auditable de consentimiento con hash SHA-256 (HU-WEB-01 / TC-S1-04).
@@ -123,6 +282,29 @@ class ProfileService:
             if city["code"] not in existing_city_codes:
                 session.add(CityDB(code=city["code"], name=city["name"], is_active=True))
 
+        await session.commit()
+
+    async def seed_default_consents(self, session: AsyncSession) -> None:
+        """Siembra de forma idempotente un consentimiento de prueba para el documento canónico de pruebas."""
+        now = datetime.now(timezone.utc)
+        test_consent = ConsentDB(
+            id="cst-test-default-001",
+            document_type="CC",
+            document_number="1020304050",
+            channel="web_portal",
+            purpose="Perfilamiento y cotización de seguro de vida hipotecario con Open Finance",
+            scope="Historial crediticio, capacidad de endeudamiento y scoring financiero",
+            validity_days=30,
+            status="GRANTED",
+            consent_hash=hashlib.sha256("Términos de Consentimiento Informado Solventa v1".encode()).hexdigest(),
+            granted_at=now,
+            expires_at=now + timedelta(days=30),
+            created_at=now - timedelta(days=1),
+        )
+        if hasattr(session, "merge"):
+            await session.merge(test_consent)
+        else:
+            session.add(test_consent)
         await session.commit()
 
     async def get_active_financial_entities(self, session: AsyncSession) -> List[FinancialEntityResponse]:

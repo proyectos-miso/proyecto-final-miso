@@ -1,5 +1,6 @@
 """Router BFF para socios B2B (quote-edge) con aislamiento multi-tenant, credenciales OAuth2 y cuotas (HU-WEB-10, HU-WEB-11, HU-WEB-12, HU-WEB-14)."""
 from typing import List, Optional
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,6 +86,72 @@ async def issue_partner_token(
     )
 
 
+class PartnerRegistrationRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    contact_email: str = Field(..., max_length=254)
+
+
+class PartnerRegistrationResponse(BaseModel):
+    partner_id: str
+    name: str
+    client_id: str
+    client_secret: str
+    environment: str
+    quota_limit: int
+    openapi_spec_url: str
+    message: str
+
+
+@router.post(
+    "/partners/register",
+    response_model=PartnerRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Autoservicio de registro de socio B2B en sandbox (RC-23)",
+)
+async def register_partner_sandbox(
+    request: PartnerRegistrationRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Registro por autoservicio de nuevos socios B2B (RC-23, AC-15, SR-09).
+    Entrega credenciales inmediatas confinadas a entorno 'sandbox' con cuota acotada (1.000 req/h).
+    """
+    import secrets
+    from app.core.security import get_password_hash
+    from app.modules.rating.models import PartnerStatus
+
+    raw_slug = "".join(c.lower() for c in request.name if c.isalnum())[:20] or "partner"
+    partner_id = f"{raw_slug}_{secrets.token_hex(4)}"
+    client_id = f"client_{raw_slug}_{secrets.token_hex(4)}"
+    client_secret = f"sec_{secrets.token_urlsafe(24)}"
+
+    partner = PartnerDB(
+        partner_id=partner_id,
+        name=request.name,
+        contact_email=request.contact_email,
+        client_id=client_id,
+        client_secret_hash=get_password_hash(client_secret),
+        status=PartnerStatus.ACTIVE.value,
+        quota_limit=1000,
+        quota_used=0,
+        quota_window_seconds=3600,
+        environment="sandbox",
+    )
+    db.add(partner)
+    await db.commit()
+
+    return PartnerRegistrationResponse(
+        partner_id=partner_id,
+        name=request.name,
+        client_id=client_id,
+        client_secret=client_secret,
+        environment="sandbox",
+        quota_limit=1000,
+        openapi_spec_url="/openapi.json",
+        message="Socio registrado exitosamente en entorno sandbox con 1.000 solicitudes/hora.",
+    )
+
+
 # -- Cotizaciones B2B (HU-WEB-10) --------------------------------------------------------------
 
 
@@ -156,7 +223,6 @@ async def create_partner_quote(
     request: QuoteRequest,
     response: Response,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    simulated_delay: float = 0.0,
     current_partner: PartnerDB = Depends(get_current_partner),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -233,7 +299,7 @@ async def create_partner_quote(
     quote = await rating_service.create_quote(
         session=db,
         request=request,
-        simulated_bureau_delay=simulated_delay,
+        simulated_bureau_delay=0.0,
         partner_id=current_partner.partner_id,
         commit=False,
         increment_quota=False,

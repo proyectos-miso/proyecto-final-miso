@@ -224,6 +224,7 @@ export const OPEN_DOWNLOAD = new InjectionToken<(url: string) => void>('OPEN_DOW
     .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: var(--t-xs); background: var(--n-100); color: var(--n-700); }
     .chip[data-status='ACTIVE'] { background: #e9f7ee; color: #15803d; }
     .chip[data-status='ISSUED'] { background: #fdf4e7; color: #b45309; }
+    .chip[data-status='EXPIRED'] { background: #fef3c7; color: #92400e; }
     .chip[data-status='CANCELLED'], .chip[data-status='TERMINATED'] { background: #fdeeee; color: #b91c1c; }
   `],
 })

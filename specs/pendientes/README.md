@@ -12,7 +12,7 @@ Cuando un tercero que no tenemos es necesario (pasarela bancaria, oráculo de vu
 
 | Nota | Historia | Responsable | Brechas |
 |---|---|---|---|
-| [HU-WEB-12.md](HU-WEB-12.md) | Cuotas por socio (#66) | Oscar | Completado en feature/HU-WEB-12-rechazo-cuota-superada (RC-02, RC-03, RC-04, RC-06, RC-07, RC-08, RC-09, RC-10, RC-23, RC-24, RC-25) |
+| [HU-WEB-12.md](HU-WEB-12.md) | Cuotas por socio (#66) | Oscar | RC-02, RC-03, RC-04, RC-06, RC-07, RC-08, RC-09, RC-10, RC-23, RC-24, RC-25 (completadas en `specs/HU-WEB-12-recibir-un-rechazo-claro-al-superar-la-cuota-con/`) |
 | [HU-MOV-08.md](HU-MOV-08.md) | Fotos con ubicación y hora (#74) | David | RC-11 |
 | [HU-MOV-09.md](HU-MOV-09.md) | Envío sin señal (#75) | David | RC-12 |
 | [HU-MOV-10.md](HU-MOV-10.md) | Radicado (#76) | David | RC-13, RC-14, RC-26 |
