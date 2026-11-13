@@ -6,7 +6,7 @@
 | Title | Estado del siniestro |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/77 |
 | Owner | Juan Camilo Peña |
-| Status | IN_PROGRESS |
+| Status | DONE |
 | Created | 2026-11-09 |
 | Security profile | HIGH |
 
