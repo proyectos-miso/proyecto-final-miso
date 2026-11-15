@@ -108,6 +108,25 @@ describe('AppComponent (HU-WEB-13)', () => {
 
     solventa.set(true);
     fixture.detectChanges();
-    expect(links()).toEqual(['Pólizas', 'Siniestros', 'Socios']);
+    expect(links()).toEqual(['Pólizas', 'Siniestros', 'Socios', 'Auditoría']);
+  });
+
+  it('FE-WEB-08 la pestaña Auditoría solo aparece para el analista de Solventa y lleva a /auditoria', () => {
+    currentSessionSignal.set({
+      accessToken: 'token',
+      refreshToken: 'refresh',
+      tokenType: 'bearer',
+      role: 'analyst',
+      advisorName: 'Analista de Prueba',
+    });
+    solventa.set(false);
+    fixture.detectChanges();
+    const audit = () =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('nav a')).find((a) => a.textContent?.trim() === 'Auditoría');
+    expect(audit()).toBeUndefined();
+
+    solventa.set(true);
+    fixture.detectChanges();
+    expect(audit()?.getAttribute('href')).toBe('/auditoria');
   });
 });

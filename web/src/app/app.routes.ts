@@ -17,6 +17,11 @@ export const routes: Routes = [
   { path: 'siniestros', component: ClaimsListComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'siniestros/:claimNumber', component: ClaimFileComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'socios', component: PartnersComponent, canActivate: [authGuard, roleGuard(['analyst']), solventaGuard] },
+  {
+    path: 'auditoria',
+    loadComponent: () => import('./features/auditoria/audit.component').then((m) => m.AuditComponent),
+    canActivate: [authGuard, roleGuard(['analyst']), solventaGuard],
+  },
   { path: '**', redirectTo: 'login' },
 ];
 
