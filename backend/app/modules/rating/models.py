@@ -198,7 +198,7 @@ class PartnerDB(Base):
     quota_used = Column(Integer, nullable=False, default=0)
     quota_window_seconds = Column(Integer, nullable=False, default=3600)
     quota_reset_at = Column(DateTime(timezone=True), nullable=True)
-    environment = Column(String(16), nullable=False, default="PRODUCTION")
+    environment = Column(String(16), nullable=False, default="production")
     contact_email = Column(String(254), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

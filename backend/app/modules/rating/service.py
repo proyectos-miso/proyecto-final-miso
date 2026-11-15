@@ -341,9 +341,6 @@ class RatingService:
         if commit:
             await session.commit()
         return quote
-        if commit:
-            await session.commit()
-        return quote
 
     async def get_or_init_partner_window(
         self,
