@@ -12,6 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.PHONE
 import com.solventa.app.R
 import com.solventa.app.data.policies.sampleClaim
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimTimelineStep
 import com.solventa.app.domain.claims.InsuredClaim
 import com.solventa.app.domain.claims.PendingReport
@@ -61,11 +62,15 @@ class ClaimsListScreenTest {
         val reportedAt = Instant.parse("2026-11-13T14:00:00Z")
         var opened = false
         showList(
-            ClaimsUiState(loading = false, claims = listOf(sampleClaim()), pending = PendingReport("POL-2026-00001", reportedAt)),
+            ClaimsUiState(
+                loading = false,
+                claims = listOf(sampleClaim()),
+                pending = PendingReport("POL-2026-00001", reportedAt, provisionalNumber = "OFF-2026-AB12"),
+            ),
             onOpenPending = { opened = true },
         )
 
-        val description = s(R.string.claims_pending_description, "POL-2026-00001", formatDate(reportedAt))
+        val description = s(R.string.claims_pending_description, "POL-2026-00001", formatDate(reportedAt), "OFF-2026-AB12")
         val pending = compose.onNodeWithContentDescription(description)
         pending.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         compose.onNodeWithText(s(R.string.claims_pending_title)).assertIsDisplayed()
@@ -75,6 +80,29 @@ class ClaimsListScreenTest {
 
         pending.performClick()
         assertTrue(opened)
+    }
+
+    // HU-MOV-10 AC-02 y QR-02: el pendiente muestra su radicado provisional y TalkBack lo lee.
+    @Test
+    fun `HU-MOV-10 AC-02 el pendiente muestra el radicado provisional`() {
+        val reportedAt = Instant.parse("2026-11-14T10:00:00Z")
+        showList(ClaimsUiState(loading = false, pending = PendingReport("POL-2026-00001", reportedAt, provisionalNumber = "OFF-2026-AB12")))
+
+        compose.onNodeWithText(s(R.string.claims_pending_number, "OFF-2026-AB12")).assertIsDisplayed()
+        compose.onNodeWithContentDescription("radicado provisional OFF-2026-AB12", substring = true).assertIsDisplayed()
+    }
+
+    // HU-MOV-10 AC-02 y AC-04: recibido, el siniestro de la lista tiene el oficial y dice qué provisional reemplazó.
+    @Test
+    fun `HU-MOV-10 AC-04 el siniestro recibido muestra el oficial y el provisional que reemplaza`() {
+        val claim = sampleClaim("SIN-2026-00001")
+        val receipt = ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", claim.policyNumber, claim.reportedAt)
+        showList(ClaimsUiState(loading = false, claims = listOf(claim, sampleClaim("SIN-2026-00000")), receipt = receipt))
+
+        compose.onNodeWithText("SIN-2026-00001").assertIsDisplayed()
+        compose.onAllNodesWithText(s(R.string.claims_replaces, "OFF-2026-AB12")).assertCountEquals(1)
+        compose.onNodeWithContentDescription("${rowDescription(claim)}. ${s(R.string.claims_replaces, "OFF-2026-AB12")}").assertIsDisplayed()
+        compose.onNodeWithContentDescription(rowDescription(sampleClaim("SIN-2026-00000"))).assertIsDisplayed()
     }
 
     @Test

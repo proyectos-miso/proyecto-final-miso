@@ -2,6 +2,7 @@ package com.solventa.app.ui.claims
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimReportStore
 import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.claims.InsuredClaim
@@ -24,6 +25,8 @@ data class ClaimsUiState(
     val lastUpdate: Instant? = null,
     val needsConnection: Boolean = false,
     val pending: PendingReport? = null,
+    /** Constancia del último reporte recibido: su siniestro dice qué radicado provisional reemplazó (HU-MOV-10). */
+    val receipt: ClaimReceipt? = null,
 ) {
     val empty: Boolean get() = !loading && !needsConnection && claims.isEmpty() && pending == null
 
@@ -32,7 +35,8 @@ data class ClaimsUiState(
 
 /**
  * Mis siniestros (HU-MOV-11): sincroniza al abrirse y, sin red, muestra la copia cifrada de la cuenta con la
- * fecha de su última actualización (AC-04). Arriba, el reporte del teléfono que aún no se recibe (HU-MOV-09, AC-05).
+ * fecha de su última actualización (AC-04). Arriba, el reporte del teléfono que aún no se recibe (HU-MOV-09, AC-05),
+ * con su radicado provisional; el siniestro recibido muestra el oficial que lo reemplazó (HU-MOV-10, AC-02, AC-04).
  */
 class ClaimsViewModel(
     private val policySync: PolicySync,
@@ -52,7 +56,9 @@ class ClaimsViewModel(
                 val synced = (outcome as? SyncOutcome.Synced)?.takeIf { it.accountEmail == account }
                 val claims = synced?.copy?.claims
                 // Un reporte recibido sale de pendientes cuando la sincronización trae su siniestro (AC-08).
-                if (synced != null && claims != null) _uiState.value = online(claims).copy(pending = pending(synced.accountEmail))
+                if (synced != null && claims != null) {
+                    _uiState.value = online(claims).copy(pending = pending(synced.accountEmail), receipt = policyStore.readReceipt(synced.accountEmail))
+                }
             }
         }
     }
@@ -69,7 +75,7 @@ class ClaimsViewModel(
             val outcome = policySync.sync()
             val claims = (outcome as? SyncOutcome.Synced)?.takeIf { it.accountEmail == accountEmail }?.copy?.claims
             val loaded = if (claims != null) online(claims) else fromCopy(accountEmail)
-            _uiState.value = loaded.copy(pending = pending(accountEmail))
+            _uiState.value = loaded.copy(pending = pending(accountEmail), receipt = policyStore.readReceipt(accountEmail))
             if (outcome is SyncOutcome.Failed || outcome is SyncOutcome.NoSession) policySync.schedule()
         }
     }

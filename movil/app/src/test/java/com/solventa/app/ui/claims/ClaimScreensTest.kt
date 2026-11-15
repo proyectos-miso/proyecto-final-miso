@@ -28,7 +28,14 @@ import com.solventa.app.R
 import com.solventa.app.data.claims.FakeCaptureLocator
 import com.solventa.app.data.claims.InMemoryClaimStore
 import com.solventa.app.data.policies.samplePolicy
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.LocationAccess
+import com.solventa.app.domain.claims.ProvisionalNumber
+import com.solventa.app.ui.wallet.formatDate
+import com.solventa.app.ui.wallet.formatDateTime
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.solventa.app.ui.theme.SolventaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -318,6 +325,49 @@ class ClaimScreensTest {
             s(R.string.claim_spoken_summary, s(R.string.claim_summary_state), s(R.string.claim_state_queued)),
         ).assertExists()
         compose.onNodeWithContentDescription("${s(R.string.claim_summary_place)}: latitud 4,6512 grados norte", substring = true).assertExists()
+    }
+
+    // HU-MOV-10 AC-02, AC-01 y QR-02: en cola se ve la constancia provisional; al recibirse, la oficial la reemplaza.
+    @Test
+    fun `HU-MOV-10 AC-02 en cola muestra la constancia provisional y al recibirse la oficial que la reemplaza`() {
+        var receipt by mutableStateOf<ClaimReceipt?>(null)
+        vm.open(EMAIL, listOf(samplePolicy()))
+        compose.setContent {
+            SolventaTheme {
+                ClaimFlow(vm, camera, onClosed = { closed = true }, permissions = permissions, clock = clock, receipt = receipt)
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.claim_take_photo)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription(s(R.string.claim_shutter)).performClick()
+        compose.waitForIdle()
+        compose.runOnIdle {
+            vm.selectPolicy("POL-2026-00001")
+            vm.updateDescription("Golpe en la puerta")
+            vm.continueToDetail()
+        }
+        compose.runOnIdle { vm.send() }
+        compose.waitForIdle()
+
+        val provisional = ProvisionalNumber.of(vm.uiState.value.report!!)
+        assertTrue(Regex("""OFF-\d{4}-[0-9A-Z]{4}""").matches(provisional))
+        val spokenProvisional = s(R.string.receipt_provisional_spoken, provisional, formatDate(clock.instant()), "POL-2026-00001")
+        compose.onNodeWithContentDescription(spokenProvisional).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.claim_discard)).assertExists()
+
+        // La constancia de otro reporte no cambia esta pantalla.
+        receipt = ClaimReceipt("SIN-2026-00009", "OFF-2026-ZZZZ", "POL-2026-00001", clock.instant())
+        compose.waitForIdle()
+        pane(s(R.string.claim_pane_queued)).assertExists()
+
+        receipt = ClaimReceipt("SIN-2026-00001", provisional, "POL-2026-00001", clock.instant())
+        compose.waitForIdle()
+        pane(s(R.string.claim_pane_received)).assertExists()
+        val spokenOfficial = s(R.string.receipt_official_spoken, "SIN-2026-00001", provisional, formatDateTime(clock.instant()), "POL-2026-00001")
+        compose.onNodeWithContentDescription(spokenOfficial).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription(spokenProvisional).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_discard)).assertDoesNotExist()
     }
 
     // TC-17: el aviso junto a «Continuar» es un nodo vivo que siempre está; un nodo que aparece no se anuncia.

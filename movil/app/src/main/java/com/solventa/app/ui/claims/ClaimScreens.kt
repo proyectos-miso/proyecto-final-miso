@@ -70,9 +70,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.solventa.app.R
 import com.solventa.app.domain.claims.CaptureFix
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimRules
 import com.solventa.app.domain.claims.EvidencePhoto
 import com.solventa.app.domain.claims.Missing
+import com.solventa.app.domain.claims.ProvisionalNumber
 import com.solventa.app.domain.claims.ReportState
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.PrimaryButton
@@ -639,14 +641,31 @@ private fun missingText(missing: Missing): Int = when (missing) {
     Missing.DESCRIPTION -> R.string.claim_missing_description
 }
 
-/** Reporte guardado y listo para enviar; uno listo se ve sin poder editarlo y se puede descartar (AC-15, AC-19). */
+/**
+ * Reporte guardado y listo para enviar; uno listo se ve sin poder editarlo y se puede descartar (AC-15, AC-19). En cola
+ * muestra la constancia provisional y, si [official] es la de este reporte, la oficial que la reemplaza (HU-MOV-10).
+ */
 @Composable
-fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit, onDiscard: () -> Unit) {
+fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit, onDiscard: () -> Unit, official: ClaimReceipt? = null) {
     val report = state.report
     val first = report?.photos?.firstOrNull()
     val rejected = report?.state == ReportState.REJECTED
-    val pane = stringResource(if (rejected) R.string.claim_pane_rejected else R.string.claim_pane_queued)
-    val heading = stringResource(if (rejected) R.string.claim_rejected_heading else R.string.claim_queued_heading)
+    val provisional = report?.let(ProvisionalNumber::of)
+    val received = !rejected && official != null && official.provisionalNumber == provisional
+    val pane = stringResource(
+        when {
+            rejected -> R.string.claim_pane_rejected
+            received -> R.string.claim_pane_received
+            else -> R.string.claim_pane_queued
+        },
+    )
+    val heading = stringResource(
+        when {
+            rejected -> R.string.claim_rejected_heading
+            received -> R.string.receipt_received_heading
+            else -> R.string.claim_queued_heading
+        },
+    )
     val stateLabel = stringResource(if (rejected) R.string.claim_state_rejected else R.string.claim_state_queued)
     val colors = SolventaTheme.colors
     Column(Modifier.fillMaxSize().semantics { paneTitle = pane }) {
@@ -698,6 +717,14 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                 )
+            } else if (received && official != null) {
+                Text(
+                    stringResource(R.string.receipt_received_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                OfficialReceiptCard(official)
             } else {
                 Text(
                     stringResource(if (justSaved) R.string.claim_queued_body else R.string.claim_queued_locked),
@@ -705,6 +732,9 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                if (report != null && provisional != null) {
+                    ProvisionalReceiptCard(provisional, report.queuedAt ?: report.updatedAt, report.policyNumber)
+                }
             }
             Surface(
                 shape = MaterialTheme.shapes.medium,
@@ -721,7 +751,7 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
                         SummaryRow(R.string.claim_summary_time, formatPhotoTime(it.capturedAt), spoken = spokenPhotoTime(it.capturedAt))
                     }
                     val stateSpoken = stringResource(R.string.claim_spoken_summary, stringResource(R.string.claim_summary_state), stateLabel)
-                    Row(
+                    if (!received) Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .padding(top = 8.dp)
@@ -735,8 +765,11 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
         }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PrimaryButton(stringResource(R.string.claim_back_to_wallet), onDone)
-            TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.claim_discard), color = MaterialTheme.colorScheme.error)
+            // Recibido, ya no hay copia local que descartar (HU-MOV-09, AC-08).
+            if (!received) {
+                TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.claim_discard), color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

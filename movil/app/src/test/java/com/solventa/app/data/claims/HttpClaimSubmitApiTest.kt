@@ -66,7 +66,7 @@ class HttpClaimSubmitApiTest {
 
         val result = api.submit("token-de-reporte", report, photos)
 
-        assertEquals(SubmitResult.Received("SIN-2026-00001"), result)
+        assertEquals(SubmitResult.Received("SIN-2026-00001", Instant.parse("2026-11-13T14:05:00Z")), result)
         val request = server.takeRequest()
         assertEquals("POST", request.method)
         assertEquals("/api/v1/insured/claims", request.path)
@@ -101,7 +101,19 @@ class HttpClaimSubmitApiTest {
     fun `AC-03 un 200 es el mismo siniestro ya recibido`() = runTest {
         answer(200, """{"claim_number":"SIN-2026-00001","status":"REPORTED","reported_at":"2026-11-13T14:05:00Z"}""")
 
-        assertEquals(SubmitResult.Received("SIN-2026-00001"), api.submit("t", report, photos))
+        assertEquals(SubmitResult.Received("SIN-2026-00001", Instant.parse("2026-11-13T14:05:00Z")), api.submit("t", report, photos))
+    }
+
+    // HU-MOV-10 AC-01: la hora oficial del registro llega con zona; sin ella el siniestro igual quedó recibido.
+    @Test
+    fun `HU-MOV-10 AC-01 lee la hora oficial del registro con su zona y la tolera ausente`() = runTest {
+        answer(201, """{"claim_number":"SIN-2026-00002","status":"REPORTED","reported_at":"2026-11-13T09:05:00.123456-05:00"}""")
+        answer(201, """{"claim_number":"SIN-2026-00003","status":"REPORTED"}""")
+        answer(201, """{"claim_number":"SIN-2026-00004","status":"REPORTED","reported_at":"ayer"}""")
+
+        assertEquals(SubmitResult.Received("SIN-2026-00002", Instant.parse("2026-11-13T14:05:00.123456Z")), api.submit("t", report, photos))
+        assertEquals(SubmitResult.Received("SIN-2026-00003", null), api.submit("t", report, photos))
+        assertEquals(SubmitResult.Received("SIN-2026-00004", null), api.submit("t", report, photos))
     }
 
     @Test

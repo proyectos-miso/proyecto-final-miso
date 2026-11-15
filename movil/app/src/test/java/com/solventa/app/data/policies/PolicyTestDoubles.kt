@@ -89,7 +89,14 @@ class InMemoryPolicyStore : PolicyStore {
         syncTimes.remove(accountEmail)
         claims.remove(accountEmail)
         notified.remove(accountEmail)
+        receipts.remove(accountEmail)
     }
+
+    val receipts = mutableMapOf<String, com.solventa.app.domain.claims.ClaimReceipt>()
+
+    override suspend fun readReceipt(accountEmail: String) = receipts[accountEmail]
+
+    override suspend fun dismissReceipt(accountEmail: String): Boolean = receipts.remove(accountEmail) != null
 
     val claims = mutableMapOf<String, ClaimsCopy>()
     val notified = mutableMapOf<String, MutableSet<String>>()

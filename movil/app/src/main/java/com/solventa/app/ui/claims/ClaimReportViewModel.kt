@@ -317,7 +317,10 @@ class ClaimReportViewModel(
                 return@launch
             }
             sendScheduler.request(now = true)
-            _uiState.update { state -> state.copy(report = state.report?.copy(state = ReportState.QUEUED), screen = ClaimScreen.SAVED, justSaved = true) }
+            val queuedAt = clock.instant()
+            _uiState.update { state ->
+                state.copy(report = state.report?.copy(state = ReportState.QUEUED, queuedAt = queuedAt), screen = ClaimScreen.SAVED, justSaved = true)
+            }
             refreshEntry(email, activePolicies.isNotEmpty())
         }
     }

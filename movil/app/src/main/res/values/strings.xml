@@ -250,6 +250,7 @@
     <string name="claim_pane_detail">Paso 2 de 2: detalle del siniestro</string>
     <string name="claim_pane_queued">Reporte en cola de envío</string>
     <string name="claim_pane_rejected">Reporte no recibido</string>
+    <string name="claim_pane_received">Reporte recibido</string>
     <string name="claim_pane_unavailable">Reporte no disponible</string>
     <string name="claim_pane_cannot_open">No se pudo abrir el reporte</string>
 
@@ -273,7 +274,9 @@
     <string name="claims_pending_title">Pendiente de envío</string>
     <string name="claims_pending_detail">Póliza %1$s · reportado el %2$s</string>
     <string name="claims_pending_hint">Se envía solo en cuanto haya señal</string>
-    <string name="claims_pending_description">Reporte pendiente de envío, póliza %1$s, reportado el %2$s. Se envía solo en cuanto haya señal.</string>
+    <string name="claims_pending_description">Reporte pendiente de envío, radicado provisional %3$s, póliza %1$s, reportado el %2$s. Se envía solo en cuanto haya señal.</string>
+    <string name="claims_pending_number">Radicado provisional %1$s</string>
+    <string name="claims_replaces">Reemplaza el radicado provisional %1$s</string>
     <string name="claims_rejected_title">Reporte no recibido</string>
     <string name="claims_rejected_description">Reporte no recibido, póliza %1$s. %2$s</string>
     <string name="claims_open_report">Ver el reporte</string>
@@ -290,6 +293,22 @@
     <string name="wallet_caratula_title">Carátula %1$s</string>
     <string name="wallet_caratula_downloading">Descargando la carátula en Descargas.</string>
     <string name="wallet_dismiss_message">Cerrar mensaje</string>
+
+    <!-- Constancia del reporte (HU-MOV-10) -->
+    <string name="receipt_provisional_title">Constancia provisional</string>
+    <string name="receipt_official_title">Constancia oficial</string>
+    <string name="receipt_provisional_number">Radicado provisional</string>
+    <string name="receipt_official_number">Radicado oficial</string>
+    <string name="receipt_provisional_note">Radicado provisional — se reemplaza por el oficial al enviarse</string>
+    <string name="receipt_replaces">Reemplaza %1$s</string>
+    <string name="receipt_date">Fecha</string>
+    <string name="receipt_policy">Póliza</string>
+    <string name="receipt_received_heading">Su reporte fue recibido</string>
+    <string name="receipt_received_body">Siga su siniestro en Mis siniestros con el radicado oficial.</string>
+    <string name="receipt_provisional_spoken">Constancia provisional. Radicado provisional %1$s; se reemplaza por el oficial al enviarse. Fecha: %2$s. Póliza: %3$s.</string>
+    <string name="receipt_official_spoken">Constancia oficial. Radicado oficial %1$s, reemplaza %2$s. Fecha y hora: %3$s. Póliza: %4$s.</string>
+    <string name="receipt_open">Ver el siniestro</string>
+    <string name="receipt_dismiss">Cerrar la constancia</string>
     <string name="notice_channel_name">Avisos de Solventa</string>
     <string name="notice_public_title">Tiene un aviso de Solventa</string>
 </resources>

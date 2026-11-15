@@ -5,9 +5,12 @@ import com.solventa.app.data.policies.SessionPolicySync
 import com.solventa.app.data.session.ReportTokens
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.domain.claims.ClaimOutbox
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimReport
 import com.solventa.app.domain.claims.ClaimSubmitApi
 import com.solventa.app.domain.claims.PhotoImage
+import com.solventa.app.domain.claims.ProvisionalNumber
+import com.solventa.app.domain.claims.ReceiptKeeper
 import com.solventa.app.domain.claims.StoredReport
 import com.solventa.app.domain.claims.SubmissionPhoto
 import com.solventa.app.domain.claims.SubmitResult
@@ -35,7 +38,7 @@ class OpenSessionSubmitter(
 /**
  * Envía el reporte en cola de cada cuenta del teléfono (HU-MOV-09). Con la sesión de esa cuenta abierta usa su token
  * de acceso; si no, el token de reporte guardado. Recibido: borra la copia local y pide sincronizar «Mis siniestros»
- * (AC-08). Red o servidor caído: reintenta (AC-04). Rechazo definitivo: deja de reintentar y guarda el motivo (AC-09).
+ * (AC-08), guardando antes la constancia oficial con el radicado provisional que reemplaza (HU-MOV-10, AC-01). Red o servidor caído: reintenta (AC-04). Rechazo definitivo: deja de reintentar y guarda el motivo (AC-09).
  * Token rechazado: espera al próximo ingreso, que vuelve a agendar el envío.
  */
 class ClaimSender(
@@ -44,6 +47,7 @@ class ClaimSender(
     private val reportTokens: ReportTokens,
     private val session: SessionSubmitter,
     private val onReceived: () -> Unit = {},
+    private val receipts: ReceiptKeeper = ReceiptKeeper { _, _ -> false },
 ) {
 
     suspend fun sendQueued(): SendRun {
@@ -72,6 +76,11 @@ class ClaimSender(
         }
         return when (val result = submit(accountId, report, photos)) {
             is SubmitResult.Received -> {
+                val receipt = ClaimReceipt(
+                    result.claimNumber, ProvisionalNumber.of(report), report.policyNumber,
+                    result.reportedAt ?: report.queuedAt ?: report.updatedAt,
+                )
+                receipts.keep(accountId, receipt)
                 outbox.received(accountId, report.id)
                 onReceived()
                 SendRun.DONE

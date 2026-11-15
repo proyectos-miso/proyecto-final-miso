@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "policy_cards")
 data class PolicyCardEntity(
@@ -96,15 +98,49 @@ interface InsuredClaimDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun markNotice(notice: SentNoticeEntity): Long
+
+    @Query("SELECT * FROM claim_receipt WHERE id = 0")
+    suspend fun receipt(): ClaimReceiptEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveReceipt(receipt: ClaimReceiptEntity)
+
+    @Query("DELETE FROM claim_receipt")
+    suspend fun deleteReceipt(): Int
 }
 
+/** Constancia oficial del último reporte recibido, hasta que el asegurado la cierra (HU-MOV-10, AC-01). */
+@Entity(tableName = "claim_receipt")
+data class ClaimReceiptEntity(
+    @PrimaryKey val id: Int = 0,
+    val claimNumber: String,
+    val provisionalNumber: String,
+    val policyNumber: String?,
+    val reportedAtEpochMillis: Long,
+)
+
 // Versión 3 (HU-MOV-11): siniestros y avisos. La copia es un caché; una migración destructiva solo obliga a sincronizar.
+// Versión 4 (HU-MOV-10): la constancia, que no se vuelve a descargar, llega con una migración que conserva los datos.
 @Database(
-    entities = [PolicyCardEntity::class, WalletMetaEntity::class, InsuredClaimEntity::class, ClaimsMetaEntity::class, SentNoticeEntity::class],
-    version = 3,
+    entities = [
+        PolicyCardEntity::class, WalletMetaEntity::class, InsuredClaimEntity::class, ClaimsMetaEntity::class, SentNoticeEntity::class,
+        ClaimReceiptEntity::class,
+    ],
+    version = 4,
     exportSchema = false,
 )
 abstract class WalletDatabase : RoomDatabase() {
     abstract fun policyCards(): PolicyCardDao
     abstract fun claims(): InsuredClaimDao
+
+    companion object {
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `claim_receipt` (`id` INTEGER NOT NULL, `claimNumber` TEXT NOT NULL, " +
+                        "`provisionalNumber` TEXT NOT NULL, `policyNumber` TEXT, `reportedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+    }
 }

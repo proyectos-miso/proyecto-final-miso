@@ -262,6 +262,21 @@ class AuthViewModelTest {
         assertTrue(OTHER_EMAIL in policyStore.copies)
     }
 
+    // HU-MOV-10: la constancia del último reporte vive en la copia de la cuenta y se borra con ella al cerrar sesión.
+    @Test
+    fun `HU-MOV-10 cerrar sesion borra la constancia del reporte recibido`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = emptyList()
+        policyStore.receipts[EMAIL] = com.solventa.app.domain.claims.ClaimReceipt(
+            "SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", java.time.Instant.parse("2026-11-14T10:00:00Z"),
+        )
+
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+
+        assertFalse(EMAIL in policyStore.receipts)
+    }
+
     // HU-MOV-04 TC-07: con un 401 que la renovación no salva, la sincronización borra la copia y se pide ingresar.
     @Test
     fun `TC-07 sesion vencida borra la copia, cierra la sesion y pide ingresar`() = kotlinx.coroutines.runBlocking {
