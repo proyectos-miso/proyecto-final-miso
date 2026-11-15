@@ -129,10 +129,10 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/caratulas/*"
       },
       {
-        # Fotos de los siniestros (HU-WEB-15): el expediente solo las lee para verificar su huella y mostrarlas.
+        # Fotos de los siniestros: la recepción las guarda ya verificadas (HU-MOV-09) y el expediente las lee (HU-WEB-15).
         Sid      = "FotosDeSiniestros"
         Effect   = "Allow"
-        Action   = ["s3:GetObject"]
+        Action   = ["s3:PutObject", "s3:GetObject"]
         Resource = "${var.s3_bucket_arn}/siniestros/*"
       },
       {
