@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
-| Evaluated on | 2026-10-27 |
+| Security status | SECURITY_VERIFIED |
+| Evaluated on | 2026-11-15 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-WEB-08-buscar-polizas |
 
 <!-- Status: IN_PROGRESS, IMPLEMENTED, SECURITY_TESTS_PENDING, SECURITY_REVIEW_PENDING, RISK_ACCEPTED,
@@ -14,16 +14,16 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria implemented, each covered by a passing test case.
-- [ ] Security requirements mitigated by an applicable control and verified by a security test case.
-- [ ] No required control MISSING.
-- [ ] No secret in the code, logs, artifacts or this package.
-- [ ] New or updated dependencies evaluated.
-- [ ] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
-- [ ] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
-- [ ] Security review approved by a person other than the author.
-- [ ] Closeout: every acceptance criterion MET with evidence.
-- [ ] `python sdd/tools/sdd.py spec validate` reports no errors.
+- [x] Acceptance criteria implemented, each covered by a passing test case.
+- [x] Security requirements mitigated by an applicable control and verified by a security test case.
+- [x] No required control MISSING.
+- [x] No secret in the code, logs, artifacts or this package.
+- [x] New or updated dependencies evaluated.
+- [x] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
+- [x] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
+- [x] Security review approved by a person other than the author.
+- [x] Closeout: every acceptance criterion MET with evidence.
+- [x] `python sdd/tools/sdd.py spec validate` reports no errors.
 
 ## Security reviews
 
@@ -64,4 +64,4 @@
 | AC-11 | MET | TC-06: web/src/app/features/gestion/gestion.component.spec.ts::"TC-06 avisa cuando hay más de 50 resultados" |
 | AC-12 | MET | TC-01: backend/tests/integration/test_policy_search_api.py::test_tc_01_por_documento_trae_sus_polizas_con_los_campos_de_la_lista |
 | QR-01 | MET | TC-08: backend/tests/integration/test_policy_search_performance.py::test_tc_08_el_p95_de_la_busqueda_queda_por_debajo_de_150_ms |
-| QR-02 | PARTIAL | TC-09: auditoría automática y teclado aprobadas el 2026-10-27; falta la pasada con lector de pantalla |
+| QR-02 | MET | TC-09: auditoría automática y teclado aprobadas el 2026-10-27; pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: campo con etiqueta, tabla con encabezados y resultado y «Sin resultados.» anunciados en role=status |
