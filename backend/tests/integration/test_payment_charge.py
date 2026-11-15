@@ -15,6 +15,7 @@ from app.modules.payments.models import PaymentTransactionDB
 from app.modules.payments.service import payment_service
 from app.modules.policy.models import PolicyDB
 from tests.integration.policy_search_fixtures import BENEFICIARIES
+from tests.integration.otp_fixtures import signature_code
 
 DECLINED = "Pago rechazado: fondos insuficientes. Intente con otro medio de pago."
 DRAINED = "tok_insufficient_funds"
@@ -33,7 +34,8 @@ async def issued_policy(client: AsyncClient) -> dict:
         headers=advisor_headers(),
         json={"document_type": "CC", "document_number": "1020304050", "birth_date": "1990-05-15", "insured_amount": 1e8},
     )
-    body = {"quote_id": quote.json()["quote_id"], "tier": "standard", "beneficiaries": BENEFICIARIES}
+    body = {"quote_id": quote.json()["quote_id"], "tier": "standard", "beneficiaries": BENEFICIARIES,
+            "otp_code": await signature_code(client, advisor_headers())}
     return (await client.post("/api/v1/experience/policies", headers=advisor_headers(), json=body)).json()
 
 

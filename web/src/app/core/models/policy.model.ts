@@ -28,6 +28,13 @@ export interface PolicyIssueRequest {
   otp_code?: string;
 }
 
+/** Envío de un código de un solo uso; en local trae el código de prueba porque el SMS no sale. */
+export interface OtpSent {
+  status: string;
+  message: string;
+  debug_code?: string | null;
+}
+
 export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED' | 'TERMINATED' | 'EXPIRED';
 
 /** Fila de la búsqueda de operaciones: documento enmascarado y sin datos de contacto (HU-WEB-08). */

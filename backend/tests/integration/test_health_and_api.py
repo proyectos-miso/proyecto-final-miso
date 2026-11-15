@@ -93,19 +93,21 @@ async def test_hu_web_02_validacion_asegurabilidad_cliente(async_client: AsyncCl
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_hu_web_01_registro_y_consulta_de_consentimiento(async_client: AsyncClient):
+async def test_hu_web_01_registro_y_consulta_de_consentimiento(async_client: AsyncClient, postgres_session):
     """HU-WEB-01 / TC-S1-04: registro de consentimiento con hash SHA-256, consulta y validaciones."""
     from app.core.security import create_access_token
     advisor_token = create_access_token(subject="asesor@solventa.com", role="advisor")
     auth_headers = {"Authorization": f"Bearer {advisor_token}"}
 
     # 1. Registro exitoso
+    from tests.integration.otp_fixtures import consent_code
+    code = await consent_code(async_client, auth_headers, "1020304050")
     consent_resp = await async_client.post(
         "/api/v1/experience/consent",
         headers=auth_headers,
         json={
             "document_number": "1020304050",
-            "otp_code": "839201",
+            "otp_code": code,
             "terms_accepted": True,
             "purpose": "Perfilamiento y cotización de seguro con Open Finance",
             "scope": "Historial crediticio y capacidad de pago",
