@@ -158,7 +158,7 @@ async def test_registra_token_y_envia_push_sin_datos_sensibles(async_client: Asy
     assert response.status_code == 204
     assert (await postgres_session.get(PushTokenDB, TOKEN)).document_number == MARIA_DOCUMENT
     assert sent and sender.sent[0][0] == [TOKEN]
-    assert sender.sent[0][2] == {"type": "CLAIM_STATUS", "claim_number": "SIN-2026-000009"}
+    assert sender.sent[0][2] == {"type": "CLAIM_STATUS", "claim_number": "SIN-2026-000009", "category": "claims"}
 
 
 async def test_token_invalido_se_rechaza(async_client: AsyncClient):
@@ -275,4 +275,4 @@ async def test_el_aviso_de_vencimiento_dice_la_poliza_y_la_fecha(postgres_sessio
 
     tokens, body, data = sender.sent[0]
     assert "POL-2026-11013" in body and "22/10/2026" in body
-    assert data == {"type": "RENEWAL_REMINDER", "policy_number": "POL-2026-11013"}
+    assert data == {"type": "RENEWAL_REMINDER", "policy_number": "POL-2026-11013", "category": "renewals"}

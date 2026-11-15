@@ -321,4 +321,29 @@ class WalletScreenTest {
 
         compose.onNodeWithText(s(R.string.receipt_received_heading)).assertDoesNotExist()
     }
+
+    // FE-MOV-04: la entrada a las preferencias de avisos mide 48 dp y solo aparece cuando hay a dónde ir.
+    @Test
+    fun `FE-MOV-04 el boton Avisos abre las preferencias y mide al menos 48 dp`() {
+        var opened = false
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = withPolicy, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    onOpenNotices = { opened = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText(s(R.string.notices_open_button)).assertHeightIsAtLeast(48.dp).performClick()
+
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `FE-MOV-04 sin entrada a las preferencias la billetera no muestra el boton Avisos`() {
+        show(withPolicy)
+
+        compose.onNodeWithText(s(R.string.notices_open_button)).assertDoesNotExist()
+    }
 }

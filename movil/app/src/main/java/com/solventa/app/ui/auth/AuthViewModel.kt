@@ -14,6 +14,7 @@ import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.claims.ClaimReportStore
+import com.solventa.app.domain.policies.NotificationPreferences
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
 import com.solventa.app.domain.policies.SessionEndReason
@@ -131,6 +132,8 @@ class AuthViewModel(
     private val claimStore: ClaimReportStore,
     // El token de reporte se borra con los datos de la cuenta (HU-MOV-09, SR-05).
     private val reportTokens: ReportTokens = ReportTokens.None,
+    // Las preferencias de avisos también (FE-MOV-04).
+    private val notificationPreferences: NotificationPreferences = NotificationPreferences.None,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(withAccounts(AuthUiState()))
@@ -264,6 +267,7 @@ class AuthViewModel(
         sessionRepository.unbind(email)
         viewModelScope.launch { policyStore.delete(email) }
         reportTokens.delete(email)
+        notificationPreferences.delete(email)
         appScope.launch { claimStore.delete(email) }
         _uiState.update { withAccounts(it.copy(status = AuthStatus.SESSION_RESET)) }
     }
@@ -450,6 +454,7 @@ class AuthViewModel(
         sessionRepository.end()
         policySync.cancel()
         email?.let(reportTokens::delete)
+        email?.let(notificationPreferences::delete)
         _uiState.value = withAccounts(
             AuthUiState(
                 status = if (biometricReady) AuthStatus.LOGGED_OUT_BIOMETRIC_READY else AuthStatus.LOGGED_OUT,
@@ -532,6 +537,7 @@ class AuthViewModel(
                 // El servidor desvinculó las huellas de esa cuenta; las demás cuentas del teléfono se conservan.
                 sessionRepository.unbind(normalizeEmail(email))
                 reportTokens.delete(normalizeEmail(email))
+                notificationPreferences.delete(normalizeEmail(email))
                 policyStore.delete(normalizeEmail(email))
                 claimStore.delete(normalizeEmail(email))
                 lockJob?.cancel()

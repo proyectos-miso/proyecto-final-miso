@@ -67,6 +67,7 @@ class AuthViewModelTest {
     private lateinit var appScope: CoroutineScope
     private val claimStore = InMemoryClaimStore()
     private val reportTokens = com.solventa.app.data.claims.MapReportTokens()
+    private val notificationPreferences = com.solventa.app.data.policies.InMemoryNotificationPreferences()
     private lateinit var viewModel: AuthViewModel
 
     @Before
@@ -89,7 +90,8 @@ class AuthViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore, reportTokens)
+    private fun newViewModel(policySync: PolicySync = sync) =
+        AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore, reportTokens, notificationPreferences)
 
     /** El ViewModel dentro de una pantalla, para poder terminarla como Android cuando termina la actividad. */
     private fun inScreen(screen: ViewModelStore, policySync: PolicySync = sync): AuthViewModel =
@@ -934,6 +936,30 @@ class AuthViewModelTest {
         viewModel.openPasswordRecovery()
         viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
         assertNull(reportTokens.read(account))
+    }
+
+    // FE-MOV-04: la copia local de las preferencias de avisos se borra con los datos de la cuenta.
+    @Test
+    fun `FE-MOV-04 cerrar sesion, la huella revocada o el cambio de contrasena borran las preferencias de avisos`() {
+        val off = com.solventa.app.domain.policies.PushPreferences(claims = false, renewals = false, payments = false)
+        notificationPreferences.save(EMAIL, off, pending = true)
+        notificationPreferences.save(OTHER_EMAIL, off, pending = false)
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
+        assertFalse(notificationPreferences.pending(EMAIL))
+        assertEquals(off, notificationPreferences.read(OTHER_EMAIL))
+
+        notificationPreferences.save(EMAIL, off, pending = false)
+        authApi.biometricResult = LoginResult.InvalidCredentials
+        newViewModel().authenticateWithBiometrics(FakeBiometricAuthenticator())
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
+
+        notificationPreferences.save(EMAIL, off, pending = false)
+        viewModel.openPasswordRecovery()
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
     }
 
     // HU-MOV-09 AC-02: cerrar la app revoca el refresh pero conserva el token de reporte; cerrar sesión revoca todo.

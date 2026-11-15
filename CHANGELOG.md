@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mejora · Preferencias de avisos (`HOTFIX-preferencias-de-avisos`, FE-MOV-04): el asegurado apaga por separado los avisos de siniestros, vencimientos y pagos desde «Avisos» en la billetera; el backend no envía el push de una categoría apagada (`GET` y `PUT /insured/devices/push-preferences`, migración `0004`) y la app tampoco muestra el aviso local; un cambio hecho sin red se envía con la siguiente sincronización.
 - HU-MOV-10: constancia del reporte con radicado provisional `OFF-AAAA-XXXX` mientras está en cola y oficial `SIN-AAAA-NNNNN` al recibirse; siniestros paramétricos desde eventos firmados del oráculo (`POST /oracle/events`, RC-26); publicador del outbox hacia SQS con `ClaimFiled` (RC-14); migraciones versionadas con Alembic aplicadas al arrancar (RC-13).
 - HU-MOV-09: el reporte del siniestro queda en una cola cifrada y la app lo envía sola al recuperar la señal, aunque esté cerrada, con un token que solo sirve para reportar; `POST /insured/claims` lo registra una sola vez con radicado, verifica la huella SHA-256 de cada foto y las guarda en S3; los pendientes se ven en «Mis siniestros»; el CI firma el APK de release cuando tiene la llave (RC-11, RC-12).
 - **Hotfix · Configuración de producción (`HOTFIX-configuracion-de-produccion`, RC-30, RC-33):**

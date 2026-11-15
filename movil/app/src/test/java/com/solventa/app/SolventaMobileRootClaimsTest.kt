@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
@@ -22,6 +23,7 @@ import com.solventa.app.data.policies.FakePolicyActions
 import com.solventa.app.data.policies.FakePolicySync
 import com.solventa.app.data.policies.FakeScheduler
 import com.solventa.app.data.policies.FakeSyncAuthApi
+import com.solventa.app.data.policies.InMemoryNotificationPreferences
 import com.solventa.app.data.policies.InMemoryPolicyStore
 import com.solventa.app.data.policies.SessionPolicySync
 import com.solventa.app.data.policies.sampleClaim
@@ -42,9 +44,12 @@ import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.policies.CaratulaResult
 import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.PreferencesResult
+import com.solventa.app.domain.policies.PushPreferences
 import com.solventa.app.domain.policies.SyncOutcome
 import com.solventa.app.ui.auth.AuthViewModel
 import com.solventa.app.ui.claims.ClaimsViewModel
+import com.solventa.app.ui.settings.NotificationPreferencesViewModel
 import com.solventa.app.ui.wallet.WalletViewModel
 import com.solventa.app.ui.wallet.formatDate
 import kotlinx.coroutines.CoroutineScope
@@ -106,7 +111,10 @@ class SolventaMobileRootClaimsTest {
     private var claimsOpen by mutableStateOf(false)
     private var selectedClaim by mutableStateOf<String?>(null)
     private var pendingClaim by mutableStateOf<String?>(null)
+    private var noticesOpen by mutableStateOf(false)
     private var loggedOut = 0
+    private val notificationPreferences = InMemoryNotificationPreferences()
+    private val preferences = NotificationPreferencesViewModel(actions, notificationPreferences)
 
     private fun start() {
         policyStore.claims[EMAIL] = ClaimsCopy(listOf(claim), Instant.parse("2026-11-08T09:00:00Z"))
@@ -125,6 +133,9 @@ class SolventaMobileRootClaimsTest {
                 onPendingClaimConsumed = { pendingClaim = null },
                 walletActions = true,
                 onLoggedOut = { loggedOut++ },
+                preferencesViewModel = preferences,
+                noticesOpen = noticesOpen,
+                onNoticesOpenChange = { noticesOpen = it },
             )
         }
         compose.onNodeWithText(s(R.string.auth_use_alternative)).performClick()
@@ -195,6 +206,44 @@ class SolventaMobileRootClaimsTest {
         assertEquals(1, loggedOut)
         assertEquals(false, claimsOpen)
         assertNull(selectedClaim)
+    }
+
+    // FE-MOV-04: desde la billetera se abren las preferencias de avisos, se guarda un cambio y se vuelve.
+    @Test
+    fun `FE-MOV-04 desde la billetera se abren las preferencias de avisos, se apaga una y se vuelve`() {
+        actions.preferences = PreferencesResult.Loaded(PushPreferences(claims = true, renewals = true, payments = false))
+        start()
+
+        compose.onNodeWithText(s(R.string.notices_open_button)).performScrollTo().performClick()
+        assertTrue(noticesOpen)
+        val renewals = compose.onNodeWithContentDescription("${s(R.string.notices_renewals)}. ${s(R.string.notices_renewals_help)}")
+        renewals.assertIsDisplayed()
+        compose.onNodeWithContentDescription("${s(R.string.notices_payments)}. ${s(R.string.notices_payments_help)}").assertIsOff()
+
+        renewals.performClick()
+        compose.onNodeWithText(s(R.string.notices_saved)).assertIsDisplayed()
+        assertEquals(PushPreferences(claims = true, renewals = false, payments = false), actions.saved.single())
+        assertEquals(PushPreferences(claims = true, renewals = false, payments = false), notificationPreferences.read(EMAIL))
+
+        compose.onNodeWithContentDescription(s(R.string.claim_back)).performClick()
+
+        assertEquals(false, noticesOpen)
+        compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
+    }
+
+    @Test
+    fun `FE-MOV-04 cerrar sesion cierra las preferencias de avisos`() {
+        start()
+        noticesOpen = true
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription(s(R.string.claim_back)).performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithText(s(R.string.logout_button)).performScrollTo().performClick()
+        compose.onNode(hasText(s(R.string.logout_confirm)) and hasAnyAncestor(isDialog())).performClick()
+
+        assertEquals(false, noticesOpen)
+        assertTrue(preferences.uiState.value.loading)
     }
 
     private companion object {

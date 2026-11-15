@@ -56,6 +56,8 @@ import com.solventa.app.ui.claims.ClaimFlow
 import com.solventa.app.ui.claims.ClaimReportViewModel
 import com.solventa.app.ui.claims.EvidenceCamera
 import com.solventa.app.ui.claims.ReportEntry
+import com.solventa.app.ui.settings.NotificationPreferencesScreen
+import com.solventa.app.ui.settings.NotificationPreferencesViewModel
 import com.solventa.app.ui.theme.BrandTopBar
 import com.solventa.app.ui.theme.SolventaTheme
 import com.solventa.app.ui.wallet.WalletScreen
@@ -68,7 +70,19 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore, app.reportTokens)
+                AuthViewModel(
+                    app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore, app.reportTokens,
+                    app.notificationPreferences,
+                )
+            }
+        }
+    }
+
+    private val preferencesViewModel: NotificationPreferencesViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                val app = application as SolventaApplication
+                NotificationPreferencesViewModel(app.policyActions, app.notificationPreferences)
             }
         }
     }
@@ -138,6 +152,8 @@ class MainActivity : FragmentActivity() {
             // Mis siniestros y el siniestro abierto: solo el número, que ya está en la copia cifrada (HU-MOV-11).
             var claimsOpen by rememberSaveable { mutableStateOf(false) }
             var selectedClaim by rememberSaveable { mutableStateOf<String?>(null) }
+            // Preferencias de avisos abiertas (FE-MOV-04).
+            var noticesOpen by rememberSaveable { mutableStateOf(false) }
             val authenticated = authViewModel.uiState.collectAsState().value.isAuthenticated
             LaunchedEffect(authenticated) {
                 if (authenticated) {
@@ -158,7 +174,7 @@ class MainActivity : FragmentActivity() {
                     contentWindowInsets = WindowInsets.safeDrawing,
                     topBar = {
                         // El reporte de siniestro tiene su propia barra con «atrás» y el paso.
-                        if (!claimOpen && !claimsOpen) {
+                        if (!claimOpen && !claimsOpen && !noticesOpen) {
                             BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
                                 darkTheme = !darkTheme
                                 themeStore.saveDarkTheme(darkTheme)
@@ -185,6 +201,9 @@ class MainActivity : FragmentActivity() {
                         onPendingClaimConsumed = { pendingClaim = null },
                         walletActions = true,
                         onLoggedOut = { AndroidNotificationPoster.clear(app) },
+                        preferencesViewModel = preferencesViewModel,
+                        noticesOpen = noticesOpen,
+                        onNoticesOpenChange = { noticesOpen = it },
                     )
                 }
             }
@@ -212,17 +231,22 @@ fun SolventaMobileRoot(
     onPendingClaimConsumed: () -> Unit = {},
     walletActions: Boolean = false,
     onLoggedOut: () -> Unit = {},
+    preferencesViewModel: NotificationPreferencesViewModel? = null,
+    noticesOpen: Boolean = false,
+    onNoticesOpenChange: (Boolean) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Sin sesión no hay reporte ni siniestros abiertos (HU-MOV-08, HU-MOV-11).
+    // Sin sesión no hay reporte, siniestros ni preferencias abiertos (HU-MOV-08, HU-MOV-11, FE-MOV-04).
     LaunchedEffect(uiState.isAuthenticated) {
         if (!uiState.isAuthenticated) {
             onClaimOpenChange(false)
             onClaimsOpenChange(false)
             onSelectedClaimChange(null)
+            onNoticesOpenChange(false)
             claimsViewModel?.close()
+            preferencesViewModel?.close()
         }
     }
     LaunchedEffect(uiState.isAuthenticated, pendingClaim) {
@@ -249,9 +273,11 @@ fun SolventaMobileRoot(
                 walletViewModel.close()
                 claimViewModel?.close()
                 claimsViewModel?.close()
+                preferencesViewModel?.close()
                 onClaimOpenChange(false)
                 onClaimsOpenChange(false)
                 onSelectedClaimChange(null)
+                onNoticesOpenChange(false)
                 onLoggedOut()
                 viewModel.confirmLogout()
             },
@@ -291,6 +317,16 @@ fun SolventaMobileRoot(
                 LaunchedEffect(email, walletState.policies) { claimViewModel.open(email, walletState.policies.map { it.policy }) }
                 SecureWindow(secureScreens)
                 ClaimFlow(claimViewModel, camera, onClosed = { onClaimOpenChange(false) }, modifier = modifier, receipt = receipt)
+            } else if (noticesOpen && preferencesViewModel != null && email != null) {
+                LaunchedEffect(email) { preferencesViewModel.open(email) }
+                val preferencesState by preferencesViewModel.uiState.collectAsState()
+                NotificationPreferencesScreen(
+                    state = preferencesState,
+                    onBack = { onNoticesOpenChange(false) },
+                    onToggle = preferencesViewModel::toggle,
+                    onRetry = preferencesViewModel::retry,
+                    modifier = modifier,
+                )
             } else if (claimsOpen && claimsViewModel != null && email != null) {
                 LaunchedEffect(email) { claimsViewModel.open(email) }
                 val claimsState by claimsViewModel.uiState.collectAsState()
@@ -351,6 +387,11 @@ fun SolventaMobileRoot(
                         null
                     },
                     onDismissReceipt = walletViewModel::dismissReceipt,
+                    onOpenNotices = if (preferencesViewModel != null) {
+                        { onNoticesOpenChange(true) }
+                    } else {
+                        null
+                    },
                 )
             }
         }

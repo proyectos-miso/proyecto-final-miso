@@ -11,9 +11,13 @@ import com.solventa.app.domain.claims.ClaimsApi
 import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.claims.ClaimsResult
 import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.NoticeCategory
 import com.solventa.app.domain.policies.NotificationPoster
+import com.solventa.app.domain.policies.NotificationPreferences
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
+import com.solventa.app.domain.policies.PolicyActionsApi
+import com.solventa.app.domain.policies.PreferencesResult
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
@@ -51,6 +55,10 @@ class SessionPolicySync(
     // Siniestros y avisos de la misma sincronización (HU-MOV-11); sin ellos solo se sincroniza la billetera.
     private val claimsApi: ClaimsApi? = null,
     private val notices: NotificationPoster? = null,
+    // Los avisos locales respetan las categorías que el asegurado apagó (FE-MOV-04).
+    private val preferences: NotificationPreferences = NotificationPreferences.None,
+    // Con ella la copia de las preferencias se trae del servidor y lo pendiente se envía al sincronizar.
+    private val preferencesApi: PolicyActionsApi? = null,
     // Borra lo demás de la cuenta cuando el servidor desvincula el teléfono, como el reporte de siniestro (HU-MOV-08, AC-12).
     private val onDeviceRejected: suspend (accountEmail: String) -> Unit = {},
 ) : PolicySync {
@@ -78,6 +86,9 @@ class SessionPolicySync(
     }
 
     override fun schedule() = scheduler.request()
+
+    /** Hay sesión abierta, con o sin tokens (el ingreso sin red no los tiene). */
+    val hasOpenSession: Boolean get() = session.openSession != null
 
     override fun cancel() {
         running.forEach { it.cancel() }
@@ -140,7 +151,10 @@ class SessionPolicySync(
         var renewed = false
         while (true) {
             when (val result = policiesApi.activePolicies(checkNotNull(current.tokens).accessToken)) {
-                is PoliciesResult.Loaded -> return save(current, result.policies, claims(current))
+                is PoliciesResult.Loaded -> {
+                    syncPreferences(current)
+                    return save(current, result.policies, claims(current))
+                }
                 PoliciesResult.Unavailable -> return SyncOutcome.Failed
                 PoliciesResult.Unauthorized -> {
                     if (renewed) return end(current, SessionEndReason.EXPIRED)
@@ -188,6 +202,21 @@ class SessionPolicySync(
         return SyncOutcome.Synced(current.email, copy).also(results::tryEmit)
     }
 
+    // Lo cambiado sin red se envía; si no, manda el servidor, también tras cerrar sesión o reinstalar (FE-MOV-04).
+    // Si la pantalla cambió la copia mientras tanto, gana la pantalla.
+    private suspend fun syncPreferences(current: OpenSession) {
+        val api = preferencesApi ?: return
+        val token = checkNotNull(current.tokens).accessToken
+        val local = preferences.read(current.email)
+        val pending = preferences.pending(current.email)
+        var result = if (pending) api.savePushPreferences(token, local) else api.pushPreferences(token)
+        // Si el servidor ya no acepta lo pendiente, se descarta y manda lo del servidor; reenviarlo no lo arregla.
+        if (pending && result == PreferencesResult.Invalid) result = api.pushPreferences(token)
+        if (result is PreferencesResult.Loaded && session.openSession === current) {
+            preferences.replaceIf(current.email, local, pending, result.preferences)
+        }
+    }
+
     // Los siniestros fallan sin tumbar la billetera: se conserva la copia anterior (HU-MOV-11).
     private suspend fun claims(current: OpenSession): ClaimsCopy? {
         val api = claimsApi ?: return null
@@ -200,8 +229,11 @@ class SessionPolicySync(
         if (!store.saveClaims(accountEmail, claims)) return null
         val poster = notices ?: return claims
         if (previous == null) return claims
+        val wanted = preferences.read(accountEmail)
         claims.claims
             .filter { claim -> previous[claim.claimNumber].let { it != null && it != claim.status } }
+            // Un siniestro pagado es un aviso de «Pagos»; cualquier otro cambio, de «Siniestros».
+            .filter { claim -> wanted.enabled(if (claim.status == PAID_STATUS) NoticeCategory.PAYMENTS else NoticeCategory.CLAIMS) }
             .forEach { claim ->
                 poster.post(
                     Notice(
@@ -218,6 +250,7 @@ class SessionPolicySync(
     // Una sola vez por póliza y fin de vigencia (HU-MOV-11, AC-09, RC-27).
     private suspend fun notifyRenewals(accountEmail: String, policies: List<PolicyCard>, now: java.time.Instant) {
         val poster = notices ?: return
+        if (!preferences.read(accountEmail).renewals) return
         policies.filter { it.expiresSoonAt(now) }.forEach { card ->
             val key = "renewal:${card.policyNumber}:${card.validUntil.toEpochMilli()}"
             if (store.markNotified(accountEmail, key)) {
@@ -238,6 +271,7 @@ class SessionPolicySync(
 
     private companion object {
         val RENEWAL_DATE: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        const val PAID_STATUS = "PAID"
     }
 
     private sealed interface Step {
