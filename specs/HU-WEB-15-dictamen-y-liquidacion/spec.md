@@ -6,7 +6,7 @@
 | Title | Dictamen y liquidación |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/115 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-11-06 |
 | Security profile | HIGH |
 
