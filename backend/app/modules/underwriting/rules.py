@@ -6,6 +6,9 @@ from typing import List, Optional, Tuple
 
 from app.modules.underwriting.models import UnderwritingDecision
 
+# Versión de las reglas y de la tarifa con que se decide; cambia con cualquier cupo o multiplicador (FE-WEB-08).
+RULES_VERSION = "2026.11"
+
 # Cupo en COP por puntaje del buró, con las mismas franjas que la tarifa.
 SCORE_LIMITS: List[Tuple[int, float]] = [(800, 1_200_000_000), (650, 700_000_000), (500, 350_000_000), (0, 150_000_000)]
 # Cupo en COP por edad; por debajo de 66 años solo aplica el del perfil crediticio.

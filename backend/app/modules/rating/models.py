@@ -5,6 +5,7 @@ from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, func
 from app.core.database import Base
+from app.core.immutable import make_immutable
 from app.modules.underwriting.models import UnderwritingDecision
 
 
@@ -222,3 +223,10 @@ class QuoteDB(Base):
     birth_date = Column(DateTime(timezone=True), nullable=True)
     # Ciudad del asegurado: un evento del oráculo afecta a las pólizas de su ciudad (HU-MOV-10, RC-26).
     city = Column(String(80), nullable=True, index=True)
+    # Entradas para recalcular la decisión en la auditoría; nulas en las cotizaciones anteriores (FE-WEB-08).
+    rules_version = Column(String(16), nullable=True)
+    insured_amount = Column(Float, nullable=True)
+    occupation_risk = Column(Integer, nullable=True)
+
+
+make_immutable(QuoteDB.__table__, "Las cotizaciones no se pueden modificar ni borrar")

@@ -291,6 +291,11 @@ class RatingService:
             if not active_consent:
                 active_consent = await profile_service.get_consent_async(session, request.document_number)
 
+            if request.consent_id and active_consent and active_consent.status == "REVOKED":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="El consentimiento informado del cliente fue revocado.",
+                )
             if partner_id is None:
                 if not active_consent or active_consent.status != "GRANTED":
                     raise HTTPException(
@@ -331,6 +336,9 @@ class RatingService:
                 term_months=request.term_months,
                 birth_date=datetime.combine(bdate, datetime.min.time(), tzinfo=timezone.utc),
                 city=request.city,
+                rules_version=underwriting_rules.RULES_VERSION,
+                insured_amount=request.insured_amount,
+                occupation_risk=request.occupation_risk,
             )
         )
         if partner_id and increment_quota:

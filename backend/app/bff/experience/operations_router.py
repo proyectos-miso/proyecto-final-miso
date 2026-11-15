@@ -41,6 +41,7 @@ from app.modules.policy.operations import (
     policy_operations,
 )
 from app.modules.rating import partners
+from app.modules.underwriting import audit
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
@@ -237,7 +238,7 @@ async def solventa_operator(user: Operator = Depends(operator)) -> Operator:
     if user.partner_id is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo operadores centrales de Solventa pueden gestionar socios.",
+            detail="Solo operadores centrales de Solventa pueden usar esta función.",
         )
     return user
 
@@ -250,7 +251,7 @@ def partner_errors(exc: Exception) -> HTTPException:
 
 @router.get("/operator", response_model=OperatorProfile)
 async def operator_profile(user: Operator = Depends(operator)):
-    """Si el analista es de Solventa; el portal solo oculta la pestaña «Socios», cada ruta lo vuelve a validar."""
+    """Si el analista es de Solventa; el portal solo oculta sus pestañas («Socios», «Auditoría»), cada ruta lo vuelve a validar."""
     return OperatorProfile(solventa=user.partner_id is None)
 
 
@@ -313,6 +314,61 @@ async def approve_partner_production(
         "quota_limit": partner.quota_limit,
         "message": f"Socio {partner.name} promovido a producción con cuota de {partner.quota_limit} cotizaciones/hora.",
     }
+
+
+# -- Auditoría de suscripción (FE-WEB-08): solo el equipo de Solventa --------------------------------
+
+DECISION_ID = Path(..., pattern=r"^(QUO|UWR)-[0-9A-F]{12}$")
+
+
+class ConsentRevocationRequest(BaseModel):
+    # En el cuerpo y no en la ruta: así el documento no queda en los registros de acceso.
+    document_number: str = Field(..., pattern=r"^[A-Za-z0-9]{4,20}$")
+
+
+@router.get("/decisions/{decision_id}", response_model=audit.DecisionDetail)
+async def decision_detail(
+    response: Response,
+    decision_id: str = DECISION_ID,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Entradas, versión de reglas y salida de una cotización o un rechazo; el documento va enmascarado."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await audit.detail(db, decision_id, user.username)
+    except audit.DecisionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.")
+
+
+@router.post("/decisions/{decision_id}/replay", response_model=audit.ReplayResult)
+async def replay_decision(
+    decision_id: str = DECISION_ID,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Recalcula una cotización con las reglas vigentes y dice si coincide; un rechazo no se recalcula (409)."""
+    try:
+        return await audit.replay(db, decision_id, user.username)
+    except audit.DecisionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.")
+    except audit.RejectionNotReplayableError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=audit.REJECTION_NOT_REPLAYABLE)
+    except audit.DecisionNotReplayableError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Decisión anterior a la auditoría: no se puede recalcular.",
+        )
+
+
+@router.post("/consents/revoke", response_model=audit.ConsentRevocation)
+async def revoke_consent(
+    request: ConsentRevocationRequest,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Registra la revocación del consentimiento del titular; ya no sirve para cotizar."""
+    return await audit.revoke_consent(db, request.document_number, user.username)
 
 
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)

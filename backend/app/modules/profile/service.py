@@ -175,7 +175,16 @@ class ProfileService:
         )
         db_consent = (await session.execute(stmt)).scalars().first()
         if not db_consent:
-            return self.get_consent(document_number)
+            record = self.get_consent(document_number)
+            # La copia en memoria no vale si la base ya tiene ese consentimiento y no está GRANTED (FE-WEB-08).
+            if record is None:
+                return None
+            stored = select(ConsentDB.id).where(
+                ConsentDB.document_number == document_number, ConsentDB.id == record.consent_id
+            )
+            if (await session.execute(stored)).scalars().first() is not None:
+                return None
+            return record
         return ConsentRecord(
             consent_id=db_consent.id,
             document_number=db_consent.document_number,
@@ -201,6 +210,36 @@ class ProfileService:
             return False
         expires = datetime.fromisoformat(record.expires_at)
         return self._now() < expires
+
+    async def revoke_consents_async(self, session: AsyncSession, document_number: str) -> int:
+        """Revoca todos los consentimientos GRANTED del documento; devuelve cuántos cambió (FE-WEB-08)."""
+        rows = (
+            await session.execute(
+                select(ConsentDB)
+                .where(ConsentDB.document_number == document_number, ConsentDB.status == "GRANTED")
+                .with_for_update()
+            )
+        ).scalars().all()
+        for row in rows:
+            row.status = "REVOKED"
+        await session.commit()
+        self._consents.pop(document_number, None)
+        return len(rows)
+
+    async def consent_revoked_async(
+        self, session: AsyncSession, document_number: str, consent_id: Optional[str] = None
+    ) -> bool:
+        """Si la decisión quedó sin consentimiento: el suyo está revocado o el documento solo tiene revocados."""
+        if consent_id:
+            consent = await session.get(ConsentDB, consent_id)
+            if consent is not None:
+                return consent.status == "REVOKED"
+        statuses = set(
+            (await session.execute(select(ConsentDB.status).where(ConsentDB.document_number == document_number)))
+            .scalars()
+            .all()
+        )
+        return "REVOKED" in statuses and "GRANTED" not in statuses
 
     def register_consent(self, request: ConsentRequest) -> ConsentRecord:
         """Genera registro auditable de consentimiento con hash SHA-256 (HU-WEB-01 / TC-S1-04).

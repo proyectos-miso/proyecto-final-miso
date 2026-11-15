@@ -25,6 +25,8 @@ class UnderwritingRejectionDB(Base):
     requested_amount = Column(Float, nullable=False)
     max_approvable_amount = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
+    # Nula en los rechazos anteriores a la auditoría de suscripción (FE-WEB-08).
+    rules_version = Column(String(16), nullable=True)
 
 
 # asyncpg ejecuta una sentencia por llamada: la función y el disparador van por separado.
