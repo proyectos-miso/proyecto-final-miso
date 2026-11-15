@@ -3,9 +3,11 @@ import { LoginComponent } from './features/auth/login.component';
 import { CotizadorComponent } from './features/cotizador/cotizador.component';
 import { authGuard } from './core/guards/auth.guard';
 import { roleGuard } from './core/guards/role.guard';
+import { solventaGuard } from './core/guards/solventa.guard';
 import { GestionComponent } from './features/gestion/gestion.component';
 import { ClaimsListComponent } from './features/siniestros/claims-list.component';
 import { ClaimFileComponent } from './features/siniestros/claim-file.component';
+import { PartnersComponent } from './features/socios/partners.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'login', pathMatch: 'full' },
@@ -14,6 +16,7 @@ export const routes: Routes = [
   { path: 'gestion', component: GestionComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'siniestros', component: ClaimsListComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'siniestros/:claimNumber', component: ClaimFileComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
+  { path: 'socios', component: PartnersComponent, canActivate: [authGuard, roleGuard(['analyst']), solventaGuard] },
   { path: '**', redirectTo: 'login' },
 ];
 
