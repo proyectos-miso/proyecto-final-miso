@@ -108,6 +108,6 @@ describe('AppComponent (HU-WEB-13)', () => {
 
     solventa.set(true);
     fixture.detectChanges();
-    expect(links()).toEqual(['Pólizas', 'Siniestros', 'Socios']);
+    expect(links()).toEqual(['Pólizas', 'Siniestros', 'Socios', 'Operación']);
   });
 });

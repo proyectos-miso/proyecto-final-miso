@@ -17,6 +17,12 @@ export const routes: Routes = [
   { path: 'siniestros', component: ClaimsListComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'siniestros/:claimNumber', component: ClaimFileComponent, canActivate: [authGuard, roleGuard(['analyst'])] },
   { path: 'socios', component: PartnersComponent, canActivate: [authGuard, roleGuard(['analyst']), solventaGuard] },
+  {
+    path: 'operacion',
+    // Diferida: el tablero solo lo abre el equipo de Solventa y no pesa en el bundle inicial.
+    loadComponent: () => import('./features/operacion/operations.component').then((m) => m.OperationsComponent),
+    canActivate: [authGuard, roleGuard(['analyst']), solventaGuard],
+  },
   { path: '**', redirectTo: 'login' },
 ];
 
