@@ -278,3 +278,11 @@ async def test_el_ingreso_entrega_un_token_de_reporte_atado_a_su_refresh(postgre
     assert report["sid"] == refresh["sid"]
     remaining = report["exp"] - datetime.now(timezone.utc).timestamp()
     assert 6 * 24 * 3600 < remaining <= 7 * 24 * 3600
+
+
+async def test_reportes_distintos_enviados_al_mismo_tiempo_reciben_radicados_distintos(async_client, postgres_session, storage, policy):
+    responses = await asyncio.gather(*(send(async_client, report_body(policy)) for _ in range(5)))
+
+    assert [r.status_code for r in responses] == [201] * 5
+    assert len({r.json()["claim_number"] for r in responses}) == 5
+    assert await claims_count(postgres_session) == 5

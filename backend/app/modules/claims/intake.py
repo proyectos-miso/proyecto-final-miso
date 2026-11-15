@@ -68,6 +68,12 @@ class PhotoRejectedError(Exception):
         self.message = message
 
 
+async def next_claim_number(session: AsyncSession, moment: datetime) -> str:
+    """Radicado SIN-AAAA-NNNNN de la secuencia: único aunque dos siniestros se registren a la vez (HU-MOV-10)."""
+    sequence = await session.scalar(select(CLAIM_NUMBER_SEQ.next_value()))
+    return f"SIN-{moment.year}-{sequence:05d}"
+
+
 def receipt(claim: ClaimDB) -> ClaimReceipt:
     return ClaimReceipt(claim_number=claim.claim_number, status=claim.status, reported_at=claim.reported_at)
 
@@ -104,8 +110,7 @@ class ClaimIntake:
         policy = await self.active_policy(session, document_number, report.policy_number)
         checked_photos(report, files)
         reported_at = self.now()
-        sequence = await session.scalar(select(CLAIM_NUMBER_SEQ.next_value()))
-        claim_number = f"SIN-{reported_at.year}-{sequence:05d}"
+        claim_number = await next_claim_number(session, reported_at)
         photos = []
         for photo in report.photos:
             key = f"siniestros/{claim_number}/{photo.position}.jpg"
