@@ -292,12 +292,13 @@ class ClaimService:
     async def register_claim(
         self, session: AsyncSession, claim_number: str, policy_number: str, reported_at: datetime,
         description: Optional[str] = None, coverage_id: Optional[str] = None, photos: Optional[List[NewPhoto]] = None,
-        origin: str = "APP", parametric_event: Optional[dict] = None,
+        origin: str = "APP", parametric_event: Optional[dict] = None, client_report_id: Optional[str] = None,
     ) -> ClaimDB:
         """Punto de entrada para crear un siniestro. Uno paramétrico que cumple su regla se liquida solo (AC-12)."""
         claim = ClaimDB(
             claim_number=claim_number, policy_number=policy_number, status="REPORTED", reported_at=reported_at,
             origin=origin, coverage_id=coverage_id, description=description, parametric_event=parametric_event,
+            client_report_id=client_report_id,
         )
         session.add(claim)
         for photo in photos or []:

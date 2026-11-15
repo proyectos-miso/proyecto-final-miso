@@ -1,14 +1,28 @@
-"""Router BFF del asegurado en la app móvil: billetera (HU-MOV-04), siniestros, carátula, renovación y avisos (HU-MOV-11)."""
-from typing import Any, Dict
+"""Router BFF del asegurado en la app móvil: billetera (HU-MOV-04), siniestros, carátula, renovación y avisos (HU-MOV-11),
+y envío del reporte del siniestro (HU-MOV-09)."""
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
+import jwt
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Response, UploadFile, status
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
-from app.core.security import require_roles
+from app.core.security import decode_access_token, require_roles, security_bearer
 from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
 from app.modules.claims.insured import InsuredClaims, claims_of
+from app.modules.claims.intake import (
+    MAX_PHOTO_BYTES,
+    MAX_PHOTOS,
+    ClaimReceipt,
+    ClaimReportRequest,
+    PhotoRejectedError,
+    PhotoTooLargeError,
+    PolicyNotAvailableError,
+    claim_intake,
+)
 from app.modules.identity.db_models import InsuredAccountDB
 from app.modules.identity.service import InvalidTokenError, insured_auth_service
 from app.modules.notifications.service import PushTokenRequest, notification_service
@@ -16,7 +30,6 @@ from app.modules.policy import document as policy_document
 from app.modules.policy.models import CaratulaLink, InsuredPolicies, PolicyDB, PolicyOperationResult
 from app.modules.policy.operations import NotRenewableError, policy_operations
 from app.modules.policy.service import policy_service
-from sqlalchemy import select
 
 router = APIRouter(prefix="/insured", tags=["Asegurado"])
 
@@ -114,3 +127,80 @@ async def register_push_token(
 ):
     """Registra el teléfono para recibir avisos de siniestros y vencimientos (HU-MOV-11, RC-15)."""
     await notification_service.register(db, account.document_number, request.token)
+
+
+UNAUTHORIZED = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Sesión revocada o vencida.",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+
+async def reporting_account(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+    db: AsyncSession = Depends(get_db_session),
+) -> InsuredAccountDB:
+    """El token de acceso de la sesión o, con la app cerrada, el token que solo sirve para reportar (SR-02)."""
+    if credentials is None:
+        raise UNAUTHORIZED
+    try:
+        claims = decode_access_token(credentials.credentials)
+    except jwt.PyJWTError:
+        raise UNAUTHORIZED
+    if claims.get("role") != "insured":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permisos insuficientes para acceder a este recurso")
+    try:
+        if claims.get("type") == "access":
+            return await insured_auth_service.account_for_access(db, claims)
+        return await insured_auth_service.account_for_report(db, claims)
+    except InvalidTokenError:
+        raise UNAUTHORIZED
+
+
+async def read_photo(upload: Optional[UploadFile]) -> Optional[bytes]:
+    if upload is None:
+        return None
+    content = await upload.read(MAX_PHOTO_BYTES + 1)
+    if len(content) > MAX_PHOTO_BYTES:
+        raise PhotoTooLargeError()
+    return content
+
+
+@router.post("/claims", response_model=ClaimReceipt, status_code=status.HTTP_201_CREATED)
+async def report_claim(
+    response: Response,
+    report: str = Form(..., max_length=20_000),
+    photo_1: Optional[UploadFile] = File(None),
+    photo_2: Optional[UploadFile] = File(None),
+    photo_3: Optional[UploadFile] = File(None),
+    photo_4: Optional[UploadFile] = File(None),
+    photo_5: Optional[UploadFile] = File(None),
+    account: InsuredAccountDB = Depends(reporting_account),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+):
+    """Registra el reporte una sola vez, con las fotos verificadas contra su huella (HU-MOV-09, AC-03 y AC-06)."""
+    try:
+        request = ClaimReportRequest.model_validate_json(report)
+    except ValidationError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="El reporte no tiene el formato esperado.")
+    try:
+        uploads = [photo_1, photo_2, photo_3, photo_4, photo_5][:MAX_PHOTOS]
+        files = {position: content for position, upload in enumerate(uploads, start=1)
+                 if (content := await read_photo(upload)) is not None}
+        result, created = await claim_intake.receive(db, storage, account.document_number, request, files)
+    except PolicyNotAvailableError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos una póliza vigente para este reporte.")
+    except PhotoTooLargeError:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Cada foto puede pesar máximo 2 MB.")
+    except PhotoRejectedError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message)
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No pudimos guardar las fotos. El envío se reintentará solo.",
+            headers={"Retry-After": "30"},
+        )
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return result

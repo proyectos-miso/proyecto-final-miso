@@ -19,6 +19,7 @@ from app.modules.identity.models import (
     OtpResponse,
     PasswordForgotRequest,
     PasswordResetRequest,
+    LogoutRequest,
     RefreshTokenRequest,
     TokenPair,
 )
@@ -109,9 +110,9 @@ async def login(request: InsuredLoginRequest, http: Request, db: AsyncSession = 
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db_session)):
+async def logout(request: LogoutRequest, db: AsyncSession = Depends(get_db_session)):
     try:
-        await insured_auth_service.logout(db, request.refresh_token)
+        await insured_auth_service.logout(db, request.refresh_token, request.keep_reporting)
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de sesión inválido.")
 

@@ -133,6 +133,12 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS expert_id VARCHAR(32) REFERENCES experts(expert_id), "
                 "ADD COLUMN IF NOT EXISTS settled_amount DOUBLE PRECISION"
             ))
+            # HU-MOV-09: el mismo reporte del teléfono es el mismo siniestro.
+            await conn.execute(text("ALTER TABLE claims ADD COLUMN IF NOT EXISTS client_report_id VARCHAR(36)"))
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_claims_client_report_id ON claims (client_report_id)"
+            ))
+            await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS claim_number_seq"))
         try:
             async with engine.begin() as conn:
                 await create_search_indexes(conn)
