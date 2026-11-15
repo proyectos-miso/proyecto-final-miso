@@ -12,8 +12,6 @@ Cuando un tercero que no tenemos es necesario (pasarela bancaria, oráculo de vu
 
 | Nota | Historia | Responsable | Brechas |
 |---|---|---|---|
-| [HU-WEB-12.md](HU-WEB-12.md) | Cuotas por socio (#66) | Oscar | RC-02, RC-03, RC-04, RC-06, RC-07, RC-08, RC-09, RC-10, RC-23, RC-24, RC-25 (completadas en `specs/HU-WEB-12-recibir-un-rechazo-claro-al-superar-la-cuota-con/`) |
-| [HU-MOV-08.md](HU-MOV-08.md) | Fotos con ubicación y hora (#74) | David | RC-11 |
 | En `specs/HU-WEB-15-dictamen-y-liquidacion/` | Dictamen y liquidación (#115) | Juan Camilo | RC-01, RC-05, RC-17, RC-18, RC-19, RC-20, RC-21, RC-22, RC-28, RC-29 (ya en el spec) |
 | Completado en `hotfix/produccion` | Hotfix de producción, seguridad y CI/CD | Oscar | RC-30, RC-31, RC-33, RC-35, RC-36 (cerrados) |
 
