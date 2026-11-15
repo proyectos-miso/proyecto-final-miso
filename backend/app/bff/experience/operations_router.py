@@ -41,6 +41,7 @@ from app.modules.policy.operations import (
     policy_operations,
 )
 from app.modules.rating import partners
+from app.modules.reports import dashboard
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
@@ -313,6 +314,22 @@ async def approve_partner_production(
         "quota_limit": partner.quota_limit,
         "message": f"Socio {partner.name} promovido a producción con cuota de {partner.quota_limit} cotizaciones/hora.",
     }
+
+
+# -- Tablero operativo (FE-WEB-07): solo el equipo de Solventa -------------------------------------
+
+
+@router.get("/operations/indicators", response_model=dashboard.OperationsIndicators)
+async def operations_indicators(
+    response: Response,
+    period: dashboard.Period = Query("today"),
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+    checks: Dict[str, dashboard.Check] = Depends(dashboard.get_dependency_checks),
+):
+    """Indicadores del periodo en hora de Colombia, latencia contra la meta y estado de cada dependencia."""
+    response.headers["Cache-Control"] = "no-store"
+    return await dashboard.build_indicators(db, period, checks)
 
 
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)
