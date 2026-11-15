@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Security status | SECURITY_VERIFIED |
-| Evaluated on | 2026-10-24 |
+| Evaluated on | 2026-11-15 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-WEB-14-emision-de-poliza-embebida-b2b |
 
 <!-- Status: IN_PROGRESS, IMPLEMENTED, SECURITY_TESTS_PENDING, SECURITY_REVIEW_PENDING, RISK_ACCEPTED,
@@ -22,7 +22,7 @@
 - [x] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
 - [x] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
 - [ ] Security review: la aprobación del pull request.
-- [ ] Closeout: every acceptance criterion MET with evidence.
+- [x] Closeout: every acceptance criterion MET with evidence.
 - [x] `python sdd/tools/sdd.py spec validate` reports no errors.
 
 ## Security reviews
@@ -49,3 +49,12 @@
 
 | Criterion | Result | Evidence |
 |---|---|---|
+| AC-01 | MET | TC-01: backend/tests/integration/test_partner_policy_api.py::test_issue_partner_policy_success |
+| AC-02 | MET | TC-02: backend/tests/integration/test_partner_policy_api.py::test_issue_policy_cross_tenant_forbidden |
+| AC-03 | MET | TC-05: backend/tests/unit/test_partner_policy.py::test_issue_expired_quote_rejected; backend/tests/integration/test_partner_policy_api.py::test_issue_expired_quote_rejected |
+| AC-04 | MET | TC-03: backend/tests/integration/test_partner_policy_api.py::test_issue_policy_idempotency |
+| AC-05 | MET | TC-04: backend/tests/integration/test_partner_policy_api.py::test_get_policy_cross_tenant_not_found |
+| AC-06 | MET | TC-07: backend/tests/integration/test_partner_policy_api.py::test_list_partner_policies_isolated |
+| AC-07 | MET | TC-06: backend/tests/integration/test_partner_policy_api.py::test_policy_endpoints_unauthenticated |
+| QR-01 | MET | TC-08: backend/tests/integration/test_partner_policy_api.py::test_policy_issue_performance. p95 de 30 emisiones |
+| QR-02 | MET | TC-08: backend/tests/integration/test_partner_policy_api.py::test_policy_issue_performance. p95 de 30 lecturas |
