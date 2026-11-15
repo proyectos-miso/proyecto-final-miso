@@ -24,6 +24,7 @@ from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401
 from app.modules.policy.models import PolicyDB, PolicyEventDB, PolicySignatureDB  # noqa: F401
 from app.modules.claims.models import ClaimDB, ClaimPhotoDB, ClaimEventDB, ExpertDB  # noqa: F401
 from app.core.outbox import OutboxMessageDB  # noqa: F401
+from tests.db_name import TEST_DATABASE
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401
 from app.modules.payments.models import PaymentTransactionDB, PayoutDB  # noqa: F401
 from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401
@@ -304,12 +305,12 @@ async def test_db_session():
 
 @pytest.fixture
 async def postgres_session():
-    """PostgreSQL real en la base solventa_test, con las tablas recreadas; la API lo usa en lugar del doble."""
-    test_url = make_url(settings.DATABASE_URL).set(database="solventa_test")
+    """PostgreSQL real en la base de pruebas (solventa_test por defecto), con las tablas recreadas; la API lo usa en lugar del doble."""
+    test_url = make_url(settings.DATABASE_URL).set(database=TEST_DATABASE)
     admin = create_async_engine(test_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     async with admin.connect() as conn:
-        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = 'solventa_test'")):
-            await conn.execute(text("CREATE DATABASE solventa_test"))
+        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": TEST_DATABASE}):
+            await conn.execute(text(f'CREATE DATABASE "{TEST_DATABASE}"'))
     await admin.dispose()
 
     engine = create_async_engine(test_url)
