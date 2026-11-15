@@ -84,6 +84,38 @@ Archivo: `.github/workflows/deploy.yml`. Se dispara con cada fusión en `main` o
 Las credenciales de AWS y las llaves del backend son secretos del repositorio en GitHub; nunca se
 escriben en el código ni en los registros.
 
+## Secretos y variables del repositorio
+
+Se configuran en **Settings → Secrets and variables → Actions**. Los valores nunca van al repositorio, a
+los registros ni a los paquetes de spec.
+
+| Nombre | Tipo | Para qué | Si falta |
+|---|---|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Secretos | Despliegue con Terraform y ECR | No se despliega |
+| `DB_PASSWORD`, `JWT_SECRET_KEY`, `OTP_SECRET_KEY` | Secretos | Base de datos, firma de los tokens y de los códigos | No se despliega |
+| `SONAR_TOKEN` | Secreto | Análisis de SonarCloud | Falla el check de SonarCloud |
+| `FIREBASE_CREDENTIALS_JSON` | Secreto | Push al asegurado (HU-MOV-11) | El backend funciona sin push; la app avisa al sincronizar |
+| `ORACLE_SECRET` | Secreto | Firma de los eventos del oráculo (HU-MOV-10, RC-26) | `POST /oracle/events` responde 503: no entran siniestros paramétricos |
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Secretos | Firma del APK de release (HU-MOV-09, RC-12) | El job `mobile-release` se omite |
+| `ANDROID_API_BASE_URL` | Variable | URL `https` del API para el APK de release | El job `mobile-release` se omite |
+
+**`ORACLE_SECRET`.** Texto aleatorio de al menos 32 caracteres que comparten el backend y el oráculo. Se
+genera con `python -c "import secrets; print(secrets.token_urlsafe(48))"`, se pega directamente en GitHub y
+se entrega al oráculo por un canal privado. Para rotarla se cambia en los dos lados a la vez.
+
+**APK de release (opcional, apagado).** El job `mobile-release` de `ci.yml` firma `assembleRelease` en cada
+push a `dev` y publica el APK como artefacto, pero solo si existen los cuatro secretos de la llave y la
+variable `ANDROID_API_BASE_URL`; sin ellos se omite sin fallar. Hoy el equipo prueba con el APK debug local,
+así que queda apagado. Para activarlo:
+
+1. Crear la llave fuera del repositorio:
+   `keytool -genkeypair -v -keystore solventa-release.jks -alias solventa -keyalg RSA -keysize 2048 -validity 10000`.
+2. Convertirla a texto y copiarla: en PowerShell,
+   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("solventa-release.jks")) | Set-Clipboard`.
+3. Crear los cuatro secretos y la variable de la tabla.
+4. Guardar el `.jks` y sus contraseñas en un lugar seguro: si se pierden, las actualizaciones de la app ya
+   no se pueden firmar con la misma llave.
+
 ## Apagado y recreación de la infraestructura
 
 Para no generar costos entre entregas, la infraestructura se destruye con el flujo

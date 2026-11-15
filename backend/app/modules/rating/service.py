@@ -330,6 +330,7 @@ class RatingService:
                 financial_entity=request.financial_entity,
                 term_months=request.term_months,
                 birth_date=datetime.combine(bdate, datetime.min.time(), tzinfo=timezone.utc),
+                city=request.city,
             )
         )
         if partner_id and increment_quota:

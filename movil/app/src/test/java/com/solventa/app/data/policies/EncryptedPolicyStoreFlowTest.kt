@@ -240,6 +240,29 @@ class EncryptedPolicyStoreFlowTest {
         assertTrue(passphrases.all { bytes -> bytes.all { it == 0.toByte() } })
     }
 
+    // HU-MOV-10 AC-01: el envío guarda la constancia por id de cuenta junto a la copia; se cierra y se borra con ella.
+    @Test
+    fun `HU-MOV-10 guarda la constancia junto a la copia, se cierra y se borra al cerrar sesion`() = runBlocking {
+        val receipt = com.solventa.app.domain.claims.ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", LATER)
+        assertFalse("sin copia no se crea la base", store.keep(ACCOUNT, receipt))
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.keep(ACCOUNT, receipt))
+        assertEquals(receipt, store.readReceipt(EMAIL))
+        assertNull(store.readReceipt(OTHER_EMAIL))
+        assertEquals(StoredCopy.Found(WalletCopy(listOf(policy), SYNCED_AT)), store.read(EMAIL))
+
+        assertTrue(store.dismissReceipt(EMAIL))
+        assertNull(store.readReceipt(EMAIL))
+
+        store.keep(ACCOUNT, receipt.copy(claimNumber = "SIN-2026-00002"))
+        store.delete(EMAIL)
+        assertNull(store.readReceipt(EMAIL))
+        assertFalse(databaseOf(EMAIL).exists())
+    }
+
     private fun databaseOf(email: String): File =
         context.getDatabasePath("wallet_${PassphraseVault.accountId(email)}.db")
 

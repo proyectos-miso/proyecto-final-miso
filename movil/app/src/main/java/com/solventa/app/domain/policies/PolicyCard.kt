@@ -1,5 +1,6 @@
 package com.solventa.app.domain.policies
 
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimsCopy
 import java.time.Instant
 
@@ -65,4 +66,10 @@ interface PolicyStore {
 
     /** true solo la primera vez que se marca [key]: cada aviso sale una sola vez (HU-MOV-11, AC-09). */
     suspend fun markNotified(accountEmail: String, key: String): Boolean = false
+
+    /** Constancia oficial del último reporte recibido, en la misma copia cifrada; se borra con ella (HU-MOV-10, AC-01). */
+    suspend fun readReceipt(accountEmail: String): ClaimReceipt? = null
+
+    /** El asegurado cerró la constancia: deja de mostrarse. */
+    suspend fun dismissReceipt(accountEmail: String): Boolean = false
 }

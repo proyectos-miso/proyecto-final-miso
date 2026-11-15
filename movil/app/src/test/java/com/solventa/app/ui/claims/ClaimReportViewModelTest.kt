@@ -44,6 +44,7 @@ class ClaimReportViewModelTest {
     private var trusted: TrustedTime? = TrustedTime(1_730_000_000_000L, TimeSource.GNSS)
     private val now = Instant.parse("2026-11-05T15:00:00Z")
     private lateinit var vm: ClaimReportViewModel
+    private val scheduled = mutableListOf<Boolean>()
 
     private val active = samplePolicy(number = "POL-2026-00001")
     private val other = samplePolicy(number = "POL-2026-00002")
@@ -54,7 +55,7 @@ class ClaimReportViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        vm = ClaimReportViewModel(store, locator, { trusted }, Clock.fixed(now, ZoneOffset.UTC), thumbnail = { null as Bitmap? }, background = dispatcher)
+        vm = ClaimReportViewModel(store, locator, { trusted }, Clock.fixed(now, ZoneOffset.UTC), thumbnail = { null as Bitmap? }, background = dispatcher, sendScheduler = { scheduled += it })
     }
 
     @After
@@ -83,7 +84,7 @@ class ClaimReportViewModelTest {
     }
 
     @Test
-    fun `TC-12 la billetera ofrece reportar, retomar o ver el listo, y nada sin pólizas ni reporte`() = runTest(dispatcher) {
+    fun `TC-12 la billetera ofrece reportar, retomar o ver el de la cola, y nada sin pólizas ni reporte`() = runTest(dispatcher) {
         vm.refreshEntry(EMAIL, hasActivePolicy = false); advanceUntilIdle()
         assertEquals(ReportEntry.HIDDEN, vm.entry.value)
         vm.refreshEntry(EMAIL, hasActivePolicy = true); advanceUntilIdle()
@@ -98,9 +99,13 @@ class ClaimReportViewModelTest {
         assertEquals(ReportEntry.RESUME, vm.entry.value)
         store.readAs = null
 
-        store.markReady(EMAIL)
+        store.queue(EMAIL)
         vm.refreshEntry(EMAIL, hasActivePolicy = true); advanceUntilIdle()
-        assertEquals(ReportEntry.READY, vm.entry.value)
+        assertEquals(ReportEntry.QUEUED, vm.entry.value)
+
+        store.reports[EMAIL] = store.reports[EMAIL]!!.copy(state = ReportState.REJECTED, rejectionReason = "Póliza no vigente")
+        vm.refreshEntry(EMAIL, hasActivePolicy = true); advanceUntilIdle()
+        assertEquals(ReportEntry.REJECTED, vm.entry.value)
     }
 
     @Test
@@ -263,7 +268,7 @@ class ClaimReportViewModelTest {
     }
 
     @Test
-    fun `TC-11 enviar con todo deja el reporte listo y muestra el guardado`() = runTest(dispatcher) {
+    fun `TC-11 enviar con todo deja el reporte en cola, agenda el envío y lo muestra`() = runTest(dispatcher) {
         open()
         shoot()
         vm.continueToDetail()
@@ -272,7 +277,8 @@ class ClaimReportViewModelTest {
 
         vm.send(); advanceUntilIdle()
 
-        assertEquals(ReportState.READY, store.reports[EMAIL]!!.state)
+        assertEquals(ReportState.QUEUED, store.reports[EMAIL]!!.state)
+        assertEquals("HU-MOV-09 AC-01: el envío se agenda para salir ya si hay red", listOf(true), scheduled)
         assertEquals("Golpe en la puerta", store.reports[EMAIL]!!.description)
         assertEquals(ClaimScreen.SAVED, vm.uiState.value.screen)
         assertTrue(vm.uiState.value.justSaved)
@@ -327,10 +333,10 @@ class ClaimReportViewModelTest {
     }
 
     @Test
-    fun `TC-24 un reporte listo se abre en el guardado y se puede descartar`() = runTest(dispatcher) {
+    fun `TC-24 un reporte en cola se abre en su estado y se puede descartar`() = runTest(dispatcher) {
         open()
         shoot()
-        store.markReady(EMAIL)
+        store.queue(EMAIL)
         vm.leave(); advanceUntilIdle()
 
         open()

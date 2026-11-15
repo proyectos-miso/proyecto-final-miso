@@ -4,8 +4,11 @@ interface AuthApi {
     suspend fun requestOtp(email: String): OtpResult
     suspend fun login(email: String, password: String, otpCode: String): LoginResult
 
-    /** true si el servidor revocó el refresh token. */
-    suspend fun logout(refreshToken: String): Boolean
+    /**
+     * true si el servidor revocó el refresh token. Con [keepReporting] sigue sirviendo el token de reporte, para
+     * enviar la cola con la app cerrada; sin él se revoca toda la sesión (HU-MOV-09).
+     */
+    suspend fun logout(refreshToken: String, keepReporting: Boolean = false): Boolean
 
     /** Renueva la sesión; el backend rota el refresh token en cada renovación (HU-MOV-07). */
     suspend fun refresh(refreshToken: String): RefreshResult

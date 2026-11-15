@@ -9,6 +9,7 @@ import com.solventa.app.domain.claims.CaptureLocator
 import com.solventa.app.domain.claims.CapturedPhoto
 import com.solventa.app.domain.claims.ClaimReport
 import com.solventa.app.domain.claims.ClaimReportStore
+import com.solventa.app.domain.claims.ClaimSendScheduler
 import com.solventa.app.domain.claims.ClaimRules
 import com.solventa.app.domain.claims.LocationAccess
 import com.solventa.app.domain.claims.LocationResult
@@ -36,8 +37,8 @@ enum class ClaimScreen { EVIDENCE, CAMERA, DETAIL, SAVED }
 /** Lo que impide abrir la cámara o tomar la foto, con su explicación (AC-03, AC-07, AC-08, AC-17). */
 enum class CaptureNotice { LOCATION_DENIED, LOCATION_APPROXIMATE, LOCATION_OFF, LOCATION_TIMEOUT, CAMERA_DENIED, NO_CAMERA, CAPTURE_FAILED }
 
-/** Qué ofrece la billetera: nada, un reporte nuevo, retomar uno guardado o ver uno listo (AC-06, SR-13). */
-enum class ReportEntry { HIDDEN, NEW, RESUME, READY }
+/** Qué ofrece la billetera: nada, un reporte nuevo, retomar uno guardado, ver el que está en cola o el rechazado (AC-06, SR-13; HU-MOV-09). */
+enum class ReportEntry { HIDDEN, NEW, RESUME, QUEUED, REJECTED }
 
 data class PolicyOption(val policyNumber: String, val plan: String)
 
@@ -82,6 +83,7 @@ class ClaimReportViewModel(
     private val clock: Clock = Clock.systemUTC(),
     private val thumbnail: (ByteArray) -> Bitmap? = ::decodeThumbnail,
     private val background: CoroutineDispatcher = Dispatchers.Default,
+    private val sendScheduler: ClaimSendScheduler = ClaimSendScheduler {},
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ClaimUiState())
@@ -103,7 +105,11 @@ class ClaimReportViewModel(
     fun refreshEntry(accountEmail: String, hasActivePolicy: Boolean) {
         viewModelScope.launch {
             _entry.value = when (val stored = store.read(accountEmail)) {
-                is StoredReport.Found -> if (stored.report.isReady) ReportEntry.READY else ReportEntry.RESUME
+                is StoredReport.Found -> when (stored.report.state) {
+                    ReportState.DRAFT -> ReportEntry.RESUME
+                    ReportState.REJECTED -> ReportEntry.REJECTED
+                    ReportState.READY, ReportState.QUEUED -> ReportEntry.QUEUED
+                }
                 StoredReport.Unavailable, StoredReport.CannotOpen -> ReportEntry.RESUME
                 StoredReport.None -> if (hasActivePolicy) ReportEntry.NEW else ReportEntry.HIDDEN
             }
@@ -142,7 +148,7 @@ class ClaimReportViewModel(
                             loading = false,
                             report = report,
                             description = report.description,
-                            screen = if (report.isReady) ClaimScreen.SAVED else it.screen,
+                            screen = if (report.editable) it.screen else ClaimScreen.SAVED,
                         ).withMissing()
                     }
                     loadThumbnails(email, report)
@@ -295,8 +301,8 @@ class ClaimReportViewModel(
     }
 
     /**
-     * «Enviar» deja el reporte guardado y listo para enviar (AC-15, DEC-02), si tiene fotos, una póliza que sigue
-     * vigente en la copia y descripción (AC-04, AC-18).
+     * «Enviar» deja el reporte cifrado en la cola de envío y agenda el envío, que sale solo cuando hay red (HU-MOV-09,
+     * AC-01), si tiene fotos, una póliza que sigue vigente en la copia y descripción (HU-MOV-08, AC-04, AC-18).
      */
     fun send() {
         val email = account ?: return
@@ -306,11 +312,15 @@ class ClaimReportViewModel(
                 _uiState.update { it.copy(showMissing = true, missing = missing) }
                 return@launch
             }
-            if (!flushDetails(email) || !store.markReady(email)) {
+            if (!flushDetails(email) || !store.queue(email)) {
                 _uiState.update { it.copy(unavailable = true) }
                 return@launch
             }
-            _uiState.update { state -> state.copy(report = state.report?.copy(state = ReportState.READY), screen = ClaimScreen.SAVED, justSaved = true) }
+            sendScheduler.request(now = true)
+            val queuedAt = clock.instant()
+            _uiState.update { state ->
+                state.copy(report = state.report?.copy(state = ReportState.QUEUED, queuedAt = queuedAt), screen = ClaimScreen.SAVED, justSaved = true)
+            }
             refreshEntry(email, activePolicies.isNotEmpty())
         }
     }
@@ -341,7 +351,7 @@ class ClaimReportViewModel(
         val email = account
         locator.stop()
         viewModelScope.launch {
-            if (email != null && _uiState.value.report?.isReady == false) flushDetails(email)
+            if (email != null && _uiState.value.report?.editable == true) flushDetails(email)
             _uiState.update { it.copy(closed = true) }
             email?.let { refreshEntry(it, activePolicies.isNotEmpty()) }
         }
@@ -369,7 +379,7 @@ class ClaimReportViewModel(
     private suspend fun flushDetails(email: String): Boolean {
         val state = _uiState.value
         val report = state.report ?: return false
-        if (report.isReady) return true
+        if (!report.editable) return true
         return store.saveDetails(email, report.policyNumber, state.description)
     }
 

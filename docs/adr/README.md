@@ -22,6 +22,9 @@ team accepts or changes them.
 | [0006](0006-backend-persistence.md) | Persistence with async SQLAlchemy behind repository ports |
 | [0007](0007-backend-errors-and-responses.md) | Domain errors and HTTP error responses |
 | [0023](0023-backend-document-storage.md) | Documents in S3 behind presigned links |
+| [0025](0025-backend-schema-migrations.md) | Schema changes only through versioned migrations |
+| [0026](0026-backend-outbox-publisher.md) | Outbox events published to SQS at least once |
+| [0027](0027-backend-parametric-oracle.md) | Parametric claims from signed oracle events |
 
 ## Web portal (Angular)
 
@@ -45,6 +48,7 @@ team accepts or changes them.
 | [0021](0021-mobile-encrypted-local-database.md) | An encrypted local database per account with Room and SQLCipher |
 | [0022](0022-mobile-background-work.md) | Background work with WorkManager |
 | [0024](0024-mobile-claim-evidence.md) | Claim evidence encrypted on the device |
+| [0028](0028-mobile-report-token.md) | A report-only token in the session family |
 
 ## Infrastructure (Terraform)
 

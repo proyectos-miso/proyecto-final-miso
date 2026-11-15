@@ -220,3 +220,5 @@ class QuoteDB(Base):
     financial_entity = Column(String(120), nullable=True)
     term_months = Column(Integer, nullable=True)
     birth_date = Column(DateTime(timezone=True), nullable=True)
+    # Ciudad del asegurado: un evento del oráculo afecta a las pólizas de su ciudad (HU-MOV-10, RC-26).
+    city = Column(String(80), nullable=True, index=True)

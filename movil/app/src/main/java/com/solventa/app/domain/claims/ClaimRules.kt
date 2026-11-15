@@ -24,5 +24,5 @@ object ClaimRules {
         if (!hasDescription(report.description)) add(Missing.DESCRIPTION)
     }
 
-    fun canAddPhoto(report: ClaimReport): Boolean = !report.isReady && report.photos.size < MAX_PHOTOS
+    fun canAddPhoto(report: ClaimReport): Boolean = report.editable && report.photos.size < MAX_PHOTOS
 }

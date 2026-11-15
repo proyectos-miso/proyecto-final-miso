@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.sp
 import com.solventa.app.R
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
+import com.solventa.app.domain.claims.ClaimReceipt
+import com.solventa.app.ui.claims.OfficialReceiptCard
 import com.solventa.app.ui.claims.ReportEntry
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.SecondaryButton
@@ -86,6 +88,9 @@ fun WalletScreen(
     onRenew: (String) -> Unit = {},
     onDownloadCaratula: (String) -> Unit = {},
     onDismissNotice: () -> Unit = {},
+    receipt: ClaimReceipt? = null,
+    onOpenReceipt: ((String) -> Unit)? = null,
+    onDismissReceipt: () -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -103,6 +108,12 @@ fun WalletScreen(
         }
         if (uiState.stale) {
             item(key = "stale") { WarningBanner(stringResource(R.string.wallet_stale), icon = R.drawable.ic_clock) }
+        }
+        // La constancia oficial del reporte recibido queda arriba hasta que el asegurado la cierra (HU-MOV-10, AC-01).
+        receipt?.let { official ->
+            item(key = "receipt") {
+                OfficialReceiptCard(official, onOpen = onOpenReceipt?.let { open -> { open(official.claimNumber) } }, onDismiss = onDismissReceipt)
+            }
         }
         when {
             uiState.loading -> item(key = "loading") { Loading() }
@@ -536,7 +547,8 @@ private fun ReportButton(entry: ReportEntry, onClick: () -> Unit) {
     val text = stringResource(
         when (entry) {
             ReportEntry.RESUME -> R.string.claim_resume_button
-            ReportEntry.READY -> R.string.claim_ready_button
+            ReportEntry.QUEUED -> R.string.claim_queued_button
+            ReportEntry.REJECTED -> R.string.claim_rejected_button
             else -> R.string.claim_report_button
         },
     )

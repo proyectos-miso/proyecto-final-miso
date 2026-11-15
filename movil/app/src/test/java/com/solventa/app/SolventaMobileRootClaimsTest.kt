@@ -79,7 +79,7 @@ class SolventaMobileRootClaimsTest {
         override suspend fun requestOtp(email: String) = OtpResult.Sent("417902")
         override suspend fun login(email: String, password: String, otpCode: String): LoginResult =
             LoginResult.Success(SessionTokens("a", "r"), "María Ruiz")
-        override suspend fun logout(refreshToken: String) = true
+        override suspend fun logout(refreshToken: String, keepReporting: Boolean) = true
         override suspend fun refresh(refreshToken: String): RefreshResult = RefreshResult.Unavailable
         override suspend fun registerDevice(accessToken: String) = DeviceCredential("device-1", "secreto")
         override suspend fun biometricLogin(credential: DeviceCredential): LoginResult =

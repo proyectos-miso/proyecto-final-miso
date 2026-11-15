@@ -8,6 +8,7 @@ import com.solventa.app.data.policies.PassphraseVault
 import com.solventa.app.data.policies.Unwrapped
 import com.solventa.app.domain.claims.CaptureFix
 import com.solventa.app.domain.claims.CapturedPhoto
+import com.solventa.app.domain.claims.ClaimOutbox
 import com.solventa.app.domain.claims.ClaimReport
 import com.solventa.app.domain.claims.ClaimReportStore
 import com.solventa.app.domain.claims.ClaimRules
@@ -36,7 +37,8 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Reporte del siniestro en una base SQLCipher por cuenta, aparte de la billetera, y cada foto en su archivo con
  * AES-256-GCM (HU-MOV-08, ADR 0024). La frase solo existe en claro mientras dura cada operación. Nada se borra
- * solo: una llave invalidada o una base dañada dan CannotOpen y la persona decide descartar (CTL-10).
+ * solo: una llave invalidada o una base dañada dan CannotOpen y la persona decide descartar (CTL-10). También es
+ * la cola de envío por cuenta (HU-MOV-09).
  */
 class EncryptedClaimStore(
     private val context: Context,
@@ -46,7 +48,7 @@ class EncryptedClaimStore(
     // La app siempre cifra con SQLCipher; las pruebas en la JVM pasan SQLite sin cifrar para probar el flujo.
     private val openHelper: (ByteArray) -> SupportSQLiteOpenHelper.Factory = ::sqlcipher,
     private val newId: () -> String = { UUID.randomUUID().toString() },
-) : ClaimReportStore {
+) : ClaimReportStore, ClaimOutbox {
 
     // Un turno por cuenta: ninguna operación de la misma cuenta se cruza con otra, ni con el borrado (CTL-07).
     private val turns = ConcurrentHashMap<String, Mutex>()
@@ -110,8 +112,10 @@ class EncryptedClaimStore(
         }
     }
 
-    override suspend fun photoImage(accountEmail: String, photoId: String): PhotoImage {
-        val accountId = PassphraseVault.accountId(accountEmail)
+    override suspend fun photoImage(accountEmail: String, photoId: String): PhotoImage =
+        photo(PassphraseVault.accountId(accountEmail), photoId)
+
+    override suspend fun photo(accountId: String, photoId: String): PhotoImage {
         return inTurn(accountId) {
             val stored = vault.existing(accountId)
             if (stored !is Unwrapped.Secret) return@inTurn PhotoImage.Unavailable
@@ -134,10 +138,37 @@ class EncryptedClaimStore(
         }
     }
 
-    override suspend fun markReady(accountEmail: String): Boolean {
+    override suspend fun queue(accountEmail: String): Boolean {
         val accountId = PassphraseVault.accountId(accountEmail)
         return inTurn(accountId) {
-            withOpenReport(accountId) { dao, report -> dao.markReady(report.id, clock.millis()) > 0 } ?: false
+            withOpenReport(accountId) { dao, report -> dao.queue(report.id, clock.millis()) > 0 } ?: false
+        }
+    }
+
+    // Las cuentas salen del nombre de cada base, que ya es el id de la cuenta: no hace falta otra marca en disco.
+    override fun accounts(): List<String> =
+        context.databaseList().mapNotNull { name -> DATABASE_NAME.matchEntire(name)?.groupValues?.get(1) }
+
+    override suspend fun queued(accountId: String): StoredReport = inTurn(accountId) {
+        when (val stored = load(accountId)) {
+            is StoredReport.Found -> if (stored.report.state == ReportState.QUEUED) stored else StoredReport.None
+            else -> stored
+        }
+    }
+
+    override suspend fun countAttempt(accountId: String, reportId: String) {
+        inTurn(accountId) { withOpenReport(accountId) { dao, report -> if (report.id == reportId) dao.countAttempt(reportId) } }
+    }
+
+    override suspend fun reject(accountId: String, reportId: String, reason: String): Boolean = inTurn(accountId) {
+        withOpenReport(accountId) { dao, report -> report.id == reportId && dao.reject(reportId, reason, clock.millis()) > 0 } ?: false
+    }
+
+    // Si la persona lo descartó y empezó otro mientras se enviaba, el nuevo no se toca.
+    override suspend fun received(accountId: String, reportId: String) = withContext(NonCancellable + Dispatchers.IO) {
+        turn(accountId).withLock {
+            val current = (load(accountId) as? StoredReport.Found)?.report
+            if (current?.id == reportId) removeAll(accountId)
         }
     }
 
@@ -250,6 +281,7 @@ class EncryptedClaimStore(
         return try {
             db = Room.databaseBuilder(context, ClaimDatabase::class.java, fileName(accountId))
                 .openHelperFactory(openHelper(passphrase))
+                .addMigrations(ClaimDatabase.MIGRATION_1_2)
                 .build()
             Opened.Done(block(db))
         } catch (e: CancellationException) {
@@ -279,6 +311,7 @@ class EncryptedClaimStore(
         const val PHOTO_SUFFIX = ".bin"
         const val PARTIAL_SUFFIX = ".partial"
         const val ROOM_INTEGRITY_FAILURE = "Room cannot verify the data integrity"
+        val DATABASE_NAME = Regex("""claims_([0-9a-f]{32})\.db""")
         val sqlcipherLoaded: Unit by lazy { System.loadLibrary("sqlcipher") }
 
         fun sqlcipher(passphrase: ByteArray): SupportSQLiteOpenHelper.Factory {
@@ -292,10 +325,13 @@ private fun ReportEntity.toReport(photos: List<EvidencePhoto>) = ClaimReport(
     id = id,
     policyNumber = policyNumber,
     description = description,
-    state = ReportState.valueOf(state),
+    // Un «listo» que quedara sin migrar se trata como en cola.
+    state = ReportState.valueOf(state).let { if (it == ReportState.READY) ReportState.QUEUED else it },
     photos = photos,
     createdAt = Instant.ofEpochMilli(createdAtEpochMillis),
     updatedAt = Instant.ofEpochMilli(updatedAtEpochMillis),
+    queuedAt = queuedAtEpochMillis?.let(Instant::ofEpochMilli),
+    rejectionReason = rejectionReason,
 )
 
 private fun PhotoEntity.toPhoto() = EvidencePhoto(

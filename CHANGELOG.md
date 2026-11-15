@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- HU-MOV-10: constancia del reporte con radicado provisional `OFF-AAAA-XXXX` mientras está en cola y oficial `SIN-AAAA-NNNNN` al recibirse; siniestros paramétricos desde eventos firmados del oráculo (`POST /oracle/events`, RC-26); publicador del outbox hacia SQS con `ClaimFiled` (RC-14); migraciones versionadas con Alembic aplicadas al arrancar (RC-13).
+- HU-MOV-09: el reporte del siniestro queda en una cola cifrada y la app lo envía sola al recuperar la señal, aunque esté cerrada, con un token que solo sirve para reportar; `POST /insured/claims` lo registra una sola vez con radicado, verifica la huella SHA-256 de cada foto y las guarda en S3; los pendientes se ven en «Mis siniestros»; el CI firma el APK de release cuando tiene la llave (RC-11, RC-12).
 - **Hotfix · Configuración de producción (`HOTFIX-configuracion-de-produccion`, RC-30, RC-33):**
   - Inyección explícita de `ENVIRONMENT=production` en la tarea ECS Fargate (`terraform/modules/ecs/main.tf`), garantizando que el backend desactive `/docs`, `/redoc`, `/openapi.json`, impida la siembra de usuarios ficticios y no devuelva códigos OTP en respuestas HTTP (RC-30).
   - Almacenamiento seguro de `DB_PASSWORD` en AWS Secrets Manager cifrado con KMS (`terraform/modules/rds/main.tf`) con generación automática (`random_password`) e inyección en ECS mediante bloque `secrets` con permisos `secretsmanager:GetSecretValue` y `kms:Decrypt` en `execution_role`, eliminando credenciales en texto plano (RC-33).

@@ -133,7 +133,8 @@
     <!-- Reporte de siniestro con fotos (HU-MOV-08) -->
     <string name="claim_report_button">Reportar un siniestro</string>
     <string name="claim_resume_button">Continuar el reporte del siniestro</string>
-    <string name="claim_ready_button">Ver el reporte listo para enviar</string>
+    <string name="claim_queued_button">Ver el reporte en cola de envío</string>
+    <string name="claim_rejected_button">Ver por qué no se recibió el reporte</string>
     <string name="claim_title">Reportar siniestro</string>
     <string name="claim_step_evidence">Paso 1 de 2 · Evidencia</string>
     <string name="claim_step_detail">Paso 2 de 2 · Detalle</string>
@@ -176,17 +177,21 @@
     <string name="claim_photos_attached">%1$d de 5 fotos</string>
     <string name="claim_back">Atrás</string>
     <string name="claim_send">Enviar reporte</string>
-    <string name="claim_saved_title">Reporte guardado</string>
-    <string name="claim_saved_heading">Reporte guardado en el teléfono</string>
-    <string name="claim_saved_body">Quedó cifrado y listo para enviar.</string>
-    <string name="claim_ready_body">Este reporte está listo para enviar y ya no se puede cambiar.</string>
+    <string name="claim_queued_title">Reporte en cola</string>
+    <string name="claim_queued_heading">Reporte en cola de envío</string>
+    <string name="claim_queued_body">Quedó cifrado en el teléfono y se envía solo en cuanto haya señal, aunque cierre la app. Con conexión sale en segundos.</string>
+    <string name="claim_queued_locked">Este reporte ya no se puede cambiar. Cuando se reciba lo verá en Mis siniestros.</string>
+    <string name="claim_rejected_title">Reporte no recibido</string>
+    <string name="claim_rejected_heading">El reporte no se pudo recibir</string>
+    <string name="claim_rejected_action">Descarte este reporte y repórtelo de nuevo. Mientras tanto no se vuelve a enviar.</string>
     <string name="claim_summary">Resumen</string>
     <string name="claim_summary_policy">Póliza</string>
     <string name="claim_summary_photos">Fotos</string>
     <string name="claim_summary_place">Lugar</string>
     <string name="claim_summary_time">Hora</string>
     <string name="claim_summary_state">Estado</string>
-    <string name="claim_state_ready">Listo para enviar</string>
+    <string name="claim_state_queued">Pendiente de envío</string>
+    <string name="claim_state_rejected">No recibido</string>
     <string name="claim_back_to_wallet">Volver a la billetera</string>
     <string name="claim_discard">Descartar el reporte</string>
     <string name="claim_discard_title">¿Descartar el reporte?</string>
@@ -243,7 +248,9 @@
     <string name="claim_pane_evidence_saved">Se guardó la foto %1$d. Paso 1 de 2: fotos del siniestro</string>
     <string name="claim_pane_camera">Cámara del reporte: foto %1$d de hasta 5</string>
     <string name="claim_pane_detail">Paso 2 de 2: detalle del siniestro</string>
-    <string name="claim_pane_ready">Reporte listo para enviar</string>
+    <string name="claim_pane_queued">Reporte en cola de envío</string>
+    <string name="claim_pane_rejected">Reporte no recibido</string>
+    <string name="claim_pane_received">Reporte recibido</string>
     <string name="claim_pane_unavailable">Reporte no disponible</string>
     <string name="claim_pane_cannot_open">No se pudo abrir el reporte</string>
 
@@ -264,6 +271,15 @@
     <string name="claims_review_title">Cómo pedir una revisión</string>
     <string name="claims_loading">Cargando sus siniestros</string>
     <string name="claims_not_found">Este siniestro ya no está en la lista.</string>
+    <string name="claims_pending_title">Pendiente de envío</string>
+    <string name="claims_pending_detail">Póliza %1$s · reportado el %2$s</string>
+    <string name="claims_pending_hint">Se envía solo en cuanto haya señal</string>
+    <string name="claims_pending_description">Reporte pendiente de envío, radicado provisional %3$s, póliza %1$s, reportado el %2$s. Se envía solo en cuanto haya señal.</string>
+    <string name="claims_pending_number">Radicado provisional %1$s</string>
+    <string name="claims_replaces">Reemplaza el radicado provisional %1$s</string>
+    <string name="claims_rejected_title">Reporte no recibido</string>
+    <string name="claims_rejected_description">Reporte no recibido, póliza %1$s. %2$s</string>
+    <string name="claims_open_report">Ver el reporte</string>
     <string name="wallet_expires_soon">Tu póliza vence el %1$s</string>
     <string name="wallet_renew">Renovar</string>
     <string name="wallet_download_caratula">Descargar carátula</string>
@@ -277,6 +293,22 @@
     <string name="wallet_caratula_title">Carátula %1$s</string>
     <string name="wallet_caratula_downloading">Descargando la carátula en Descargas.</string>
     <string name="wallet_dismiss_message">Cerrar mensaje</string>
+
+    <!-- Constancia del reporte (HU-MOV-10) -->
+    <string name="receipt_provisional_title">Constancia provisional</string>
+    <string name="receipt_official_title">Constancia oficial</string>
+    <string name="receipt_provisional_number">Radicado provisional</string>
+    <string name="receipt_official_number">Radicado oficial</string>
+    <string name="receipt_provisional_note">Radicado provisional — se reemplaza por el oficial al enviarse</string>
+    <string name="receipt_replaces">Reemplaza %1$s</string>
+    <string name="receipt_date">Fecha</string>
+    <string name="receipt_policy">Póliza</string>
+    <string name="receipt_received_heading">Su reporte fue recibido</string>
+    <string name="receipt_received_body">Siga su siniestro en Mis siniestros con el radicado oficial.</string>
+    <string name="receipt_provisional_spoken">Constancia provisional. Radicado provisional %1$s; se reemplaza por el oficial al enviarse. Fecha: %2$s. Póliza: %3$s.</string>
+    <string name="receipt_official_spoken">Constancia oficial. Radicado oficial %1$s, reemplaza %2$s. Fecha y hora: %3$s. Póliza: %4$s.</string>
+    <string name="receipt_open">Ver el siniestro</string>
+    <string name="receipt_dismiss">Cerrar la constancia</string>
     <string name="notice_channel_name">Avisos de Solventa</string>
     <string name="notice_public_title">Tiene un aviso de Solventa</string>
 </resources>

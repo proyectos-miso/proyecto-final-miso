@@ -2,8 +2,11 @@ package com.solventa.app.domain.claims
 
 import java.time.Instant
 
-/** Estado del reporte en esta historia: a medias o listo para enviar (HU-MOV-08, AC-15 y AC-19). */
-enum class ReportState { DRAFT, READY }
+/**
+ * Estado del reporte: a medias, en cola de envío o rechazado por el servidor (HU-MOV-09). READY es el «listo» de
+ * HU-MOV-08: la migración a la versión 2 lo pasa a QUEUED y solo queda para leer datos antiguos.
+ */
+enum class ReportState { DRAFT, READY, QUEUED, REJECTED }
 
 /** De dónde sale la hora que no depende del reloj que ajusta la persona (AC-10). */
 enum class TimeSource { GNSS, NETWORK }
@@ -37,8 +40,11 @@ data class ClaimReport(
     val photos: List<EvidencePhoto>,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val queuedAt: Instant? = null,
+    val rejectionReason: String? = null,
 ) {
-    val isReady: Boolean get() = state == ReportState.READY
+    /** Solo el borrador se edita; uno en cola o rechazado ya no (AC-19). */
+    val editable: Boolean get() = state == ReportState.DRAFT
 }
 
 /** Foto recién tomada, antes de cifrarla: los bytes JPEG sin EXIF y lo que se guarda con ella. */
@@ -95,8 +101,8 @@ interface ClaimReportStore {
     /** Borra la foto y su archivo, y vuelve a numerar las demás (AC-13). */
     suspend fun deletePhoto(accountEmail: String, photoId: String): Boolean
 
-    /** Pasa el borrador a listo para enviar (AC-15). */
-    suspend fun markReady(accountEmail: String): Boolean
+    /** Pasa el borrador a la cola de envío (HU-MOV-09, AC-01). */
+    suspend fun queue(accountEmail: String): Boolean
 
     /** Borra el reporte, sus fotos, su frase y su llave; no se cancela (AC-12, AC-13). */
     suspend fun delete(accountEmail: String)

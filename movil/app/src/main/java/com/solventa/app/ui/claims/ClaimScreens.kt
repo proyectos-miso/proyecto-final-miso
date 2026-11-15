@@ -70,9 +70,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.solventa.app.R
 import com.solventa.app.domain.claims.CaptureFix
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimRules
 import com.solventa.app.domain.claims.EvidencePhoto
 import com.solventa.app.domain.claims.Missing
+import com.solventa.app.domain.claims.ProvisionalNumber
+import com.solventa.app.domain.claims.ReportState
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.PrimaryButton
 import com.solventa.app.ui.theme.SecondaryButton
@@ -482,8 +485,8 @@ fun ClaimDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            // Como el mockup 5: con «Enviar» desactivado, el aviso dice siempre qué falta (AC-04).
-            if (state.missing.isNotEmpty()) MissingBanner(state.missing)
+            // Lo que falta se dice cuando el asegurado intenta enviar, no antes de que empiece a llenar (AC-04).
+            if (state.showMissing && state.missing.isNotEmpty()) MissingBanner(state.missing)
             if (state.policies.isEmpty()) {
                 WarningBanner(stringResource(R.string.claim_no_active_policies))
                 SecondaryButton(stringResource(R.string.claim_discard), onDiscard)
@@ -547,7 +550,7 @@ fun ClaimDetailScreen(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(16.dp)) {
             SecondaryButton(stringResource(R.string.claim_back), onBack, Modifier.weight(0.4f))
-            PrimaryButton(stringResource(R.string.claim_send), onSend, Modifier.weight(0.6f), enabled = state.missing.isEmpty())
+            PrimaryButton(stringResource(R.string.claim_send), onSend, Modifier.weight(0.6f), enabled = state.policies.isNotEmpty())
         }
     }
 }
@@ -638,14 +641,41 @@ private fun missingText(missing: Missing): Int = when (missing) {
     Missing.DESCRIPTION -> R.string.claim_missing_description
 }
 
-/** Reporte guardado y listo para enviar; uno listo se ve sin poder editarlo y se puede descartar (AC-15, AC-19). */
+/**
+ * Reporte guardado y listo para enviar; uno listo se ve sin poder editarlo y se puede descartar (AC-15, AC-19). En cola
+ * muestra la constancia provisional y, si [official] es la de este reporte, la oficial que la reemplaza (HU-MOV-10).
+ */
 @Composable
-fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit, onDiscard: () -> Unit) {
+fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit, onDiscard: () -> Unit, official: ClaimReceipt? = null) {
     val report = state.report
     val first = report?.photos?.firstOrNull()
-    val pane = stringResource(if (justSaved) R.string.claim_saved_heading else R.string.claim_pane_ready)
+    val rejected = report?.state == ReportState.REJECTED
+    val provisional = report?.let(ProvisionalNumber::of)
+    val received = !rejected && official != null && official.provisionalNumber == provisional
+    val pane = stringResource(
+        when {
+            rejected -> R.string.claim_pane_rejected
+            received -> R.string.claim_pane_received
+            else -> R.string.claim_pane_queued
+        },
+    )
+    val heading = stringResource(
+        when {
+            rejected -> R.string.claim_rejected_heading
+            received -> R.string.receipt_received_heading
+            else -> R.string.claim_queued_heading
+        },
+    )
+    val stateLabel = stringResource(if (rejected) R.string.claim_state_rejected else R.string.claim_state_queued)
+    val colors = SolventaTheme.colors
     Column(Modifier.fillMaxSize().semantics { paneTitle = pane }) {
-        ClaimTopBar(stringResource(R.string.claim_saved_title), null, onDone, icon = R.drawable.ic_close, iconLabel = R.string.claim_back_to_wallet)
+        ClaimTopBar(
+            stringResource(if (rejected) R.string.claim_rejected_title else R.string.claim_queued_title),
+            null,
+            onDone,
+            icon = R.drawable.ic_close,
+            iconLabel = R.string.claim_back_to_wallet,
+        )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -659,21 +689,53 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
                 modifier = Modifier
                     .size(84.dp)
                     .clip(CircleShape)
-                    .background(SolventaTheme.colors.okSoft),
+                    .background(if (rejected) MaterialTheme.colorScheme.errorContainer else colors.okSoft),
             ) {
-                Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = SolventaTheme.colors.ok, modifier = Modifier.size(44.dp))
+                Icon(
+                    painterResource(if (rejected) R.drawable.ic_cloud_off else R.drawable.ic_check_circle),
+                    contentDescription = null,
+                    tint = if (rejected) MaterialTheme.colorScheme.error else colors.ok,
+                    modifier = Modifier.size(44.dp),
+                )
             }
+            // TalkBack anuncia el estado del envío al llegar y si cambia (QR-02).
             Text(
-                stringResource(R.string.claim_saved_heading),
+                heading,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.semantics { heading() },
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics {
+                    heading()
+                    liveRegion = LiveRegionMode.Polite
+                },
             )
-            Text(
-                stringResource(if (justSaved) R.string.claim_saved_body else R.string.claim_ready_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (rejected) {
+                report?.rejectionReason?.let { Text(it, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center) }
+                Text(
+                    stringResource(R.string.claim_rejected_action),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
+            } else if (received && official != null) {
+                Text(
+                    stringResource(R.string.receipt_received_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                OfficialReceiptCard(official)
+            } else {
+                Text(
+                    stringResource(if (justSaved) R.string.claim_queued_body else R.string.claim_queued_locked),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                if (report != null && provisional != null) {
+                    ProvisionalReceiptCard(provisional, report.queuedAt ?: report.updatedAt, report.policyNumber)
+                }
+            }
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -688,27 +750,26 @@ fun ClaimSavedScreen(state: ClaimUiState, justSaved: Boolean, onDone: () -> Unit
                         SummaryRow(R.string.claim_summary_place, formatCoordinates(it.fix), spoken = spokenPlace(it.fix))
                         SummaryRow(R.string.claim_summary_time, formatPhotoTime(it.capturedAt), spoken = spokenPhotoTime(it.capturedAt))
                     }
-                    val stateSpoken = stringResource(
-                        R.string.claim_spoken_summary,
-                        stringResource(R.string.claim_summary_state),
-                        stringResource(R.string.claim_state_ready),
-                    )
-                    Row(
+                    val stateSpoken = stringResource(R.string.claim_spoken_summary, stringResource(R.string.claim_summary_state), stateLabel)
+                    if (!received) Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .padding(top = 8.dp)
                             .clearAndSetSemantics { contentDescription = stateSpoken },
                     ) {
                         Text(stringResource(R.string.claim_summary_state), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        StatusChip(stringResource(R.string.claim_state_ready), ChipTone.NEUTRAL)
+                        StatusChip(stateLabel, if (rejected) ChipTone.ERROR else ChipTone.WARNING)
                     }
                 }
             }
         }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PrimaryButton(stringResource(R.string.claim_back_to_wallet), onDone)
-            TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.claim_discard), color = MaterialTheme.colorScheme.error)
+            // Recibido, ya no hay copia local que descartar (HU-MOV-09, AC-08).
+            if (!received) {
+                TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.claim_discard), color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

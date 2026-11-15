@@ -68,7 +68,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore)
+                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore, app.reportTokens)
             }
         }
     }
@@ -86,7 +86,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                ClaimReportViewModel(app.claimStore, AndroidCaptureLocator(app), AndroidTrustedClock())
+                ClaimReportViewModel(app.claimStore, AndroidCaptureLocator(app), AndroidTrustedClock(), sendScheduler = app.claimSendScheduler)
             }
         }
     }
@@ -95,7 +95,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                ClaimsViewModel(app.policySync, app.policyStore)
+                ClaimsViewModel(app.policySync, app.policyStore, app.claimStore)
             }
         }
     }
@@ -262,6 +262,7 @@ fun SolventaMobileRoot(
     when {
         uiState.isAuthenticated -> {
             val walletState by walletViewModel.uiState.collectAsState()
+            val receipt by walletViewModel.receipt.collectAsState()
             LaunchedEffect(uiState.currentAccountEmail, uiState.offline) {
                 uiState.currentAccountEmail?.let(walletViewModel::open)
             }
@@ -289,7 +290,7 @@ fun SolventaMobileRoot(
             if (claimOpen && claimViewModel != null && camera != null && email != null) {
                 LaunchedEffect(email, walletState.policies) { claimViewModel.open(email, walletState.policies.map { it.policy }) }
                 SecureWindow(secureScreens)
-                ClaimFlow(claimViewModel, camera, onClosed = { onClaimOpenChange(false) }, modifier = modifier)
+                ClaimFlow(claimViewModel, camera, onClosed = { onClaimOpenChange(false) }, modifier = modifier, receipt = receipt)
             } else if (claimsOpen && claimsViewModel != null && email != null) {
                 LaunchedEffect(email) { claimsViewModel.open(email) }
                 val claimsState by claimsViewModel.uiState.collectAsState()
@@ -310,6 +311,14 @@ fun SolventaMobileRoot(
                             null
                         },
                         modifier = modifier,
+                        onOpenPending = if (claimViewModel != null && camera != null) {
+                            {
+                                onClaimsOpenChange(false)
+                                onClaimOpenChange(true)
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             } else {
@@ -332,6 +341,16 @@ fun SolventaMobileRoot(
                     onRenew = walletViewModel::renew,
                     onDownloadCaratula = walletViewModel::downloadCaratula,
                     onDismissNotice = walletViewModel::dismissNotice,
+                    receipt = receipt,
+                    onOpenReceipt = if (claimsViewModel != null) {
+                        { claimNumber ->
+                            onClaimsOpenChange(true)
+                            onSelectedClaimChange(claimNumber)
+                        }
+                    } else {
+                        null
+                    },
+                    onDismissReceipt = walletViewModel::dismissReceipt,
                 )
             }
         }

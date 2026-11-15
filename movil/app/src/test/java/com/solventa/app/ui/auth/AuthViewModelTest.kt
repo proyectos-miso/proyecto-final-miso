@@ -66,6 +66,7 @@ class AuthViewModelTest {
     private lateinit var sync: FakePolicySync
     private lateinit var appScope: CoroutineScope
     private val claimStore = InMemoryClaimStore()
+    private val reportTokens = com.solventa.app.data.claims.MapReportTokens()
     private lateinit var viewModel: AuthViewModel
 
     @Before
@@ -88,7 +89,7 @@ class AuthViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore)
+    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore, reportTokens)
 
     /** El ViewModel dentro de una pantalla, para poder terminarla como Android cuando termina la actividad. */
     private fun inScreen(screen: ViewModelStore, policySync: PolicySync = sync): AuthViewModel =
@@ -259,6 +260,21 @@ class AuthViewModelTest {
 
         assertFalse(EMAIL in policyStore.copies)
         assertTrue(OTHER_EMAIL in policyStore.copies)
+    }
+
+    // HU-MOV-10: la constancia del último reporte vive en la copia de la cuenta y se borra con ella al cerrar sesión.
+    @Test
+    fun `HU-MOV-10 cerrar sesion borra la constancia del reporte recibido`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = emptyList()
+        policyStore.receipts[EMAIL] = com.solventa.app.domain.claims.ClaimReceipt(
+            "SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", java.time.Instant.parse("2026-11-14T10:00:00Z"),
+        )
+
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+
+        assertFalse(EMAIL in policyStore.receipts)
     }
 
     // HU-MOV-04 TC-07: con un 401 que la renovación no salva, la sincronización borra la copia y se pide ingresar.
@@ -899,6 +915,51 @@ class AuthViewModelTest {
         assertTrue(claimStore.deleted.isEmpty())
     }
 
+    // HU-MOV-09 SR-05: el token de reporte se borra con los datos de la cuenta.
+    @Test
+    fun `HU-MOV-09 cerrar sesion, la huella revocada o el cambio de contrasena borran el token de reporte`() {
+        val account = com.solventa.app.data.policies.PassphraseVault.accountId(EMAIL)
+        reportTokens.tokens[account] = "token-de-reporte"
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+        assertNull(reportTokens.read(account))
+
+        reportTokens.tokens[account] = "token-de-reporte"
+        authApi.biometricResult = LoginResult.InvalidCredentials
+        newViewModel().authenticateWithBiometrics(FakeBiometricAuthenticator())
+        assertNull(reportTokens.read(account))
+
+        reportTokens.tokens[account] = "token-de-reporte"
+        viewModel.openPasswordRecovery()
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+        assertNull(reportTokens.read(account))
+    }
+
+    // HU-MOV-09 AC-02: cerrar la app revoca el refresh pero conserva el token de reporte; cerrar sesión revoca todo.
+    @Test
+    fun `HU-MOV-09 al terminar la actividad revoca la sesion conservando el token de reporte`() {
+        val screen = ViewModelStore()
+        inScreen(screen).authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        screen.clear()
+
+        assertNull(repository.openSession)
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+        assertEquals(true, authApi.lastKeepReporting)
+    }
+
+    @Test
+    fun `HU-MOV-09 cerrar sesion revoca tambien el token de reporte`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+
+        viewModel.confirmLogout()
+
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+        assertEquals(false, authApi.lastKeepReporting)
+    }
+
     @Test
     fun `recuperar contrasena informa codigo invalido y clave debil`() {
         viewModel.openPasswordRecovery()
@@ -1180,6 +1241,7 @@ class AuthViewModelTest {
         var lastOtpEmail: String? = null
         var lastForgotEmail: String? = null
         var lastRevokedToken: String? = null
+        var lastKeepReporting: Boolean? = null
         var lastBiometricCredential: DeviceCredential? = null
         var lastRegisterToken: String? = null
         var lastRevokedDevice: String? = null
@@ -1198,8 +1260,9 @@ class AuthViewModelTest {
             return pendingLogin?.await() ?: loginResult
         }
 
-        override suspend fun logout(refreshToken: String): Boolean {
+        override suspend fun logout(refreshToken: String, keepReporting: Boolean): Boolean {
             lastRevokedToken = refreshToken
+            lastKeepReporting = keepReporting
             return logoutResult
         }
 

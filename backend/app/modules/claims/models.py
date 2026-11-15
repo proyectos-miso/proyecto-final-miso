@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, Sequence, String, Text
 
 from app.core.database import Base
 from app.core.immutable import make_immutable
@@ -12,6 +12,10 @@ from app.core.immutable import make_immutable
 ClaimStatus = Literal["REPORTED", "IN_REVIEW", "REJECTED", "SETTLED", "PAID"]
 ClaimOrigin = Literal["APP", "PARAMETRIC"]
 OPEN_STATUSES = ("REPORTED", "IN_REVIEW")
+
+
+# Radicado SIN-AAAA-NNNNN, como las pólizas (HU-MOV-09 y HU-MOV-10).
+CLAIM_NUMBER_SEQ = Sequence("claim_number_seq", metadata=Base.metadata)
 
 
 class ClaimDB(Base):
@@ -29,6 +33,8 @@ class ClaimDB(Base):
     assigned_to = Column(String(120), nullable=True)
     expert_id = Column(String(32), ForeignKey("experts.expert_id"), nullable=True)
     settled_amount = Column(Float, nullable=True)
+    # Identificador del reporte en el teléfono: el mismo reporte enviado dos veces es el mismo siniestro.
+    client_report_id = Column(String(36), nullable=True, unique=True)
 
 
 class ClaimPhotoDB(Base):

@@ -23,6 +23,7 @@ class InsuredLoginRequest(BaseModel):
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str
+    report_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
     full_name: str
@@ -30,6 +31,11 @@ class TokenPair(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+class LogoutRequest(RefreshTokenRequest):
+    # La app lo envía al cerrarse sin cerrar sesión: el token de reporte sigue sirviendo (HU-MOV-09).
+    keep_reporting: bool = False
 
 
 class DeviceRegistrationResponse(BaseModel):

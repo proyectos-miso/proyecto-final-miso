@@ -168,10 +168,11 @@ class SessionPolicySync(
         }
     }
 
-    // Si la sesión cambió mientras se obtenían los tokens, nadie los va a usar: se revocan.
+    // Si la sesión cambió mientras se obtenían los tokens, nadie los va a usar: se revocan. La familia de la sesión
+    // ya la resolvió quien la cerró (el cierre de sesión la revoca; cerrar la app la deja para el reporte en cola).
     private suspend fun adopt(from: OpenSession, to: OpenSession): Step {
         if (session.replace(from, to)) return Step.Ready(to)
-        authApi.logout(checkNotNull(to.tokens).refreshToken)
+        authApi.logout(checkNotNull(to.tokens).refreshToken, keepReporting = true)
         return Step.Done(SyncOutcome.NoSession)
     }
 

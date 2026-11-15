@@ -34,6 +34,10 @@ from app.modules.identity.models import TokenPair
 
 OTP_TTL = timedelta(minutes=5)
 REFRESH_TOKEN_TTL = timedelta(days=7)
+# Solo para enviar el reporte con la app cerrada (HU-MOV-09, SR-02). Pertenece a la familia de la sesión (`sid`):
+# cerrar la app revoca el refresh pero no la familia; el cierre de sesión explícito revoca las dos.
+REPORT_TOKEN_TTL = timedelta(days=7)
+REPORT_SCOPE = "claims:submit"
 
 PURPOSE_LOGIN = "login"
 PURPOSE_RESET = "password_reset"
@@ -234,10 +238,13 @@ class InsuredAuthService:
         await session.commit()
         return tokens
 
-    async def logout(self, session: AsyncSession, refresh_token: str) -> None:
-        """Revoca el refresh token (HU-MOV-12). Repetir el logout no falla."""
+    async def logout(self, session: AsyncSession, refresh_token: str, keep_reporting: bool = False) -> None:
+        """Revoca el refresh token (HU-MOV-12). Repetir el logout no falla.
+        Al cerrar la app (no la sesión) la app pide `keep_reporting` para que el reporte en cola siga saliendo (HU-MOV-09)."""
         claims = self._decode_refresh_token(refresh_token)
         await self._revoke_jti(session, claims)
+        if not keep_reporting and claims.get("sid") and await session.get(RevokedTokenDB, claims["sid"]) is None:
+            session.add(RevokedTokenDB(jti=claims["sid"], expires_at=self._clock() + REPORT_TOKEN_TTL))
         await session.commit()
 
     async def refresh(self, session: AsyncSession, refresh_token: str) -> TokenPair:
@@ -253,7 +260,7 @@ class InsuredAuthService:
         if lock is not None:
             raise AccountLockedError(lock.locked_until, policy.seconds_until(lock.locked_until, now))
         await self._revoke_jti(session, claims)
-        tokens = self._issue_tokens(account)
+        tokens = self._issue_tokens(account, sid=claims.get("sid"))
         await session.commit()
         return tokens
 
@@ -294,6 +301,17 @@ class InsuredAuthService:
         tokens = self._issue_tokens(account)
         await session.commit()
         return tokens
+
+    async def account_for_report(self, session: AsyncSession, claims: dict) -> InsuredAccountDB:
+        """Cuenta del token de reporte: solo vale con su versión y mientras su familia de sesión no esté revocada."""
+        if claims.get("type") != "report" or claims.get("scope") != REPORT_SCOPE or not claims.get("sid"):
+            raise InvalidTokenError()
+        if await session.get(RevokedTokenDB, claims["sid"]) is not None:
+            raise InvalidTokenError()
+        account = await session.get(InsuredAccountDB, claims["sub"])
+        if account is None or claims.get("ver", 0) != account.token_version:
+            raise InvalidTokenError()
+        return account
 
     async def account_for_access(self, session: AsyncSession, claims: dict) -> InsuredAccountDB:
         """Cuenta del token de acceso; una sesión revocada con token_version deja de valer (HU-MOV-04)."""
@@ -502,21 +520,31 @@ class InsuredAuthService:
             raise InvalidTokenError()
         return claims
 
-    def _issue_tokens(self, account: InsuredAccountDB) -> TokenPair:
+    def _issue_tokens(self, account: InsuredAccountDB, sid: Optional[str] = None) -> TokenPair:
+        sid = sid or uuid.uuid4().hex
         access_token = create_access_token(
             subject=account.user_id,
             role="insured",
             claims={"channel": "mobile", "type": "access", "ver": account.token_version},
         )
+        refresh_jti = uuid.uuid4().hex
         refresh_token = create_access_token(
             subject=account.user_id,
             role="insured",
-            claims={"channel": "mobile", "type": "refresh", "jti": uuid.uuid4().hex, "ver": account.token_version},
+            claims={"channel": "mobile", "type": "refresh", "jti": refresh_jti, "sid": sid, "ver": account.token_version},
             expires_delta=REFRESH_TOKEN_TTL,
+        )
+        report_token = create_access_token(
+            subject=account.user_id,
+            role="insured",
+            claims={"channel": "mobile", "type": "report", "scope": REPORT_SCOPE, "sid": sid,
+                    "ver": account.token_version},
+            expires_delta=REPORT_TOKEN_TTL,
         )
         return TokenPair(
             access_token=access_token,
             refresh_token=refresh_token,
+            report_token=report_token,
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             full_name=account.full_name,
         )

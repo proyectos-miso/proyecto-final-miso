@@ -33,6 +33,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.solventa.app.R
 import com.solventa.app.domain.claims.CaptureFix
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.LocationAccess
 import kotlinx.coroutines.delay
 import java.time.Clock
@@ -74,6 +75,7 @@ fun ClaimFlow(
     modifier: Modifier = Modifier,
     permissions: ClaimPermissions = AndroidClaimPermissions(LocalContext.current),
     clock: Clock = Clock.systemDefaultZone(),
+    receipt: ClaimReceipt? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val fix by viewModel.liveFix.collectAsState()
@@ -135,7 +137,13 @@ fun ClaimFlow(
                 onSend = viewModel::send,
                 onDiscard = { confirmDiscard = true },
             )
-            else -> ClaimSavedScreen(state, justSaved = state.justSaved, onDone = viewModel::leave, onDiscard = { confirmDiscard = true })
+            else -> ClaimSavedScreen(
+                state,
+                justSaved = state.justSaved,
+                onDone = viewModel::leave,
+                onDiscard = { confirmDiscard = true },
+                official = receipt,
+            )
         }
     }
 

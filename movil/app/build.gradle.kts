@@ -15,6 +15,11 @@ if (file("google-services.json").exists()) {
 val apiBaseUrl = (project.findProperty("apiBaseUrl") as String?) ?: "http://10.0.2.2:8000/api/v1/"
 // Las pantallas del reporte de siniestro bloquean capturas en release; -PsecureScreens=true lo activa en debug para probarlo (HU-MOV-08).
 val secureScreensInDebug = (project.findProperty("secureScreens") as String?) == "true"
+// Firma de release desde el entorno; la llave solo vive en los secretos de GitHub (HU-MOV-09, SR-06). Sin las
+// cuatro variables la release sale sin firmar y la depuración no cambia.
+val releaseKeystore = listOf("ANDROID_KEYSTORE_FILE", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
+    .associateWith { System.getenv(it).orEmpty() }
+    .takeIf { env -> env.values.all { it.isNotBlank() } }
 
 android {
     namespace = "com.solventa.app"
@@ -31,12 +36,24 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
+    releaseKeystore?.let { env ->
+        signingConfigs {
+            create("release") {
+                storeFile = file(env.getValue("ANDROID_KEYSTORE_FILE"))
+                storePassword = env.getValue("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = env.getValue("ANDROID_KEY_ALIAS")
+                keyPassword = env.getValue("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("boolean", "SECURE_SCREENS", "$secureScreensInDebug")
         }
         release {
             buildConfigField("boolean", "SECURE_SCREENS", "true")
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

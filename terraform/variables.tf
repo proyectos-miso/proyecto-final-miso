@@ -51,6 +51,13 @@ variable "jwt_secret_key" {
   }
 }
 
+variable "oracle_secret" {
+  description = "Llave compartida con el oráculo de eventos (HU-MOV-10, RC-26). Llega como TF_VAR_oracle_secret desde los secretos de CI; vacía, el canal queda cerrado"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "firebase_credentials_json" {
   description = "Cuenta de servicio de Firebase (JSON) para los push de HU-MOV-11. Llega como TF_VAR_firebase_credentials_json desde los secretos de CI; vacía, no hay push"
   type        = string
