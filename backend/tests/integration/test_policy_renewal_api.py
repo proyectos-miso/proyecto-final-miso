@@ -6,7 +6,14 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.policy.models import PolicyDB, PolicyEventDB
-from tests.integration.policy_search_fixtures import ALIADO, add_policies, headers, policy_row, seed_partners_and_users
+from tests.integration.policy_search_fixtures import (
+    ALIADO,
+    REVOCADO,
+    add_policies,
+    headers,
+    policy_row,
+    seed_partners_and_users,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -58,3 +65,18 @@ async def test_el_analista_de_un_socio_no_renueva_polizas_ajenas(async_client: A
     response = await async_client.post(RENEWAL.format("POL-2026-00011"), headers=headers(DEL_ALIADO))
 
     assert response.status_code == 404
+
+
+async def test_no_se_renueva_la_poliza_vencida_de_un_socio_revocado(async_client: AsyncClient, catalog):
+    revoked = policy_row("POL-2026-00015", "6677889900", partner_id=REVOCADO, status="EXPIRED")
+    revoked[1]["valid_until"] = datetime.now(timezone.utc) - timedelta(days=3)
+    await add_policies(catalog, [revoked])
+
+    response = await async_client.post(RENEWAL.format("POL-2026-00015"), headers=headers(ANALISTA))
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Socio revocado o inexistente"
+    catalog.expire_all()
+    policy = await catalog.get(PolicyDB, "POL-2026-00015")
+    assert policy.status == "EXPIRED" and policy.version == 1
+    assert await catalog.scalar(select(PolicyEventDB).where(PolicyEventDB.policy_number == "POL-2026-00015")) is None

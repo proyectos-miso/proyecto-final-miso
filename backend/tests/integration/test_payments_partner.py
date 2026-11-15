@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.modules.payments.models import PaymentTransactionDB
+from app.modules.rating.models import PartnerDB
 from tests.integration.policy_search_fixtures import BENEFICIARIES
 from tests.integration.otp_fixtures import signature_code
 
@@ -23,6 +24,10 @@ async def test_charge_premium_assigns_partner_id_from_authenticated_token(
     async_client: AsyncClient, postgres_session
 ):
     """TC-12: el cobro de prima adjudica la transacción al partner_id de los claims del token JWT."""
+    # Desde FE-WEB-05 el socio del asesor debe existir, estar activo y en producción para emitir y cobrar.
+    postgres_session.add(PartnerDB(partner_id="bancolombia", client_id="client_bancolombia", client_secret_hash="no-aplica",
+                                   name="Banco Aliado de Prueba", status="ACTIVE", quota_limit=10, quota_used=0))
+    await postgres_session.commit()
     # 1. Crear cotización y emitir póliza
     headers = partner_advisor_headers("bancolombia")
     quote_resp = await async_client.post(

@@ -14,6 +14,7 @@ from app.modules.claims.models import ClaimDB, ClaimEventDB
 from app.modules.notifications.service import NotificationService, PushTokenDB
 from app.modules.policy.models import CaratulaLink, PolicyDB, PolicyEventDB
 from app.modules.policy.operations import policy_operations
+from app.modules.rating.models import PartnerDB
 from tests.integration.test_insured_policies_api import MARIA_DOCUMENT, OTHER_DOCUMENT, add_policy, insured_headers
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("seeded_insured")]
@@ -119,6 +120,23 @@ async def test_renovar_poliza_de_otra_persona_responde_404(async_client: AsyncCl
     response = await async_client.post("/api/v1/insured/policies/POL-2026-11007/renewal", headers=insured_headers())
 
     assert response.status_code == 404
+
+
+async def test_la_app_no_renueva_la_poliza_vencida_de_un_socio_en_sandbox(async_client: AsyncClient, postgres_session):
+    postgres_session.add(PartnerDB(partner_id="socio-sandbox-1", client_id="client_socio_sandbox", client_secret_hash="no-aplica",
+                                   name="Socio en Sandbox", status="ACTIVE", quota_limit=10, quota_used=0, environment="sandbox"))
+    await add_policy(postgres_session, "POL-2026-11014", MARIA_DOCUMENT, "EXPIRED", NOW - timedelta(days=3))
+    policy = await postgres_session.get(PolicyDB, "POL-2026-11014")
+    policy.partner_id = "socio-sandbox-1"
+    await postgres_session.commit()
+
+    response = await async_client.post("/api/v1/insured/policies/POL-2026-11014/renewal", headers=insured_headers())
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Un socio en sandbox no emite pólizas reales"
+    postgres_session.expire_all()
+    policy = await postgres_session.get(PolicyDB, "POL-2026-11014")
+    assert policy.status == "EXPIRED" and policy.valid_until == NOW - timedelta(days=3)
 
 
 async def test_vencida_pasa_a_expired_y_al_renovar_vuelve_a_emitida(postgres_session):

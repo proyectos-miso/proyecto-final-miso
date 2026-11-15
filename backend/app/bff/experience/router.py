@@ -34,6 +34,7 @@ from app.modules.policy.models import (
     PolicyStatus,
 )
 from app.modules.rating.models import PartnerDB, PartnerStatus
+from app.modules.rating.partners import PartnerBlockedError
 from app.modules.policy.service import (
     InvalidSignatureError,
     PolicyNotFoundError,
@@ -278,15 +279,17 @@ async def request_policy_signature_otp(
 @router.post(
     "/policies",
     response_model=PolicyRecord,
-    dependencies=[Depends(require_roles(["advisor"]))],
 )
 async def issue_policy(
     request: PolicyIssueRequest,
+    claims: Dict[str, Any] = Depends(require_roles(["advisor"])),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Emite la póliza de una cotización vigente; repetir la emisión devuelve la misma póliza (HU-WEB-05, RC-02)."""
     try:
-        return await policy_service.issue_policy(db, request)
+        return await policy_service.issue_policy(db, request, advisor_partner_id=claims.get("partner_id"))
+    except PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except QuoteNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="La cotización no existe.")
     except QuoteExpiredError:
@@ -333,6 +336,8 @@ async def charge_premium(
     try:
         partner_id = claims.get("partner_id")
         return await payment_service.process_charge(db, request, idempotency_key, partner_id=partner_id)
+    except PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except tuple(PAYMENT_ERRORS) as exc:
         status_code, detail = PAYMENT_ERRORS[type(exc)]
         raise HTTPException(status_code=status_code, detail=detail or str(exc))

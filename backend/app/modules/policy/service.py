@@ -21,6 +21,7 @@ from app.modules.policy.models import (
     PolicySignatureDB,
 )
 from app.modules.rating.models import QuoteDB
+from app.modules.rating.partners import ensure_partner_can_issue
 
 
 class QuoteNotFoundError(Exception):
@@ -66,14 +67,19 @@ class PolicyService:
     def __init__(self, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.now = now
 
-    async def issue_policy(self, session: AsyncSession, request: PolicyIssueRequest) -> PolicyRecord:
-        """Emite la póliza de la cotización; si ya existe, la devuelve aunque la cotización haya vencido."""
+    async def issue_policy(
+        self, session: AsyncSession, request: PolicyIssueRequest, advisor_partner_id: Optional[str] = None
+    ) -> PolicyRecord:
+        """Emite la póliza de la cotización; si ya existe, la devuelve aunque la cotización haya vencido
+        o el socio ya no pueda emitir (RC-02). Solo una póliza nueva exige que el socio pueda emitir."""
         quote = await session.get(QuoteDB, request.quote_id)
         if quote is None:
             raise QuoteNotFoundError()
         quote_id = quote.quote_id
         policy = await self.find_by_quote(session, quote_id)
         if policy is None:
+            await ensure_partner_can_issue(session, advisor_partner_id)
+            await ensure_partner_can_issue(session, quote.partner_id)
             try:
                 policy = await self.create(session, quote, request)
             except InvalidSignatureError:
@@ -184,6 +190,7 @@ class PolicyService:
         existing = await self.find_by_quote(session, quote.quote_id)
         if existing is not None:
             return PartnerPolicyResponse.model_validate(existing)
+        await ensure_partner_can_issue(session, partner_id)
 
         issued_at = self.now()
         if quote.expires_at <= issued_at:

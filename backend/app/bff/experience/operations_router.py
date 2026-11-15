@@ -40,7 +40,7 @@ from app.modules.policy.operations import (
     PolicyClosedError,
     policy_operations,
 )
-from app.modules.rating.models import PartnerDB, PartnerStatus
+from app.modules.rating import partners
 from app.modules.reports.service import build_report, to_csv, to_pdf
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
@@ -207,6 +207,8 @@ async def renew_policy(
     await scoped_policy(db, policy_number, user)
     try:
         return await policy_operations.renew(db, policy_number, user.username)
+    except partners.PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except NotRenewableError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -214,31 +216,96 @@ async def renew_policy(
         )
 
 
+# -- Socios B2B (FE-WEB-05): solo el equipo de Solventa ---------------------------------------------
+
+
 class PartnerApprovalRequest(BaseModel):
     quota_limit: Optional[int] = Field(default=50000, ge=100)
 
 
-@router.post("/partners/{partner_id}/approve")
-async def approve_partner_production(
-    partner_id: str = Path(..., min_length=2, max_length=64),
-    request: Optional[PartnerApprovalRequest] = None,
-    user: Operator = Depends(operator),
-    db: AsyncSession = Depends(get_db_session),
-):
-    """Aprueba un socio en sandbox y lo promueve a producción con cuota ampliada (RC-23, AC-15, SR-09)."""
+class OperatorProfile(BaseModel):
+    solventa: bool
+
+
+# Acepta los ids con tildes de socios creados antes de que el alta los generara en ASCII.
+PARTNER_ID = Path(..., min_length=2, max_length=64, pattern=r"^[\w-]+$")
+NOT_FOUND_PARTNER = "Socio no encontrado."
+REVOKED_PARTNER = "Socio revocado."
+
+
+async def solventa_operator(user: Operator = Depends(operator)) -> Operator:
     if user.partner_id is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo operadores centrales de Solventa pueden autorizar socios.",
+            detail="Solo operadores centrales de Solventa pueden gestionar socios.",
         )
-    partner = await db.get(PartnerDB, partner_id)
-    if partner is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Socio no encontrado.")
+    return user
+
+
+def partner_errors(exc: Exception) -> HTTPException:
+    if isinstance(exc, partners.PartnerNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_PARTNER)
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=REVOKED_PARTNER)
+
+
+@router.get("/operator", response_model=OperatorProfile)
+async def operator_profile(user: Operator = Depends(operator)):
+    """Si el analista es de Solventa; el portal solo oculta la pestaña «Socios», cada ruta lo vuelve a validar."""
+    return OperatorProfile(solventa=user.partner_id is None)
+
+
+@router.get("/partners", response_model=partners.PartnerPage)
+async def list_partners(
+    response: Response,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Socios con su entorno, estado y cuota; sin secretos ni el correo de contacto completo. `truncated` avisa si hay más."""
+    response.headers["Cache-Control"] = "no-store"
+    return await partners.list_partners(db)
+
+
+@router.post("/partners/{partner_id}/revoke", response_model=partners.PartnerSummary)
+async def revoke_partner(
+    partner_id: str = PARTNER_ID,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Revoca al socio; sus tokens vigentes dejan de servir en el siguiente pedido."""
+    try:
+        return await partners.revoke(db, partner_id, user.username)
+    except partners.PartnerNotFoundError as exc:
+        raise partner_errors(exc)
+
+
+@router.post("/partners/{partner_id}/credentials", response_model=partners.PartnerCredentials)
+async def rotate_partner_credentials(
+    response: Response,
+    partner_id: str = PARTNER_ID,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Rota el secreto del socio y lo entrega una sola vez."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await partners.rotate_secret(db, partner_id, user.username)
+    except (partners.PartnerNotFoundError, partners.PartnerRevokedError) as exc:
+        raise partner_errors(exc)
+
+
+@router.post("/partners/{partner_id}/approve")
+async def approve_partner_production(
+    partner_id: str = PARTNER_ID,
+    request: Optional[PartnerApprovalRequest] = None,
+    user: Operator = Depends(solventa_operator),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Aprueba un socio en sandbox y lo promueve a producción con cuota ampliada (RC-23, AC-15, SR-09)."""
     quota = request.quota_limit if request and request.quota_limit else 50000
-    partner.environment = "production"
-    partner.quota_limit = quota
-    partner.status = PartnerStatus.ACTIVE.value
-    await db.commit()
+    try:
+        partner = await partners.approve(db, partner_id, quota, user.username)
+    except (partners.PartnerNotFoundError, partners.PartnerRevokedError) as exc:
+        raise partner_errors(exc)
     return {
         "status": "APPROVED",
         "partner_id": partner.partner_id,
@@ -246,6 +313,8 @@ async def approve_partner_production(
         "quota_limit": partner.quota_limit,
         "message": f"Socio {partner.name} promovido a producción con cuota de {partner.quota_limit} cotizaciones/hora.",
     }
+
+
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)
 async def audit_policy(
     policy_number: str = Path(..., pattern=POLICY_NUMBER),

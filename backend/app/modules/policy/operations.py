@@ -21,6 +21,7 @@ from app.modules.policy.models import (
 )
 from app.modules.policy.search import mask_document
 from app.modules.policy.service import included_coverages, insured_amount, one_year_after
+from app.modules.rating.partners import PartnerBlockedError, ensure_partner_can_issue
 
 CLOSED = ("CANCELLED", "TERMINATED")
 RENEWAL_WINDOW = timedelta(days=30)
@@ -127,13 +128,19 @@ class PolicyOperations:
 
     async def renew(self, session: AsyncSession, policy_number: str, actor: str) -> PolicyOperationResult:
         """Un año más desde el fin de la vigencia actual, con la misma prima (HU-MOV-11, RC-24).
-        Si ya había vencido, el periodo nuevo queda pendiente de pago hasta que el asesor lo cobre."""
+        Si ya había vencido, el periodo nuevo queda pendiente de pago hasta que el asesor lo cobre.
+        No renueva la póliza de un socio revocado, inexistente o en sandbox: no se podría cobrar (FE-WEB-05)."""
         policy = await session.scalar(
             select(PolicyDB).where(PolicyDB.policy_number == policy_number).with_for_update()
         )
         now = self.now()
         if policy.status in CLOSED or policy.valid_until - now > RENEWAL_WINDOW:
             raise NotRenewableError()
+        try:
+            await ensure_partner_can_issue(session, policy.partner_id)
+        except PartnerBlockedError:
+            await session.rollback()
+            raise
         before = {"valid_until": policy.valid_until.isoformat(), "status": policy.status}
         policy.valid_until = one_year_after(policy.valid_until)
         if policy.status == "EXPIRED":
