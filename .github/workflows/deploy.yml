@@ -85,6 +85,7 @@ jobs:
           TF_VAR_jwt_secret_key: ${{ secrets.JWT_SECRET_KEY }}
           TF_VAR_otp_secret_key: ${{ secrets.OTP_SECRET_KEY }}
           TF_VAR_firebase_credentials_json: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+          TF_VAR_oracle_secret: ${{ secrets.ORACLE_SECRET }}
         run: terraform apply -auto-approve
 
       - name: Leer el dominio de CloudFront
