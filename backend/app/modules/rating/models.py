@@ -198,7 +198,7 @@ class PartnerDB(Base):
     quota_used = Column(Integer, nullable=False, default=0)
     quota_window_seconds = Column(Integer, nullable=False, default=3600)
     quota_reset_at = Column(DateTime(timezone=True), nullable=True)
-    environment = Column(String(16), nullable=False, default="PRODUCTION")
+    environment = Column(String(16), nullable=False, default="production")
     contact_email = Column(String(254), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -220,3 +220,5 @@ class QuoteDB(Base):
     financial_entity = Column(String(120), nullable=True)
     term_months = Column(Integer, nullable=True)
     birth_date = Column(DateTime(timezone=True), nullable=True)
+    # Ciudad del asegurado: un evento del oráculo afecta a las pólizas de su ciudad (HU-MOV-10, RC-26).
+    city = Column(String(80), nullable=True, index=True)

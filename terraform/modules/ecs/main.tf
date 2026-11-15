@@ -136,6 +136,13 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/siniestros/*"
       },
       {
+        # Publicador del outbox (HU-MOV-10, RC-14): solo envía a la cola de eventos.
+        Sid      = "PublicarEventos"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage", "sqs:GetQueueUrl"]
+        Resource = var.sqs_queue_arn
+      },
+      {
         Sid      = "LlaveDelBucket"
         Effect   = "Allow"
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
@@ -201,6 +208,10 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "FIREBASE_CREDENTIALS_JSON"
           value = var.firebase_credentials_json
+        },
+        {
+          name  = "ORACLE_SECRET"
+          value = var.oracle_secret
         },
         {
           name  = "SQS_EVENTS_URL"

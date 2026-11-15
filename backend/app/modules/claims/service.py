@@ -8,6 +8,7 @@ from typing import Callable, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.outbox import OutboxMessageDB
 from app.core.storage import DocumentStorage, StorageUnavailableError
 from app.modules.claims.models import (
     OPEN_STATUSES,
@@ -293,6 +294,7 @@ class ClaimService:
         self, session: AsyncSession, claim_number: str, policy_number: str, reported_at: datetime,
         description: Optional[str] = None, coverage_id: Optional[str] = None, photos: Optional[List[NewPhoto]] = None,
         origin: str = "APP", parametric_event: Optional[dict] = None, client_report_id: Optional[str] = None,
+        commit: bool = True,
     ) -> ClaimDB:
         """Punto de entrada para crear un siniestro. Uno paramétrico que cumple su regla se liquida solo (AC-12)."""
         claim = ClaimDB(
@@ -301,6 +303,9 @@ class ClaimService:
             client_report_id=client_report_id,
         )
         session.add(claim)
+        # Mismo commit que el siniestro: el publicador lo lleva a SQS (HU-MOV-10, RC-14).
+        session.add(OutboxMessageDB(aggregate_id=claim_number, event_type="ClaimFiled",
+                                    payload={"claim_number": claim_number, "policy_number": policy_number, "origin": origin}))
         for photo in photos or []:
             session.add(ClaimPhotoDB(claim_number=claim_number, **photo.__dict__))
         self.event(session, claim, "REPORTED", "App del asegurado" if origin == "APP" else "Oráculo de eventos",
@@ -309,7 +314,8 @@ class ClaimService:
         rule = matching_rule(parametric_event) if origin == "PARAMETRIC" else None
         if rule:
             await self.settle_parametric(session, claim, rule)
-        await self.commit(session)
+        if commit:
+            await self.commit(session)
         return claim
 
     async def settle_parametric(self, session: AsyncSession, claim: ClaimDB, rule: ParametricRule) -> None:

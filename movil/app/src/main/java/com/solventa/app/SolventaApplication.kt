@@ -67,10 +67,12 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
 
     val policiesApi: PoliciesApi by lazy { HttpPoliciesApi(BuildConfig.API_BASE_URL) }
 
-    val policyStore: PolicyStore by lazy {
+    private val encryptedPolicyStore: EncryptedPolicyStore by lazy {
         val keyguard = getSystemService(KeyguardManager::class.java)
         EncryptedPolicyStore(this, PassphraseVault(this, KeystoreWalletKeys(isDeviceLocked = keyguard::isDeviceLocked)))
     }
+
+    val policyStore: PolicyStore get() = encryptedPolicyStore
 
     // Reporte de siniestro con su propia base, frase y llave por cuenta, aparte de la billetera (HU-MOV-08, ADR 0024).
     private val encryptedClaimStore: EncryptedClaimStore by lazy {
@@ -96,12 +98,14 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
 
     override val policySync: PolicySync get() = sessionSync
 
-    // Recibido el reporte, la sincronización trae el siniestro a «Mis siniestros» (HU-MOV-09, AC-08).
+    // Recibido el reporte, la constancia queda en la billetera cifrada (HU-MOV-10) y la sincronización trae el
+    // siniestro a «Mis siniestros» (HU-MOV-09, AC-08).
     override val claimSender: ClaimSender by lazy {
         ClaimSender(
             encryptedClaimStore, HttpClaimSubmitApi(BuildConfig.API_BASE_URL), reportTokens,
             OpenSessionSubmitter(sessionRepository, sessionSync),
             onReceived = { sessionSync.schedule() },
+            receipts = encryptedPolicyStore,
         )
     }
 

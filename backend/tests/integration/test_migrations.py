@@ -1,0 +1,73 @@
+"""Migraciones versionadas con Alembic contra PostgreSQL (HU-MOV-10, RC-13)."""
+import asyncio
+import uuid
+
+import pytest
+from alembic import command
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.core.config import settings
+from app.core.database import Base
+from app.core.migrations import alembic_config
+
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+async def empty_database():
+    name = f"solventa_mig_{uuid.uuid4().hex[:8]}"
+    url = make_url(settings.DATABASE_URL).set(database=name)
+    admin = create_async_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    async with admin.connect() as conn:
+        await conn.execute(text(f'CREATE DATABASE "{name}"'))
+    yield url
+    async with admin.connect() as conn:
+        await conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+    await admin.dispose()
+
+
+async def upgrade(url) -> None:
+    config = alembic_config()
+    config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False))
+    await asyncio.to_thread(command.upgrade, config, "head")
+
+
+async def scalar(url, sql: str):
+    engine = create_async_engine(url)
+    async with engine.connect() as conn:
+        value = (await conn.execute(text(sql))).scalar()
+    await engine.dispose()
+    return value
+
+
+async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
+    await upgrade(empty_database)
+
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"
+    assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
+                                        "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
+    assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
+    assert await scalar(empty_database, "SELECT count(*) FROM pg_trigger WHERE tgname = 'policy_signatures_no_change'") == 1
+
+
+async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty_database):
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("ALTER TABLE quotes DROP COLUMN city"))
+        await conn.execute(text(
+            "INSERT INTO partners (partner_id, name, client_id, client_secret_hash, status, quota_limit, quota_used, "
+            "quota_window_seconds, environment) "
+            "VALUES ('socio-prueba', 'Socio de prueba', 'cliente-prueba', 'hash', 'ACTIVE', 10, 0, 3600, 'sandbox')"
+        ))
+    await engine.dispose()
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+
+    assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"
+    assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
+                                        "WHERE table_name = 'quotes' AND column_name = 'city'") == 1

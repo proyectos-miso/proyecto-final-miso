@@ -2,6 +2,7 @@ package com.solventa.app.ui.wallet
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.policies.CaratulaResult
 import com.solventa.app.domain.policies.PolicyActions
 import com.solventa.app.domain.policies.PolicyCard
@@ -63,6 +64,13 @@ class WalletViewModel(
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
 
+    private val _receipt = MutableStateFlow<ClaimReceipt?>(null)
+
+    /** Constancia oficial del último reporte recibido, hasta que el asegurado la cierra (HU-MOV-10, AC-01). */
+    val receipt: StateFlow<ClaimReceipt?> = _receipt.asStateFlow()
+    private var receiptJob: Job? = null
+    private var dismissJob: Job? = null
+
     private var loadJob: Job? = null
     private var account: String? = null
     private var unavailableAccount: String? = null
@@ -77,9 +85,13 @@ class WalletViewModel(
     fun open(accountEmail: String) {
         val previous = _uiState.value
         val reopening = accountEmail == account && !previous.loading
+        val previousReceipt = _receipt.value
         close()
         account = accountEmail
-        if (reopening) _uiState.value = previous
+        if (reopening) {
+            _uiState.value = previous
+            _receipt.value = previousReceipt
+        }
         sync(accountEmail)
     }
 
@@ -93,6 +105,8 @@ class WalletViewModel(
     /** Cancela la carga antes de cerrar sesión, para que ningún guardado llegue después del borrado (HU-MOV-05). */
     fun close() {
         loadJob?.cancel()
+        receiptJob?.cancel()
+        _receipt.value = null
         account = null
         unavailableAccount = null
         _uiState.value = WalletUiState()
@@ -103,6 +117,7 @@ class WalletViewModel(
      * enseguida a lo sumo cada 30 s, porque con el teléfono bloqueado la espera del trabajo crece (AC-13).
      */
     fun refreshClock() {
+        account?.let(::loadReceipt)
         if (unavailableAccount != null) return retry()
         val state = _uiState.value
         if (state.loading) return
@@ -147,6 +162,23 @@ class WalletViewModel(
         }
     }
 
+    /** El asegurado cerró la constancia; si no se pudo borrar, vuelve a aparecer al regresar a la app. */
+    fun dismissReceipt() {
+        val accountEmail = account ?: return
+        _receipt.value = null
+        receiptJob?.cancel()
+        dismissJob = viewModelScope.launch { policyStore.dismissReceipt(accountEmail) }
+    }
+
+    private fun loadReceipt(accountEmail: String) {
+        receiptJob?.cancel()
+        receiptJob = viewModelScope.launch {
+            dismissJob?.join()
+            val stored = policyStore.readReceipt(accountEmail)
+            if (account == accountEmail) _receipt.value = stored
+        }
+    }
+
     fun consumeCaratula() {
         _uiState.value = _uiState.value.copy(caratula = null)
     }
@@ -176,6 +208,7 @@ class WalletViewModel(
                 SyncOutcome.Failed, SyncOutcome.NoSession -> {
                     _uiState.value = fromCopy(accountEmail)
                     policySync.schedule()
+                    loadReceipt(accountEmail)
                 }
             }
         }
@@ -187,6 +220,8 @@ class WalletViewModel(
                 unavailableAccount = null
                 val previous = _uiState.value
                 _uiState.value = synced(outcome.copy).copy(notice = previous.notice, renewedUntil = previous.renewedUntil)
+                // Tras recibirse un reporte el envío pide sincronizar: así aparece la constancia oficial.
+                loadReceipt(outcome.accountEmail)
             }
             is SyncOutcome.SessionEnded -> if (outcome.accountEmail == account) {
                 _uiState.value = WalletUiState(loading = false, sessionEnded = outcome.reason)

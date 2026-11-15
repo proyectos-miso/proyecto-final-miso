@@ -6,6 +6,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.security import create_access_token
 from app.modules.policy.models import PolicySignatureDB
+from tests.integration.otp_fixtures import signature_code
 from tests.integration.policy_search_fixtures import BENEFICIARIES
 
 
@@ -40,7 +41,7 @@ async def test_policy_signature_requires_otp_and_creates_immutable_record(
         "quote_id": quote_id,
         "tier": "standard",
         "beneficiaries": BENEFICIARIES,
-        "otp_code": "839201",
+        "otp_code": await signature_code(async_client, advisor_headers()),
         "holder": {
             "name": "María Ruiz",
             "document_type": "CC",
@@ -111,4 +112,45 @@ async def test_policy_signature_fails_with_invalid_otp(
         },
     )
     assert issue_resp.status_code == 422
-    assert "Código OTP de firma electrónica inválido o expirado" in issue_resp.json()["detail"]
+    assert "no es válido o ya venció" in issue_resp.json()["detail"]
+
+
+@pytest.mark.integration
+async def test_sin_codigo_de_firma_no_se_emite_ni_con_el_documento_de_prueba(async_client: AsyncClient, postgres_session):
+    quote_id = (await async_client.post(
+        "/api/v1/experience/quotes", headers=advisor_headers(),
+        json={"document_type": "CC", "document_number": "1020304050", "birth_date": "1990-05-15", "insured_amount": 1e8},
+    )).json()["quote_id"]
+
+    response = await async_client.post(
+        "/api/v1/experience/policies", headers=advisor_headers(),
+        json={"quote_id": quote_id, "tier": "standard", "beneficiaries": BENEFICIARIES},
+    )
+
+    assert response.status_code == 422
+    assert "código de firma" in response.json()["detail"]
+
+
+@pytest.mark.integration
+async def test_el_codigo_fijo_de_pruebas_ya_no_sirve(async_client: AsyncClient, postgres_session):
+    quote_id = (await async_client.post(
+        "/api/v1/experience/quotes", headers=advisor_headers(),
+        json={"document_type": "CC", "document_number": "1020304050", "birth_date": "1990-05-15", "insured_amount": 1e8},
+    )).json()["quote_id"]
+
+    response = await async_client.post(
+        "/api/v1/experience/policies", headers=advisor_headers(),
+        json={"quote_id": quote_id, "tier": "standard", "beneficiaries": BENEFICIARIES, "otp_code": "839201"},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.integration
+async def test_el_codigo_de_firma_exige_telefono(async_client: AsyncClient, postgres_session):
+    response = await async_client.post(
+        "/api/v1/experience/policies/otp-request", headers=advisor_headers(),
+        json={"document_number": "1020304050", "document_type": "CC"},
+    )
+
+    assert response.status_code == 422

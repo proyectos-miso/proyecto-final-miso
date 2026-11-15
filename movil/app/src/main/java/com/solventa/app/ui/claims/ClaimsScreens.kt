@@ -82,7 +82,10 @@ fun ClaimsListScreen(
                         }
                     }
                 }
-                else -> items(state.claims, key = { it.claimNumber }) { ClaimRow(it) { onOpen(it.claimNumber) } }
+                else -> items(state.claims, key = { it.claimNumber }) { claim ->
+                    val replaced = state.receipt?.takeIf { it.claimNumber == claim.claimNumber }?.provisionalNumber
+                    ClaimRow(claim, replaced) { onOpen(claim.claimNumber) }
+                }
             }
             state.lastUpdate?.let { item(key = "lastUpdate") { LastUpdate(it) } }
         }
@@ -161,9 +164,11 @@ private fun Rejection(claim: InsuredClaim) {
 }
 
 @Composable
-private fun ClaimRow(claim: InsuredClaim, onOpen: () -> Unit) {
+private fun ClaimRow(claim: InsuredClaim, replacedNumber: String?, onOpen: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    val description = stringResource(R.string.claims_row_description, claim.claimNumber, claim.policyNumber, formatDate(claim.reportedAt), claim.statusLabel)
+    val replaces = replacedNumber?.let { stringResource(R.string.claims_replaces, it) }
+    val row = stringResource(R.string.claims_row_description, claim.claimNumber, claim.policyNumber, formatDate(claim.reportedAt), claim.statusLabel)
+    val description = replaces?.let { "$row. $it" } ?: row
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = colors.surface,
@@ -185,13 +190,14 @@ private fun ClaimRow(claim: InsuredClaim, onOpen: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                 )
+                replaces?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
             }
             StatusChip(claim.statusLabel, tone(claim.status))
         }
     }
 }
 
-/** El reporte del teléfono que aún no se recibe, arriba de los recibidos (HU-MOV-09, AC-05). */
+/** El reporte del teléfono que aún no se recibe, arriba de los recibidos, con su radicado provisional (HU-MOV-09, AC-05; HU-MOV-10, AC-02). */
 @Composable
 private fun PendingRow(pending: PendingReport, onOpen: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
@@ -200,7 +206,7 @@ private fun PendingRow(pending: PendingReport, onOpen: (() -> Unit)?) {
     val description = if (pending.rejected) {
         stringResource(R.string.claims_rejected_description, policy, pending.rejectionReason.orEmpty())
     } else {
-        stringResource(R.string.claims_pending_description, policy, date)
+        stringResource(R.string.claims_pending_description, policy, date, pending.provisionalNumber)
     }
     val title = stringResource(if (pending.rejected) R.string.claims_rejected_title else R.string.claims_pending_title)
     val openLabel = stringResource(R.string.claims_open_report)
@@ -223,6 +229,13 @@ private fun PendingRow(pending: PendingReport, onOpen: (() -> Unit)?) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.Bold)
+                if (pending.provisionalNumber.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.claims_pending_number, pending.provisionalNumber),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Text(
                     stringResource(R.string.claims_pending_detail, policy, date),
                     style = MaterialTheme.typography.bodySmall,

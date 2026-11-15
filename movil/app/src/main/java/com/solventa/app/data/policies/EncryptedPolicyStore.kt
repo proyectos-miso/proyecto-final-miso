@@ -5,8 +5,10 @@ import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.solventa.app.data.claims.ClaimsJson
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.claims.ReceiptKeeper
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
@@ -37,7 +39,7 @@ class EncryptedPolicyStore(
     private val vault: PassphraseVault,
     // La app siempre cifra con SQLCipher; las pruebas en la JVM pasan SQLite sin cifrar para probar el flujo.
     private val openHelper: (ByteArray) -> SupportSQLiteOpenHelper.Factory = ::sqlcipher,
-) : PolicyStore {
+) : PolicyStore, ReceiptKeeper {
 
     // Un turno por cuenta: read, save y delete de la misma cuenta no se cruzan (CTL-10).
     private val turns = ConcurrentHashMap<String, Mutex>()
@@ -104,9 +106,25 @@ class EncryptedPolicyStore(
         db.claims().markNotice(SentNoticeEntity(key)) != -1L
     }
 
-    // Siniestros y avisos solo viven junto a una copia de la billetera que ya existe; nunca crean ni descartan la base.
-    private suspend fun <T> withExisting(accountEmail: String, otherwise: T, block: suspend (WalletDatabase) -> T): T {
-        val accountId = PassphraseVault.accountId(accountEmail)
+    // Lo guarda el envío en segundo plano, sin sesión: solo conoce el id de la cuenta.
+    override suspend fun keep(accountId: String, receipt: ClaimReceipt): Boolean = withExistingId(accountId, false) { db ->
+        db.claims().saveReceipt(receipt.toEntity())
+        true
+    }
+
+    override suspend fun readReceipt(accountEmail: String): ClaimReceipt? = withExisting(accountEmail, null) { db ->
+        db.claims().receipt()?.toReceipt()
+    }
+
+    override suspend fun dismissReceipt(accountEmail: String): Boolean = withExisting(accountEmail, false) { db ->
+        db.claims().deleteReceipt() > 0
+    }
+
+    private suspend fun <T> withExisting(accountEmail: String, otherwise: T, block: suspend (WalletDatabase) -> T): T =
+        withExistingId(PassphraseVault.accountId(accountEmail), otherwise, block)
+
+    // Siniestros, avisos y constancia solo viven junto a una copia de la billetera que ya existe; nunca crean ni descartan la base.
+    private suspend fun <T> withExistingId(accountId: String, otherwise: T, block: suspend (WalletDatabase) -> T): T {
         return inTurn(accountId) {
             if (!databaseExists(accountId)) return@inTurn otherwise
             val stored = vault.existing(accountId) as? Unwrapped.Secret ?: return@inTurn otherwise
@@ -175,6 +193,7 @@ class EncryptedPolicyStore(
         return try {
             db = Room.databaseBuilder(context, WalletDatabase::class.java, fileName(accountId))
                 .openHelperFactory(openHelper(passphrase))
+                .addMigrations(WalletDatabase.MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
             Opened.Done(block(db))
@@ -238,3 +257,12 @@ internal fun PolicyCardEntity.toCard(): PolicyCard {
         validUntil = Instant.ofEpochMilli(validUntilEpochMillis),
     )
 }
+
+internal fun ClaimReceipt.toEntity() = ClaimReceiptEntity(
+    claimNumber = claimNumber,
+    provisionalNumber = provisionalNumber,
+    policyNumber = policyNumber,
+    reportedAtEpochMillis = reportedAt.toEpochMilli(),
+)
+
+internal fun ClaimReceiptEntity.toReceipt() = ClaimReceipt(claimNumber, provisionalNumber, policyNumber, Instant.ofEpochMilli(reportedAtEpochMillis))

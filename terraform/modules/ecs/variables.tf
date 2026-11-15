@@ -77,6 +77,18 @@ variable "sqs_queue_url" {
   type = string
 }
 
+variable "sqs_queue_arn" {
+  description = "Cola de eventos a la que el publicador del outbox envía (HU-MOV-10, RC-14)"
+  type        = string
+}
+
+variable "oracle_secret" {
+  description = "Llave compartida con el oráculo de eventos para firmar los eventos paramétricos (HU-MOV-10, RC-26); vacía, el canal queda cerrado"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "s3_bucket_name" {
   type = string
 }

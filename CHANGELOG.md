@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- HU-MOV-10: constancia del reporte con radicado provisional `OFF-AAAA-XXXX` mientras está en cola y oficial `SIN-AAAA-NNNNN` al recibirse; siniestros paramétricos desde eventos firmados del oráculo (`POST /oracle/events`, RC-26); publicador del outbox hacia SQS con `ClaimFiled` (RC-14); migraciones versionadas con Alembic aplicadas al arrancar (RC-13).
 - HU-MOV-09: el reporte del siniestro queda en una cola cifrada y la app lo envía sola al recuperar la señal, aunque esté cerrada, con un token que solo sirve para reportar; `POST /insured/claims` lo registra una sola vez con radicado, verifica la huella SHA-256 de cada foto y las guarda en S3; los pendientes se ven en «Mis siniestros»; el CI firma el APK de release cuando tiene la llave (RC-11, RC-12).
 - **Hotfix · Configuración de producción (`HOTFIX-configuracion-de-produccion`, RC-30, RC-33):**
   - Inyección explícita de `ENVIRONMENT=production` en la tarea ECS Fargate (`terraform/modules/ecs/main.tf`), garantizando que el backend desactive `/docs`, `/redoc`, `/openapi.json`, impida la siembra de usuarios ficticios y no devuelva códigos OTP en respuestas HTTP (RC-30).
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Eliminación de `specs/pendientes/HOTFIX-produccion.md` tras completar y validar todas sus brechas funcionales (RC-30, RC-31, RC-33, RC-35, RC-36).
 
 ### Security
+- **Hotfix · Correcciones de HU-WEB-12 (`HOTFIX-correcciones-de-hu-web-12`):** el consentimiento y la firma de la póliza ya no aceptan un código fijo ni eximen un documento; el portal envía el código de firma al titular antes de emitir y, en local, muestra el código de prueba; el registro de socios exige un analista de Solventa y un correo válido; los códigos piden teléfono, responden 503 si el SMS falla y no exponen errores internos; diez emisiones simultáneas con el mismo código siguen dejando una póliza; vuelve la etiqueta «Vencida» y se quita el código muerto que marcaba SonarCloud.
 - Restricción estricta de edad asegurable (`RC-07`): validación de tipo `birth_date: date` en el motor de tarificación (`RatingService.create_quote`) que rechaza con HTTP 422 a solicitantes fuera del rango de 18 a 75 años o con fechas futuras.
 - Inmutabilidad de firmas electrónicas de póliza (`RC-02`): tabla relacional `policy_signatures` en PostgreSQL con trigger `make_immutable` que impide la modificación o eliminación de firmas registradas con OTP.
 - Control de cuota y rate-limiting RFC 6585 (`HU-WEB-12`): bloqueo de peticiones excedentes con código HTTP 429, cabecera `Retry-After` y registro de eventos de auditoría `PARTNER_QUOTA_EXCEEDED`.

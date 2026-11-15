@@ -13,6 +13,9 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.format.DateTimeParseException
 import java.util.UUID
 
 /**
@@ -42,7 +45,7 @@ class HttpClaimSubmitApi(private val baseUrl: String) : ClaimSubmitApi {
                 when (val code = connection.responseCode) {
                     HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_CREATED -> {
                         val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                        SubmitResult.Received(json.getString("claim_number"))
+                        SubmitResult.Received(json.getString("claim_number"), reportedAt(json))
                     }
                     HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> SubmitResult.Unauthorized
                     HttpURLConnection.HTTP_NOT_FOUND -> SubmitResult.Rejected(POLICY_NOT_ACTIVE)
@@ -61,6 +64,13 @@ class HttpClaimSubmitApi(private val baseUrl: String) : ClaimSubmitApi {
                 connection.disconnect()
             }
         }
+
+    // Sin hora oficial legible el siniestro igual quedó registrado: la constancia usa la hora en que quedó en cola.
+    private fun reportedAt(json: JSONObject): Instant? = try {
+        json.optString("reported_at").takeIf { it.isNotBlank() }?.let { OffsetDateTime.parse(it).toInstant() }
+    } catch (e: DateTimeParseException) {
+        null
+    }
 
     private fun detail(connection: HttpURLConnection): String? = try {
         val text = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: return null

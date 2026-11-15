@@ -60,6 +60,8 @@ module "ecs" {
   jwt_secret_key            = var.jwt_secret_key
   otp_secret_key            = var.otp_secret_key
   firebase_credentials_json = var.firebase_credentials_json
+  oracle_secret             = var.oracle_secret
+  sqs_queue_arn             = module.storage_events.sqs_queue_arn
   sqs_queue_url             = module.storage_events.sqs_queue_url
   s3_bucket_name            = module.storage_events.s3_bucket_name
   s3_bucket_arn             = module.storage_events.s3_bucket_arn

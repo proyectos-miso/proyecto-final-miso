@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     # HU-MOV-11: ruta del JSON de la cuenta de servicio de Firebase; sin ella no se envían push.
     FIREBASE_CREDENTIALS_FILE: Optional[str] = None
     FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    # Llave compartida con el oráculo de eventos para firmar los eventos paramétricos (HU-MOV-10, RC-26).
+    ORACLE_SECRET: Optional[SecretStr] = None
 
     @field_validator("JWT_SECRET_KEY", "OTP_SECRET_KEY")
     @classmethod

@@ -14,6 +14,7 @@ import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.claims.CaptureFix
 import com.solventa.app.domain.claims.ClaimOutbox
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimReport
 import com.solventa.app.domain.claims.ClaimSubmitApi
 import com.solventa.app.domain.claims.EvidencePhoto
@@ -96,16 +97,22 @@ class ClaimSenderTest {
     private var syncs = 0
     private val account = PassphraseVault.accountId(EMAIL)
 
+    private val receipts = mutableMapOf<String, ClaimReceipt>()
+
     private val sender = ClaimSender(
         outbox, api, reportTokens,
         session = { id, call -> sessionToken?.takeIf { id == account }?.let { call(it) } },
         onReceived = { syncs++ },
+        receipts = { id, receipt ->
+            receipts[id] = receipt
+            true
+        },
     )
 
     private fun queue(photos: Int = 2) {
         val list = (1..photos).map { EvidencePhoto("f$it", it, Instant.EPOCH, null, CaptureFix(4.6, -74.0, 5f, false), "h$it", 3) }
         list.forEach { outbox.images[it.id] = byteArrayOf(1, 2, it.position.toByte()) }
-        outbox.reports[account] = ClaimReport("r-1", "POL-2026-00001", "Golpe", ReportState.QUEUED, list, Instant.EPOCH, Instant.EPOCH)
+        outbox.reports[account] = ClaimReport("r-1", "POL-2026-00001", "Golpe", ReportState.QUEUED, list, CREATED, CREATED, queuedAt = CREATED)
         reportTokens.tokens[account] = "token-de-reporte"
     }
 
@@ -119,6 +126,37 @@ class ClaimSenderTest {
         assertEquals(1, syncs)
         assertEquals(listOf(1, 2), api.sent.single().map { it.position })
         assertEquals(listOf(1, 2), api.sent.single().map { it.jpeg[2].toInt() })
+    }
+
+    // HU-MOV-10 AC-01 y AC-02: antes de borrar la copia local queda la constancia con el oficial y el provisional que reemplaza.
+    @Test
+    fun `HU-MOV-10 AC-01 recibido guarda la constancia oficial que reemplaza al provisional`() = runTest {
+        queue()
+        api.respond = { SubmitResult.Received("SIN-2026-00001", OFFICIAL_AT) }
+
+        sender.sendQueued()
+
+        assertEquals(ClaimReceipt("SIN-2026-00001", "OFF-2026-R100", "POL-2026-00001", OFFICIAL_AT), receipts[account])
+        assertTrue(outbox.reports.isEmpty())
+    }
+
+    @Test
+    fun `HU-MOV-10 AC-01 sin hora oficial la constancia usa la hora en que quedó en cola`() = runTest {
+        queue()
+
+        sender.sendQueued()
+
+        assertEquals(CREATED, receipts.getValue(account).reportedAt)
+    }
+
+    @Test
+    fun `HU-MOV-10 sin recibir no hay constancia oficial`() = runTest {
+        queue()
+        api.respond = { SubmitResult.Retry }
+
+        sender.sendQueued()
+
+        assertTrue(receipts.isEmpty())
     }
 
     @Test
@@ -243,5 +281,7 @@ class ClaimSenderTest {
 
     private companion object {
         const val EMAIL = "asegurado@correo.test"
+        val CREATED: Instant = Instant.parse("2026-11-14T10:00:00Z")
+        val OFFICIAL_AT: Instant = Instant.parse("2026-11-14T10:00:07Z")
     }
 }
