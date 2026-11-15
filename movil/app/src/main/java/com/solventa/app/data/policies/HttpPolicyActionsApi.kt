@@ -2,6 +2,8 @@ package com.solventa.app.data.policies
 
 import com.solventa.app.domain.policies.CaratulaResult
 import com.solventa.app.domain.policies.PolicyActionsApi
+import com.solventa.app.domain.policies.PreferencesResult
+import com.solventa.app.domain.policies.PushPreferences
 import com.solventa.app.domain.policies.RenewalResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,7 +16,7 @@ import java.net.URLEncoder
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
 
-/** Carátula, renovación y token de avisos (HU-MOV-11). */
+/** Carátula, renovación, token y preferencias de avisos (HU-MOV-11, FE-MOV-04). */
 class HttpPolicyActionsApi(private val baseUrl: String) : PolicyActionsApi {
 
     override suspend fun caratula(accessToken: String, policyNumber: String): CaratulaResult =
@@ -48,6 +50,27 @@ class HttpPolicyActionsApi(private val baseUrl: String) : PolicyActionsApi {
                 else -> false
             }
         }
+
+    override suspend fun pushPreferences(accessToken: String): PreferencesResult =
+        call(PREFERENCES_PATH, "GET", accessToken, null, PreferencesResult.Unavailable, ::preferences)
+
+    override suspend fun savePushPreferences(accessToken: String, preferences: PushPreferences): PreferencesResult {
+        val body = JSONObject()
+            .put("claims", preferences.claims)
+            .put("renewals", preferences.renewals)
+            .put("payments", preferences.payments)
+            .toString()
+        return call(PREFERENCES_PATH, "PUT", accessToken, body, PreferencesResult.Unavailable, ::preferences)
+    }
+
+    private fun preferences(code: Int, body: String): PreferencesResult = when (code) {
+        HttpURLConnection.HTTP_OK -> JSONObject(body).let {
+            PreferencesResult.Loaded(PushPreferences(it.getBoolean("claims"), it.getBoolean("renewals"), it.getBoolean("payments")))
+        }
+        HttpURLConnection.HTTP_UNAUTHORIZED -> PreferencesResult.Unauthorized
+        HTTP_UNPROCESSABLE -> PreferencesResult.Invalid
+        else -> PreferencesResult.Unavailable
+    }
 
     private suspend fun <T> call(
         path: String,
@@ -86,5 +109,7 @@ class HttpPolicyActionsApi(private val baseUrl: String) : PolicyActionsApi {
 
     private companion object {
         const val TIMEOUT_MS = 10_000
+        const val HTTP_UNPROCESSABLE = 422
+        const val PREFERENCES_PATH = "insured/devices/push-preferences"
     }
 }

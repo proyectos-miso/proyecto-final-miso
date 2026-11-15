@@ -10,6 +10,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.solventa.app.R
 import com.solventa.app.SolventaApplication
 import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.PushPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -96,6 +97,21 @@ class AndroidNotificationPosterTest {
         assertEquals("renewal-push:POL-1", renewal?.key)
         assertEquals(null, SolventaMessagingService.pushNotice(mapOf("type" to "CLAIM_STATUS", "claim_number" to "SIN-1", "body" to "b")))
         assertEquals(null, SolventaMessagingService.pushNotice(mapOf("type" to "CLAIM_STATUS", "claim_number" to "SIN-1", "title" to "t")))
+    }
+
+    // FE-MOV-04: un aviso del servidor de una categoría apagada se descarta; sin categoría o con una desconocida se muestra.
+    @Test
+    fun `FE-MOV-04 un aviso de una categoria apagada se descarta y uno sin categoria se muestra`() {
+        val paid = mapOf("type" to "CLAIM_STATUS", "category" to "payments", "claim_number" to "SIN-1", "title" to "t", "body" to "b")
+        val renewal = mapOf("type" to "RENEWAL_REMINDER", "category" to "renewals", "policy_number" to "POL-1", "title" to "t", "body" to "b")
+        val unknown = mapOf("type" to "CLAIM_STATUS", "category" to "otra", "claim_number" to "SIN-1", "title" to "t", "body" to "b")
+
+        assertEquals(null, SolventaMessagingService.pushNotice(paid, PushPreferences(payments = false)))
+        assertEquals("claim:SIN-1", SolventaMessagingService.pushNotice(paid, PushPreferences(claims = false))?.key)
+        assertEquals(null, SolventaMessagingService.pushNotice(renewal, PushPreferences(renewals = false)))
+        assertEquals("renewal-push:POL-1", SolventaMessagingService.pushNotice(renewal)?.key)
+        assertEquals("claim:SIN-1", SolventaMessagingService.pushNotice(unknown, PushPreferences(claims = false, payments = false))?.key)
+        assertEquals("claim:SIN-1", SolventaMessagingService.pushNotice(paid - "category", PushPreferences(claims = false, payments = false))?.key)
     }
 
     private fun message(vararg data: Pair<String, String>) = RemoteMessage(Bundle().apply { data.forEach { (k, v) -> putString(k, v) } })

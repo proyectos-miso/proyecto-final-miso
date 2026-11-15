@@ -311,4 +311,23 @@
     <string name="receipt_dismiss">Cerrar la constancia</string>
     <string name="notice_channel_name">Avisos de Solventa</string>
     <string name="notice_public_title">Tiene un aviso de Solventa</string>
+
+    <!-- Preferencias de avisos (FE-MOV-04) -->
+    <string name="notices_open_button">Avisos</string>
+    <string name="notices_title">Avisos</string>
+    <string name="notices_subtitle">Elija qué avisos recibir en este teléfono</string>
+    <string name="notices_loading">Cargando sus preferencias de avisos</string>
+    <string name="notices_claims">Siniestros</string>
+    <string name="notices_claims_help">Cuando un siniestro cambie de estado.</string>
+    <string name="notices_renewals">Vencimientos</string>
+    <string name="notices_renewals_help">Cuando una póliza esté por vencer.</string>
+    <string name="notices_payments">Pagos</string>
+    <string name="notices_payments_help">Cuando se pague un siniestro.</string>
+    <string name="notices_saved">Guardado</string>
+    <string name="notices_saving">Guardando…</string>
+    <string name="notices_offline">Sin conexión. Se guardará en el servidor cuando vuelva la red.</string>
+    <string name="notices_error">No se pudo guardar. Intente de nuevo.</string>
+    <string name="notices_error_session">Vuelva a ingresar para guardar sus preferencias.</string>
+    <string name="notices_error_invalid">El servidor no aceptó las preferencias. Intente de nuevo.</string>
+    <string name="notices_retry">Reintentar</string>
 </resources>

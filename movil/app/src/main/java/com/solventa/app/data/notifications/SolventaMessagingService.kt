@@ -7,6 +7,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.solventa.app.SolventaApplication
 import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.NoticeCategory
+import com.solventa.app.domain.policies.PushPreferences
 
 /**
  * Avisos del servidor por Firebase Cloud Messaging (HU-MOV-11). Sin google-services.json Firebase no se inicia
@@ -20,17 +22,19 @@ class SolventaMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val app = application as SolventaApplication
-        val notice = pushNotice(message.data) ?: return
-        if (app.sessionRepository.openSession == null) return
-        app.notificationPoster.post(notice)
+        val opened = app.sessionRepository.openSession ?: return
+        // Aunque el aviso se descarte, el cambio llega a la billetera con la sincronización.
         app.policySync.schedule()
+        pushNotice(message.data, app.notificationPreferences.read(opened.email))?.let(app.notificationPoster::post)
     }
 
     companion object {
-        /** Solo los tipos conocidos; cualquier otro dato se descarta. */
-        fun pushNotice(data: Map<String, String>): Notice? {
+        /** Solo los tipos conocidos; cualquier otro dato se descarta. Una categoría apagada por el asegurado tampoco se muestra (FE-MOV-04). */
+        fun pushNotice(data: Map<String, String>, preferences: PushPreferences = PushPreferences()): Notice? {
             val title = data["title"] ?: return null
             val body = data["body"] ?: return null
+            val category = NoticeCategory.fromWire(data["category"])
+            if (category != null && !preferences.enabled(category)) return null
             return when (data["type"]) {
                 "CLAIM_STATUS" -> data["claim_number"]?.let { Notice("claim:$it", title, body, claimNumber = it) }
                 "RENEWAL_REMINDER" -> data["policy_number"]?.let { Notice("renewal-push:$it", title, body) }
