@@ -42,7 +42,9 @@ class SqsQueue:
     def __init__(self, queue: str, region: str, endpoint_url: Optional[str] = None):
         import boto3
 
-        self.client = boto3.client("sqs", region_name=region, endpoint_url=endpoint_url)
+        # Como el almacenamiento (storage.py): con emulador, credenciales de prueba y una sesión propia.
+        emulator = {"aws_access_key_id": "test", "aws_secret_access_key": "test"} if endpoint_url else {}
+        self.client = boto3.session.Session().client("sqs", region_name=region, endpoint_url=endpoint_url, **emulator)
         self.queue = queue
         self._url: Optional[str] = queue if queue.startswith("http") else None
 
