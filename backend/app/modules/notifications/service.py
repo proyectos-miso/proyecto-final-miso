@@ -6,10 +6,11 @@ import json
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Dict, List, Optional, Protocol
+from typing import Dict, List, Literal, Optional, Protocol
 
-from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, String, select
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from sqlalchemy import Boolean, Column, DateTime, String, select, true
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -32,6 +33,35 @@ class PushTokenDB(Base):
     token = Column(String(256), primary_key=True)
     document_number = Column(String(20), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class PushPreferencesDB(Base):
+    """Qué categorías de avisos acepta cada asegurado; sin fila, todas (mejora FE-MOV-04)."""
+    __tablename__ = "push_preferences"
+
+    document_number = Column(String(20), primary_key=True)
+    claims = Column(Boolean, nullable=False, default=True, server_default=true())
+    renewals = Column(Boolean, nullable=False, default=True, server_default=true())
+    payments = Column(Boolean, nullable=False, default=True, server_default=true())
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class PushPreferences(BaseModel):
+    """Las tres categorías van siempre: un cuerpo parcial no enciende en silencio las que el asegurado apagó."""
+    model_config = ConfigDict(extra="forbid")
+
+    claims: StrictBool = True
+    renewals: StrictBool = True
+    payments: StrictBool = True
+
+
+class PushPreferencesRequest(PushPreferences):
+    claims: StrictBool
+    renewals: StrictBool
+    payments: StrictBool
+
+
+Category = Literal["claims", "renewals", "payments"]
 
 
 class PushTokenRequest(BaseModel):
@@ -84,20 +114,45 @@ class NotificationService:
             row.document_number, row.updated_at = document_number, datetime.now(timezone.utc)
         await session.commit()
 
+    async def preferences(self, session: AsyncSession, document_number: str) -> PushPreferences:
+        row = await session.get(PushPreferencesDB, document_number)
+        if row is None:
+            return PushPreferences()
+        return PushPreferences(claims=row.claims, renewals=row.renewals, payments=row.payments)
+
+    async def save_preferences(
+        self, session: AsyncSession, document_number: str, preferences: PushPreferences
+    ) -> PushPreferences:
+        values = {**preferences.model_dump(), "updated_at": datetime.now(timezone.utc)}
+        # Dos guardados a la vez de una cuenta sin fila no chocan: el último gana.
+        await session.execute(
+            insert(PushPreferencesDB).values(document_number=document_number, **values)
+            .on_conflict_do_update(index_elements=[PushPreferencesDB.document_number], set_=values)
+        )
+        await session.commit()
+        logger.info("Preferencias de avisos actualizadas")
+        return PushPreferences(**preferences.model_dump())
+
     async def notify(
-        self, session: AsyncSession, document_number: str, title: str, body: str, data: Dict[str, str]
+        self, session: AsyncSession, document_number: str, title: str, body: str, data: Dict[str, str],
+        category: Category = "claims",
     ) -> bool:
-        """Mejor esfuerzo: un fallo de Firebase nunca rompe la operación que lo pidió."""
+        """Mejor esfuerzo: un fallo de Firebase nunca rompe la operación que lo pidió.
+        Una categoría apagada por el asegurado no se envía."""
         sender = self.sender_factory()
         if sender is None:
             return False
-        tokens = list(await session.scalars(
-            select(PushTokenDB.token).where(PushTokenDB.document_number == document_number)
-        ))
-        if not tokens:
-            return False
         try:
-            await asyncio.to_thread(sender.send, tokens, title, body, data)
+            # En un savepoint: si la lectura falla, la sesión de quien pidió el aviso sigue usable.
+            async with session.begin_nested():
+                if not getattr(await self.preferences(session, document_number), category):
+                    return False
+                tokens = list(await session.scalars(
+                    select(PushTokenDB.token).where(PushTokenDB.document_number == document_number)
+                ))
+            if not tokens:
+                return False
+            await asyncio.to_thread(sender.send, tokens, title, body, {**data, "category": category})
             return True
         except Exception as exc:
             logger.warning("No se pudo enviar el push (%s)", type(exc).__name__)
@@ -109,6 +164,7 @@ class NotificationService:
         return await self.notify(
             session, document_number, "Solventa · Su siniestro", CLAIM_MESSAGES[kind].format(claim=claim_number),
             {"type": "CLAIM_STATUS", "claim_number": claim_number},
+            category="payments" if kind == "PAID" else "claims",
         )
 
     async def renewal_due(self, session: AsyncSession, document_number: str, policy_number: str, valid_until) -> bool:
@@ -116,6 +172,7 @@ class NotificationService:
             session, document_number, "Solventa · Su póliza vence pronto",
             f"Su póliza {policy_number} vence el {valid_until:%d/%m/%Y}. Puede renovarla desde la app.",
             {"type": "RENEWAL_REMINDER", "policy_number": policy_number},
+            category="renewals",
         )
 
 

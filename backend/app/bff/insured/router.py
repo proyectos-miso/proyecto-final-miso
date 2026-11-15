@@ -25,7 +25,9 @@ from app.modules.claims.intake import (
 )
 from app.modules.identity.db_models import InsuredAccountDB
 from app.modules.identity.service import InvalidTokenError, insured_auth_service
-from app.modules.notifications.service import PushTokenRequest, notification_service
+from app.modules.notifications.service import (
+    PushPreferences, PushPreferencesRequest, PushTokenRequest, notification_service,
+)
 from app.modules.policy import document as policy_document
 from app.modules.policy.models import CaratulaLink, InsuredPolicies, PolicyDB, PolicyOperationResult
 from app.modules.policy.operations import NotRenewableError, policy_operations
@@ -117,6 +119,24 @@ async def renew_my_policy(
             status_code=status.HTTP_409_CONFLICT,
             detail="La póliza se puede renovar desde 30 días antes de su vencimiento.",
         )
+
+
+@router.get("/devices/push-preferences", response_model=PushPreferences)
+async def my_push_preferences(
+    account: InsuredAccountDB = Depends(insured_account), db: AsyncSession = Depends(get_db_session)
+):
+    """Categorías de avisos que acepta el asegurado; sin preferencia guardada, todas (mejora FE-MOV-04)."""
+    return await notification_service.preferences(db, account.document_number)
+
+
+@router.put("/devices/push-preferences", response_model=PushPreferences)
+async def save_push_preferences(
+    request: PushPreferencesRequest,
+    account: InsuredAccountDB = Depends(insured_account),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Guarda las tres categorías de avisos del asegurado del token (mejora FE-MOV-04)."""
+    return await notification_service.save_preferences(db, account.document_number, request)
 
 
 @router.post("/devices/push-token", status_code=status.HTTP_204_NO_CONTENT)
