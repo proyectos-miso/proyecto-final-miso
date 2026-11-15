@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Security status | SECURITY_REVIEW_PENDING |
-| Evaluated on | 2026-11-05 |
+| Security status | RISK_ACCEPTED |
+| Evaluated on | 2026-11-15 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-MOV-08-evidencia-fotografica |
 
 <!-- Status: IN_PROGRESS, IMPLEMENTED, SECURITY_TESTS_PENDING, SECURITY_REVIEW_PENDING, RISK_ACCEPTED,
@@ -14,16 +14,16 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria implemented, each covered by a passing test case.
-- [ ] Security requirements mitigated by an applicable control and verified by a security test case.
-- [ ] No required control MISSING.
-- [ ] No secret in the code, logs, artifacts or this package.
-- [ ] New or updated dependencies evaluated.
-- [ ] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
-- [ ] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
-- [ ] Security review approved by a person other than the author.
-- [ ] Closeout: every acceptance criterion MET with evidence.
-- [ ] `python sdd/tools/sdd.py spec validate` reports no errors.
+- [x] Acceptance criteria implemented, each covered by a passing test case.
+- [x] Security requirements mitigated by an applicable control and verified by a security test case.
+- [x] No required control MISSING.
+- [x] No secret in the code, logs, artifacts or this package.
+- [x] New or updated dependencies evaluated.
+- [x] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
+- [x] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
+- [x] Security review approved by a person other than the author.
+- [x] Closeout: every acceptance criterion MET with evidence.
+- [x] `python sdd/tools/sdd.py spec validate` reports no errors.
 
 ## Security reviews
 
@@ -57,3 +57,25 @@
 
 | Criterion | Result | Evidence |
 |---|---|---|
+| AC-01 | MET | TC-01: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-01 la foto se guarda con la ubicación, la hora del teléfono y la independiente"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-01 guarda la foto con su ubicación, precisión y horas"; TC-20: Galaxy S22 Ultra con Android 16, 2026-11-05 (EV-05) |
+| AC-02 | MET | TC-02: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-02 la evidencia sale solo de la cámara de la app, sin galería ni otras apps"; movil/app/src/test/java/com/solventa/app/data/claims/ClaimPrivacySourceTest.kt::"el reporte no abre la galería ni otra app de cámara ni escribe la foto en claro"; TC-20: Galaxy S22 Ultra con Android 16, 2026-11-05 (EV-05) |
+| AC-03 | MET | TC-03: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 el permiso negado explica los pasos y abre los ajustes de la app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 si revocan un permiso a mitad del reporte se vuelve a pedir y el reporte sigue"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-03 los permisos que faltan se explican y con todos se abre la cámara" |
+| AC-04 | MET | TC-09: movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"con una foto, póliza vigente y descripción no falta nada"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-09 enviar sin descripción o sin póliza dice qué falta y no lo deja listo"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-09 el detalle no avisa antes de llenar y al tocar Enviar dice qué falta" |
+| AC-05 | MET | TC-06: movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-06 el archivo de la foto está cifrado y no hay copias en claro"; movil/app/src/test/java/com/solventa/app/data/DataExtractionRulesTest.kt::"el manifiesto niega las copias y declara las reglas de extraccion"; TC-20: Galaxy S22 Ultra con Android 16, 2026-11-05 (EV-05) |
+| AC-06 | MET | TC-12: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-12 abre un borrador con solo las pólizas vigentes de la copia"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-12 la billetera ofrece reportar, retomar o ver el de la cola, y nada sin pólizas ni reporte"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"HU-MOV-08 TC-12 con una póliza vigente ofrece reportar un siniestro" |
+| AC-07 | MET | TC-03: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-03 el permiso negado explica los pasos y abre los ajustes de la app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-03 los permisos que faltan se explican y con todos se abre la cámara" |
+| AC-08 | MET | TC-04: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-04 sin ubicación no hay foto y se dice cómo resolverlo"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-04 mientras busca la ubicación cuenta los segundos y no deja disparar otra vez" |
+| AC-09 | MET | TC-07: movil/app/src/test/java/com/solventa/app/data/claims/PhotoCipherTest.kt::"la huella es el SHA-256 en hexadecimal"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-07 la huella es el SHA-256 de los bytes JPEG y la imagen vuelve igual" |
+| AC-10 | MET | TC-01: movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"prefiere la hora del GNSS"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidTrustedClockTest.kt::"sin GNSS usa la hora de red de Android"; TC-05: movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-05 una ubicación simulada queda marcada" |
+| AC-11 | MET | TC-08: movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-08 cada cuenta tiene su reporte, su frase y su llave"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 la sesion vencida y el nuevo ingreso conservan el reporte"; TC-11: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-11 al volver a abrir encuentra las fotos, la póliza y la descripción" |
+| AC-12 | MET | TC-08: movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 cerrar sesion borra el reporte de siniestro de la cuenta"; movil/app/src/test/java/com/solventa/app/ui/auth/AuthViewModelTest.kt::"HU-MOV-08 TC-08 cambiar la contrasena borra el reporte de esa cuenta"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"HU-MOV-08 TC-08 solo el telefono desvinculado borra el reporte de siniestro" |
+| AC-13 | MET | TC-10: movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-10 borrar la segunda foto borra su archivo y deja 2 en orden"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-10 descartar borra la base, las fotos, la frase y la llave" |
+| AC-14 | MET | TC-09: movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"solo espacios cuenta como sin descripción"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"la descripción se recorta en 500 caracteres y con 500 queda igual"; movil/app/src/test/java/com/solventa/app/data/claims/EvidenceEncoderTest.kt::"TC-09 baja la calidad hasta que cabe en el límite"; movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-09 no entra una sexta foto ni una de más de 2 MB" |
+| AC-15 | MET | TC-11: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-11 enviar con todo deja el reporte en cola, agenda el envío y lo muestra". Desde HU-MOV-09 el reporte listo queda en cola de envío (DEC-02) |
+| AC-16 | MET | TC-13: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimSecureWindowTest.kt::"TC-13 la ventana es segura solo mientras se muestra el reporte, y nunca si está apagada"; Galaxy S22 Ultra con `-PsecureScreens=true`, 2026-11-05 (EV-05) |
+| AC-17 | MET | TC-03: movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-03 el permiso se lee como preciso, solo aproximado o negado"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-03 sin ubicación precisa no hay foto y no se pide la ubicación" |
+| AC-18 | MET | TC-24: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-24 una póliza que dejó de estar vigente se pide de nuevo al enviar"; movil/app/src/test/java/com/solventa/app/domain/claims/ClaimRulesTest.kt::"TC-24 una póliza que ya no está vigente se pide de nuevo" |
+| AC-19 | MET | TC-24: movil/app/src/test/java/com/solventa/app/data/claims/EncryptedClaimStoreTest.kt::"TC-24 un reporte en cola no se edita ni recibe ni pierde fotos"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimReportViewModelTest.kt::"TC-24 un reporte en cola se abre en su estado y se puede descartar". Desde HU-MOV-09 el reporte listo es el que está en cola |
+| AC-20 | MET | TC-22: movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-22 solo escucha la ubicación entre start y stop"; movil/app/src/test/java/com/solventa/app/data/claims/AndroidCaptureLocatorTest.kt::"TC-22 al detenerse olvida la última ubicación" |
+| QR-01 | MET | TC-16: Galaxy S22 Ultra con Android 16, 2026-11-05: 20 de 20 por debajo de 2 s, mediana 0,78 s y máximo 1,31 s (EV-05) |
+| QR-02 | MET | TC-17: movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 cada pantalla del reporte anuncia su título"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimScreensTest.kt::"TC-17 sin fotos, Continuar anuncia lo que falta en un nodo vivo que ya estaba"; TalkBack y la fuente al máximo en el Galaxy S22 Ultra, 2026-11-05 (EV-07) |
