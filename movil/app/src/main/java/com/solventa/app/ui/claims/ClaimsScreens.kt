@@ -30,15 +30,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.solventa.app.R
 import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.claims.PendingReport
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.PrimaryButton
 import com.solventa.app.ui.theme.SectionLabel
@@ -55,6 +58,7 @@ fun ClaimsListScreen(
     onOpen: (String) -> Unit,
     onReport: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onOpenPending: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     Column(modifier.fillMaxSize()) {
@@ -65,6 +69,7 @@ fun ClaimsListScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             if (state.offline && !state.needsConnection) item(key = "offline") { WarningBanner(stringResource(R.string.claims_offline)) }
+            state.pending?.let { pending -> item(key = "pending") { PendingRow(pending, onOpenPending) } }
             when {
                 state.loading -> item(key = "loading") { Loading() }
                 state.needsConnection -> item(key = "needsConnection") { WarningBanner(stringResource(R.string.claims_needs_connection)) }
@@ -182,6 +187,56 @@ private fun ClaimRow(claim: InsuredClaim, onOpen: () -> Unit) {
                 )
             }
             StatusChip(claim.statusLabel, tone(claim.status))
+        }
+    }
+}
+
+/** El reporte del teléfono que aún no se recibe, arriba de los recibidos (HU-MOV-09, AC-05). */
+@Composable
+private fun PendingRow(pending: PendingReport, onOpen: (() -> Unit)?) {
+    val colors = MaterialTheme.colorScheme
+    val policy = pending.policyNumber ?: "—"
+    val date = formatDate(pending.reportedAt)
+    val description = if (pending.rejected) {
+        stringResource(R.string.claims_rejected_description, policy, pending.rejectionReason.orEmpty())
+    } else {
+        stringResource(R.string.claims_pending_description, policy, date)
+    }
+    val title = stringResource(if (pending.rejected) R.string.claims_rejected_title else R.string.claims_pending_title)
+    val openLabel = stringResource(R.string.claims_open_report)
+    var row = Modifier
+        .fillMaxWidth()
+        .clip(MaterialTheme.shapes.medium)
+    if (onOpen != null) row = row.clickable(onClickLabel = openLabel, role = Role.Button, onClick = onOpen)
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = if (pending.rejected) colors.errorContainer else colors.surface,
+        border = BorderStroke(1.dp, if (pending.rejected) colors.error else colors.outline),
+        modifier = row.semantics(mergeDescendants = true) {
+            contentDescription = description
+            liveRegion = LiveRegionMode.Polite
+        },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.claims_pending_detail, policy, date),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                )
+                Text(
+                    pending.rejectionReason ?: stringResource(R.string.claims_pending_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            StatusChip(
+                stringResource(if (pending.rejected) R.string.claim_state_rejected else R.string.claim_state_queued),
+                if (pending.rejected) ChipTone.ERROR else ChipTone.WARNING,
+            )
         }
     }
 }

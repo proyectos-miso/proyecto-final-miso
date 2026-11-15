@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "reports")
 data class ReportEntity(
@@ -20,6 +22,9 @@ data class ReportEntity(
     val state: String,
     @ColumnInfo(name = "created_at") val createdAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at") val updatedAtEpochMillis: Long,
+    @ColumnInfo(name = "queued_at") val queuedAtEpochMillis: Long? = null,
+    @ColumnInfo(name = "rejection_reason") val rejectionReason: String? = null,
+    @ColumnInfo(name = "attempts", defaultValue = "0") val attempts: Int = 0,
 )
 
 /** Datos de una foto; la imagen va cifrada en su archivo con la llave y el nonce de esta fila (CRY-03). */
@@ -69,8 +74,15 @@ interface ClaimDao {
     @Query("UPDATE reports SET policy_number = :policyNumber, description = :description, updated_at = :now WHERE id = :id AND state = 'DRAFT'")
     suspend fun updateDetails(id: String, policyNumber: String?, description: String, now: Long): Int
 
-    @Query("UPDATE reports SET state = 'READY', updated_at = :now WHERE id = :id AND state = 'DRAFT'")
-    suspend fun markReady(id: String, now: Long): Int
+    @Query("UPDATE reports SET state = 'QUEUED', queued_at = :now, updated_at = :now WHERE id = :id AND state = 'DRAFT'")
+    suspend fun queue(id: String, now: Long): Int
+
+    // Solo un reporte en cola se rechaza: un borrador o uno ya rechazado no cambian.
+    @Query("UPDATE reports SET state = 'REJECTED', rejection_reason = :reason, updated_at = :now WHERE id = :id AND state = 'QUEUED'")
+    suspend fun reject(id: String, reason: String, now: Long): Int
+
+    @Query("UPDATE reports SET attempts = attempts + 1 WHERE id = :id")
+    suspend fun countAttempt(id: String)
 
     @Query("UPDATE reports SET updated_at = :now WHERE id = :id")
     suspend fun touch(id: String, now: Long)
@@ -91,8 +103,20 @@ interface ClaimDao {
     }
 }
 
-// Versión 1. Exporta su esquema a movil/app/schemas y cambia solo con migraciones que conservan los datos (CTL-15).
-@Database(entities = [ReportEntity::class, PhotoEntity::class], version = 1, exportSchema = true)
+// Exporta su esquema a movil/app/schemas y cambia solo con migraciones que conservan los datos (CTL-15).
+@Database(entities = [ReportEntity::class, PhotoEntity::class], version = 2, exportSchema = true)
 abstract class ClaimDatabase : RoomDatabase() {
     abstract fun claims(): ClaimDao
+
+    companion object {
+        /** Versión 2 (HU-MOV-09): estado del envío; un reporte «listo» de HU-MOV-08 queda en cola. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reports ADD COLUMN queued_at INTEGER")
+                db.execSQL("ALTER TABLE reports ADD COLUMN rejection_reason TEXT")
+                db.execSQL("ALTER TABLE reports ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE reports SET state = 'QUEUED', queued_at = updated_at WHERE state = 'READY'")
+            }
+        }
+    }
 }

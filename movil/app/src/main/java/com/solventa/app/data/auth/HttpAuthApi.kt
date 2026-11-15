@@ -32,9 +32,10 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
             JSONObject().put("device_id", credential.deviceId).put("device_secret", credential.secret),
         )
 
-    override suspend fun logout(refreshToken: String): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun logout(refreshToken: String, keepReporting: Boolean): Boolean = withContext(Dispatchers.IO) {
         try {
-            request("POST", "auth/logout", JSONObject().put("refresh_token", refreshToken)).code ==
+            val body = JSONObject().put("refresh_token", refreshToken).put("keep_reporting", keepReporting)
+            request("POST", "auth/logout", body).code ==
                 HttpURLConnection.HTTP_NO_CONTENT
         } catch (e: IOException) {
             false
@@ -66,7 +67,7 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
                         val access = json.getString("access_token")
                         val refresh = json.getString("refresh_token")
                         if (access.isBlank() || refresh.isBlank()) RefreshResult.Unanswered
-                        else RefreshResult.Renewed(SessionTokens(access, refresh))
+                        else RefreshResult.Renewed(SessionTokens(access, refresh, reportToken(json)))
                     }
                     HttpURLConnection.HTTP_UNAUTHORIZED -> RefreshResult.Rejected
                     HTTP_LOCKED -> RefreshResult.Unavailable
@@ -147,7 +148,7 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
                 HttpURLConnection.HTTP_OK -> {
                     val json = JSONObject(response.body)
                     LoginResult.Success(
-                        tokens = SessionTokens(json.getString("access_token"), json.getString("refresh_token")),
+                        tokens = SessionTokens(json.getString("access_token"), json.getString("refresh_token"), reportToken(json)),
                         fullName = json.getString("full_name"),
                     )
                 }
@@ -184,6 +185,10 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
             connection.disconnect()
         }
     }
+
+    // Un servidor sin HU-MOV-09 no lo manda: la sesión sigue igual y la cola espera a que la app se abra.
+    private fun reportToken(json: JSONObject): String? =
+        if (json.isNull("report_token")) null else json.optString("report_token").takeIf { it.isNotBlank() }
 
     private class HttpResponse(val code: Int, val body: String, val retryAfter: Int)
 

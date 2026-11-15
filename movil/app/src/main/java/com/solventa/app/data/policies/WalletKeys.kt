@@ -44,6 +44,8 @@ interface WalletKeys {
 // Invalid, y cualquier otra falla es Unavailable para no borrar una copia que aún sirve (CTL-09).
 class KeystoreWalletKeys(
     private val isDeviceLocked: () -> Boolean,
+    // El token de reporte se guarda también con el teléfono bloqueado: la renovación en segundo plano revoca el anterior (HU-MOV-09).
+    private val unlockedDeviceRequired: Boolean = true,
     loadKeyStore: () -> KeyStore = { KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) } },
 ) : WalletKeys {
 
@@ -87,7 +89,7 @@ class KeystoreWalletKeys(
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .setUnlockedDeviceRequired(true)
+            .setUnlockedDeviceRequired(unlockedDeviceRequired)
             .build()
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
             .apply { init(spec) }

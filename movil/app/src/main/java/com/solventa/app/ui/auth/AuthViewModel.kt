@@ -3,6 +3,7 @@ package com.solventa.app.ui.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solventa.app.data.session.BoundAccount
+import com.solventa.app.data.session.ReportTokens
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.auth.BiometricAuthenticator
@@ -128,6 +129,8 @@ class AuthViewModel(
     private val appScope: CoroutineScope,
     // El reporte de siniestro de la cuenta se borra en las mismas revocaciones que la copia, salvo la sesión vencida (HU-MOV-08).
     private val claimStore: ClaimReportStore,
+    // El token de reporte se borra con los datos de la cuenta (HU-MOV-09, SR-05).
+    private val reportTokens: ReportTokens = ReportTokens.None,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(withAccounts(AuthUiState()))
@@ -260,6 +263,7 @@ class AuthViewModel(
     private fun resetBiometrics(email: String) {
         sessionRepository.unbind(email)
         viewModelScope.launch { policyStore.delete(email) }
+        reportTokens.delete(email)
         appScope.launch { claimStore.delete(email) }
         _uiState.update { withAccounts(it.copy(status = AuthStatus.SESSION_RESET)) }
     }
@@ -445,6 +449,7 @@ class AuthViewModel(
         val biometricReady = sessionRepository.hasStoredSession()
         sessionRepository.end()
         policySync.cancel()
+        email?.let(reportTokens::delete)
         _uiState.value = withAccounts(
             AuthUiState(
                 status = if (biometricReady) AuthStatus.LOGGED_OUT_BIOMETRIC_READY else AuthStatus.LOGGED_OUT,
@@ -471,11 +476,12 @@ class AuthViewModel(
         _uiState.value = withAccounts(AuthUiState(status = status, selectedAccountEmail = email))
     }
 
-    // Si la actividad termina sin cerrar sesión, su sesión no sigue renovándose en segundo plano (AC-15).
+    // Si la actividad termina sin cerrar sesión, su sesión no sigue renovándose en segundo plano (AC-15). Cerrar la
+    // app no es cerrar sesión: el token de reporte sigue sirviendo para enviar la cola (HU-MOV-09, AC-02).
     override fun onCleared() {
         val ended = sessionId?.let(sessionRepository::endSession) ?: return
         policySync.cancel()
-        ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken) } }
+        ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken, keepReporting = true) } }
     }
 
     fun openPasswordRecovery() {
@@ -525,6 +531,7 @@ class AuthViewModel(
             if (result == ResetResult.Success) {
                 // El servidor desvinculó las huellas de esa cuenta; las demás cuentas del teléfono se conservan.
                 sessionRepository.unbind(normalizeEmail(email))
+                reportTokens.delete(normalizeEmail(email))
                 policyStore.delete(normalizeEmail(email))
                 claimStore.delete(normalizeEmail(email))
                 lockJob?.cancel()

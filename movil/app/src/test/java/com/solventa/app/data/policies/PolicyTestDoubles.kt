@@ -141,7 +141,7 @@ class FakeSyncAuthApi : AuthApi {
         return biometricResult()
     }
 
-    override suspend fun logout(refreshToken: String): Boolean {
+    override suspend fun logout(refreshToken: String, keepReporting: Boolean): Boolean {
         loggedOut += refreshToken
         return true
     }

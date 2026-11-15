@@ -16,7 +16,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.time.Instant
 
-/** Reporte en memoria con las reglas del almacén real: uno por cuenta y el listo no se edita. */
+/** Reporte en memoria con las reglas del almacén real: uno por cuenta y el que está en cola no se edita. */
 class InMemoryClaimStore : ClaimReportStore {
     val reports = mutableMapOf<String, ClaimReport>()
     val images = mutableMapOf<String, ByteArray>()
@@ -44,7 +44,7 @@ class InMemoryClaimStore : ClaimReportStore {
     }
 
     override suspend fun saveDetails(accountEmail: String, policyNumber: String?, description: String): Boolean {
-        val report = reports[accountEmail]?.takeIf { !it.isReady && readAs == null } ?: return false
+        val report = reports[accountEmail]?.takeIf { it.editable && readAs == null } ?: return false
         reports[accountEmail] = report.copy(policyNumber = policyNumber, description = ClaimRules.limitDescription(description))
         return true
     }
@@ -63,7 +63,7 @@ class InMemoryClaimStore : ClaimReportStore {
     }
 
     override suspend fun deletePhoto(accountEmail: String, photoId: String): Boolean {
-        val report = reports[accountEmail]?.takeIf { !it.isReady } ?: return false
+        val report = reports[accountEmail]?.takeIf { it.editable } ?: return false
         if (report.photos.none { it.id == photoId }) return false
         images.remove(photoId)
         reports[accountEmail] = report.copy(
@@ -72,9 +72,9 @@ class InMemoryClaimStore : ClaimReportStore {
         return true
     }
 
-    override suspend fun markReady(accountEmail: String): Boolean {
-        val report = reports[accountEmail]?.takeIf { !it.isReady } ?: return false
-        reports[accountEmail] = report.copy(state = ReportState.READY)
+    override suspend fun queue(accountEmail: String): Boolean {
+        val report = reports[accountEmail]?.takeIf { it.editable } ?: return false
+        reports[accountEmail] = report.copy(state = ReportState.QUEUED, queuedAt = Instant.EPOCH)
         return true
     }
 

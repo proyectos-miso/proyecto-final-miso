@@ -68,7 +68,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore)
+                AuthViewModel(app.sessionRepository, app.authApi, app.policyStore, app.policySync, app.appScope, app.claimStore, app.reportTokens)
             }
         }
     }
@@ -86,7 +86,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                ClaimReportViewModel(app.claimStore, AndroidCaptureLocator(app), AndroidTrustedClock())
+                ClaimReportViewModel(app.claimStore, AndroidCaptureLocator(app), AndroidTrustedClock(), sendScheduler = app.claimSendScheduler)
             }
         }
     }
@@ -95,7 +95,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory {
             initializer {
                 val app = application as SolventaApplication
-                ClaimsViewModel(app.policySync, app.policyStore)
+                ClaimsViewModel(app.policySync, app.policyStore, app.claimStore)
             }
         }
     }
@@ -310,6 +310,14 @@ fun SolventaMobileRoot(
                             null
                         },
                         modifier = modifier,
+                        onOpenPending = if (claimViewModel != null && camera != null) {
+                            {
+                                onClaimsOpenChange(false)
+                                onClaimOpenChange(true)
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             } else {

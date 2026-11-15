@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -77,6 +78,29 @@ class ClaimScreensTest {
         }
         compose.waitForIdle()
         assertTrue(!vm.uiState.value.loading && vm.uiState.value.report != null)
+    }
+
+    // HU-MOV-09 AC-09: un rechazo definitivo explica el motivo y qué hacer, y se anuncia.
+    @Test
+    fun `HU-MOV-09 AC-09 un reporte rechazado muestra el motivo y ofrece descartarlo`() {
+        kotlinx.coroutines.runBlocking {
+            store.openDraft(EMAIL)
+            store.queue(EMAIL)
+        }
+        store.reports[EMAIL] = store.reports[EMAIL]!!.copy(
+            state = com.solventa.app.domain.claims.ReportState.REJECTED,
+            rejectionReason = "La póliza no está vigente.",
+        )
+        show()
+
+        pane(s(R.string.claim_pane_rejected)).assertExists()
+        compose.onNodeWithText(s(R.string.claim_rejected_heading)).assertExists()
+        compose.onNodeWithText("La póliza no está vigente.").assertExists()
+        compose.onNodeWithText(s(R.string.claim_rejected_action)).assertExists()
+        compose.onNodeWithContentDescription(
+            s(R.string.claim_spoken_summary, s(R.string.claim_summary_state), s(R.string.claim_state_rejected)),
+        ).assertExists()
+        compose.onNodeWithText(s(R.string.claim_discard)).assertExists()
     }
 
     @Test
@@ -194,7 +218,7 @@ class ClaimScreensTest {
     }
 
     @Test
-    fun `TC-09 el detalle dice qué falta mientras Enviar está desactivado`() {
+    fun `TC-09 el detalle no avisa antes de llenar y al tocar Enviar dice qué falta`() {
         show()
         compose.runOnIdle {
             vm.openCamera()
@@ -204,11 +228,12 @@ class ClaimScreensTest {
         assertEquals(1, vm.uiState.value.photoCount)
         compose.runOnIdle { vm.continueToDetail() }
 
-        compose.onNodeWithText(s(R.string.claim_missing_title)).assertDoesNotExist()
-        compose.onNodeWithContentDescription(
-            s(R.string.claim_missing_title) + ": " + s(R.string.claim_missing_policy) + " " + s(R.string.claim_missing_description),
-        ).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
-        compose.onNodeWithText(s(R.string.claim_send)).assertIsNotEnabled()
+        val missing = s(R.string.claim_missing_title) + ": " + s(R.string.claim_missing_policy) + " " + s(R.string.claim_missing_description)
+        compose.onNodeWithContentDescription(missing).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_send)).assertIsEnabled().performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription(missing).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
     }
 
     @Test
@@ -286,10 +311,11 @@ class ClaimScreensTest {
 
         compose.runOnIdle { vm.send() }
         compose.waitForIdle()
-        pane(s(R.string.claim_saved_heading)).assertExists()
+        pane(s(R.string.claim_pane_queued)).assertExists()
+        compose.onNodeWithText(s(R.string.claim_queued_heading)).assertExists()
         compose.onNodeWithContentDescription(s(R.string.claim_spoken_summary, s(R.string.claim_summary_policy), "POL-2026-00001")).assertExists()
         compose.onNodeWithContentDescription(
-            s(R.string.claim_spoken_summary, s(R.string.claim_summary_state), s(R.string.claim_state_ready)),
+            s(R.string.claim_spoken_summary, s(R.string.claim_summary_state), s(R.string.claim_state_queued)),
         ).assertExists()
         compose.onNodeWithContentDescription("${s(R.string.claim_summary_place)}: latitud 4,6512 grados norte", substring = true).assertExists()
     }

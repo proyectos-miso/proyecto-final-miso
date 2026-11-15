@@ -50,12 +50,13 @@ class ClaimRulesTest {
     }
 
     @Test
-    fun `se pueden agregar fotos hasta 5 y no en un reporte listo`() {
+    fun `se pueden agregar fotos hasta 5 y no en un reporte en cola o rechazado`() {
         val four = empty.copy(photos = List(4) { photo.copy(id = "f$it", position = it + 1) })
 
         assertTrue(ClaimRules.canAddPhoto(empty))
         assertTrue(ClaimRules.canAddPhoto(four))
         assertFalse(ClaimRules.canAddPhoto(four.copy(photos = four.photos + photo.copy(id = "f9", position = 5))))
-        assertFalse(ClaimRules.canAddPhoto(empty.copy(state = ReportState.READY)))
+        assertFalse(ClaimRules.canAddPhoto(empty.copy(state = ReportState.QUEUED)))
+        assertFalse(ClaimRules.canAddPhoto(empty.copy(state = ReportState.REJECTED)))
     }
 }

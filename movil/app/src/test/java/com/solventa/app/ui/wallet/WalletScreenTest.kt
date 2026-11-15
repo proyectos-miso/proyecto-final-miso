@@ -255,7 +255,7 @@ class WalletScreenTest {
 
         compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.claim_resume_button)).assertDoesNotExist()
-        compose.onNodeWithText(s(R.string.claim_ready_button)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_queued_button)).assertDoesNotExist()
     }
 
     @Test
@@ -281,10 +281,10 @@ class WalletScreenTest {
     }
 
     @Test
-    fun `HU-MOV-08 TC-12 un reporte listo se ofrece para verlo`() {
-        showWithReport(withPolicy, ReportEntry.READY)
+    fun `HU-MOV-09 un reporte en cola se ofrece para verlo`() {
+        showWithReport(withPolicy, ReportEntry.QUEUED)
 
-        compose.onNodeWithText(s(R.string.claim_ready_button)).assertExists()
+        compose.onNodeWithText(s(R.string.claim_queued_button)).assertExists()
         compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
     }
 }

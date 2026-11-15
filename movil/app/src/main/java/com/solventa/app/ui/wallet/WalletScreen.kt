@@ -536,7 +536,8 @@ private fun ReportButton(entry: ReportEntry, onClick: () -> Unit) {
     val text = stringResource(
         when (entry) {
             ReportEntry.RESUME -> R.string.claim_resume_button
-            ReportEntry.READY -> R.string.claim_ready_button
+            ReportEntry.QUEUED -> R.string.claim_queued_button
+            ReportEntry.REJECTED -> R.string.claim_rejected_button
             else -> R.string.claim_report_button
         },
     )

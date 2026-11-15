@@ -281,19 +281,19 @@ class EncryptedClaimStoreTest {
     }
 
     @Test
-    fun `TC-24 un reporte listo no se edita ni recibe ni pierde fotos`() = runBlocking {
+    fun `TC-24 un reporte en cola no se edita ni recibe ni pierde fotos`() = runBlocking {
         store.openDraft(EMAIL)
         val photo = store.addPhoto(EMAIL, captured(1))!!
         store.saveDetails(EMAIL, POLICY, "Golpe en la puerta")
 
-        assertTrue(store.markReady(EMAIL))
+        assertTrue(store.queue(EMAIL))
 
-        assertFalse(store.markReady(EMAIL))
+        assertFalse(store.queue(EMAIL))
         assertFalse(store.saveDetails(EMAIL, OTHER_POLICY, "otra cosa"))
         assertNull(store.addPhoto(EMAIL, captured(2)))
         assertFalse(store.deletePhoto(EMAIL, photo.id))
         val report = report(EMAIL)
-        assertEquals(ReportState.READY, report.state)
+        assertEquals(ReportState.QUEUED, report.state)
         assertEquals(POLICY, report.policyNumber)
         assertEquals(1, report.photos.size)
         assertEquals(StoredReport.Found(report), store.openDraft(EMAIL))

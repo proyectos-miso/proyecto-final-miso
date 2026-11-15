@@ -74,6 +74,31 @@ class ClaimsViewModelTest {
         assertEquals(1, sync.schedules)
     }
 
+    // HU-MOV-09 AC-05: el reporte en cola se ve arriba, también sin red, y sale de pendientes al recibirse.
+    @Test
+    fun `HU-MOV-09 AC-05 el reporte en cola aparece como pendiente aun sin conexion`() = kotlinx.coroutines.runBlocking {
+        val reports = com.solventa.app.data.claims.InMemoryClaimStore()
+        reports.openDraft(EMAIL)
+        reports.saveDetails(EMAIL, "POL-2026-00001", "Golpe")
+        val viewModel = ClaimsViewModel(sync, store, reports)
+        sync.next = { SyncOutcome.Failed }
+
+        viewModel.open(EMAIL)
+        assertNull("un borrador no es un pendiente", viewModel.uiState.value.pending)
+
+        reports.queue(EMAIL)
+        viewModel.open(EMAIL)
+        val pending = viewModel.uiState.value.pending!!
+        assertEquals("POL-2026-00001", pending.policyNumber)
+        assertFalse(pending.rejected)
+        assertFalse(viewModel.uiState.value.empty)
+
+        reports.delete(EMAIL)
+        sync.results.emit(SyncOutcome.Synced(EMAIL, WalletCopy(emptyList(), now, ClaimsCopy(listOf(sampleClaim()), updatedAt))))
+        assertNull(viewModel.uiState.value.pending)
+        assertEquals(1, viewModel.uiState.value.claims.size)
+    }
+
     @Test
     fun `sin conexion ni copia pide conexion`() {
         sync.next = { SyncOutcome.Failed }

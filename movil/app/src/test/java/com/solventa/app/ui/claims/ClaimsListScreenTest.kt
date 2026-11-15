@@ -14,6 +14,9 @@ import com.solventa.app.R
 import com.solventa.app.data.policies.sampleClaim
 import com.solventa.app.domain.claims.ClaimTimelineStep
 import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.claims.PendingReport
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.unit.dp
 import com.solventa.app.ui.theme.SolventaTheme
 import com.solventa.app.ui.wallet.formatDate
 import com.solventa.app.ui.wallet.formatDateTime
@@ -40,10 +43,47 @@ class ClaimsListScreenTest {
 
     private val updatedAt = Instant.parse("2026-11-08T09:00:00Z")
 
-    private fun showList(state: ClaimsUiState, onBack: () -> Unit = {}, onOpen: (String) -> Unit = {}, onReport: (() -> Unit)? = null) {
+    private fun showList(
+        state: ClaimsUiState,
+        onBack: () -> Unit = {},
+        onOpen: (String) -> Unit = {},
+        onReport: (() -> Unit)? = null,
+        onOpenPending: (() -> Unit)? = null,
+    ) {
         compose.setContent {
-            SolventaTheme { ClaimsListScreen(state = state, onBack = onBack, onOpen = onOpen, onReport = onReport) }
+            SolventaTheme { ClaimsListScreen(state = state, onBack = onBack, onOpen = onOpen, onReport = onReport, onOpenPending = onOpenPending) }
         }
+    }
+
+    // HU-MOV-09 AC-05 y QR-02: el pendiente va arriba de los recibidos, se anuncia y se abre con un objetivo de 48 dp.
+    @Test
+    fun `HU-MOV-09 AC-05 el reporte en cola aparece arriba como pendiente de envio`() {
+        val reportedAt = Instant.parse("2026-11-13T14:00:00Z")
+        var opened = false
+        showList(
+            ClaimsUiState(loading = false, claims = listOf(sampleClaim()), pending = PendingReport("POL-2026-00001", reportedAt)),
+            onOpenPending = { opened = true },
+        )
+
+        val description = s(R.string.claims_pending_description, "POL-2026-00001", formatDate(reportedAt))
+        val pending = compose.onNodeWithContentDescription(description)
+        pending.assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithText(s(R.string.claims_pending_title)).assertIsDisplayed()
+        val pendingTop = pending.fetchSemanticsNode().boundsInRoot.top
+        val claimTop = compose.onNodeWithContentDescription(rowDescription(sampleClaim())).fetchSemanticsNode().boundsInRoot.top
+        assertTrue(pendingTop < claimTop)
+
+        pending.performClick()
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `HU-MOV-09 AC-09 un reporte rechazado dice el motivo en la lista`() {
+        showList(ClaimsUiState(loading = false, pending = PendingReport("POL-2026-00001", Instant.EPOCH, "La póliza no está vigente.")))
+
+        compose.onNodeWithText(s(R.string.claims_rejected_title)).assertIsDisplayed()
+        compose.onNodeWithText("La póliza no está vigente.").assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.claims_empty)).assertDoesNotExist()
     }
 
     private fun showDetail(claim: InsuredClaim?, onBack: () -> Unit = {}) {

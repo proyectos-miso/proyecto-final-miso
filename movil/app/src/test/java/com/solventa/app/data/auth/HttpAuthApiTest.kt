@@ -128,6 +128,20 @@ class HttpAuthApiTest {
         assertEquals(LoginResult.NetworkError, api.login("a@b.co", "x", "123456"))
     }
 
+    // HU-MOV-09: el ingreso y la renovación traen el token que solo sirve para enviar el reporte.
+    @Test
+    fun `el ingreso y la renovacion leen el token de reporte si viene`() = runTest {
+        val withReport = """{"access_token":"a","refresh_token":"r","report_token":"rep","full_name":"María Ruiz"}"""
+        replies["auth/login"] = Reply(200, withReport)
+        assertEquals(SessionTokens("a", "r", "rep"), (api.login("a@b.co", "clave", "123456") as LoginResult.Success).tokens)
+
+        replies["auth/refresh"] = Reply(200, withReport)
+        assertEquals("rep", (api.refresh("refresh-1") as RefreshResult.Renewed).tokens.reportToken)
+
+        replies["auth/refresh"] = Reply(200, """{"access_token":"a","refresh_token":"r","report_token":null}""")
+        assertNull((api.refresh("refresh-1") as RefreshResult.Renewed).tokens.reportToken)
+    }
+
     @Test
     fun `huella envia la credencial del telefono`() = runTest {
         replies["auth/biometric"] = Reply(200, tokensJson("Pedro Gómez"))
@@ -165,6 +179,10 @@ class HttpAuthApiTest {
         replies["auth/logout"] = Reply(204)
         assertTrue(api.logout("refresh-1"))
         assertEquals("refresh-1", JSONObject(received.last().body).getString("refresh_token"))
+        assertFalse("cerrar sesión revoca también el token de reporte", JSONObject(received.last().body).getBoolean("keep_reporting"))
+
+        assertTrue(api.logout("refresh-1", keepReporting = true))
+        assertTrue("cerrar la app conserva el token de reporte (HU-MOV-09)", JSONObject(received.last().body).getBoolean("keep_reporting"))
 
         replies["auth/logout"] = Reply(401, """{"detail":"x"}""")
         assertFalse(api.logout("refresh-1"))
