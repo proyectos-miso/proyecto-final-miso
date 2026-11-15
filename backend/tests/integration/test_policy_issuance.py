@@ -12,6 +12,7 @@ from app.core.security import create_access_token
 from app.modules.policy.models import PolicyDB
 from app.modules.policy.service import one_year_after, policy_service
 from tests.integration.policy_search_fixtures import BENEFICIARIES
+from tests.integration.otp_fixtures import signature_code
 
 EXPIRED_DETAIL = "La cotización venció: recalcule la tarifa con datos actuales."
 
@@ -29,8 +30,9 @@ async def quote(client: AsyncClient) -> dict:
     return response.json()
 
 
-async def issue(client: AsyncClient, quote_id: str, tier: str = "standard"):
-    body = {"quote_id": quote_id, "tier": tier, "beneficiaries": BENEFICIARIES}
+async def issue(client: AsyncClient, quote_id: str, tier: str = "standard", code: str = None):
+    body = {"quote_id": quote_id, "tier": tier, "beneficiaries": BENEFICIARIES,
+            "otp_code": code or await signature_code(client, advisor_headers())}
     return await client.post("/api/v1/experience/policies", headers=advisor_headers(), json=body)
 
 
@@ -107,8 +109,9 @@ async def test_repetir_la_emision_devuelve_la_misma_poliza_aunque_la_cotizacion_
 async def test_diez_emisiones_simultaneas_crean_una_sola_poliza(async_client: AsyncClient, postgres_session):
     """TC-S1-07: 10 peticiones simultáneas con el mismo quote_id dejan una póliza y un evento, y todas reciben esa póliza."""
     quoted = await quote(async_client)
+    code = await signature_code(async_client, advisor_headers())
 
-    responses = await asyncio.gather(*(issue(async_client, quoted["quote_id"]) for _ in range(10)))
+    responses = await asyncio.gather(*(issue(async_client, quoted["quote_id"], code=code) for _ in range(10)))
 
     assert [response.status_code for response in responses] == [200] * 10
     assert len({response.json()["policy_number"] for response in responses}) == 1

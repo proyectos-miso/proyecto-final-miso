@@ -44,7 +44,9 @@ def upgrade() -> None:
     # HU-WEB-12: cuota por socio con ventana temporal compartida entre réplicas
     op.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_window_seconds INTEGER NOT NULL DEFAULT 3600"))
     op.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ"))
-    op.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS environment VARCHAR(16) NOT NULL DEFAULT 'PRODUCTION'"))
+    op.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS environment VARCHAR(16) NOT NULL DEFAULT 'production'"))
+    op.execute(text("ALTER TABLE partners ALTER COLUMN environment SET DEFAULT 'production'"))
+    op.execute(text("UPDATE partners SET environment = lower(environment) WHERE environment <> lower(environment)"))
     op.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS contact_email VARCHAR(254)"))
     # HU-WEB-12 Brechas: campos de consentimiento y crédito en cotizaciones (RC-06, RC-08)
     op.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS consent_id VARCHAR(36)"))

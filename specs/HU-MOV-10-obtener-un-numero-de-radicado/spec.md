@@ -75,6 +75,9 @@ Decisiones de Juan Camilo Peña (2026-11-14): se incluyen RC-13, RC-14 y RC-26; 
 | movil/app/src/main/java/com/solventa/app/domain/claims/** | Radicado provisional y constancia |
 | movil/app/src/main/java/com/solventa/app/data/claims/** | Radicado provisional guardado con el reporte y el oficial al recibirse |
 | movil/app/src/main/java/com/solventa/app/ui/claims/** | Pantalla de constancia y radicado en los pendientes |
+| movil/app/src/main/java/com/solventa/app/ui/wallet/** | Tarjeta de la constancia oficial en la billetera |
+| movil/app/src/main/java/com/solventa/app/MainActivity.kt | Navegación a la constancia y al siniestro |
+| movil/app/src/main/java/com/solventa/app/SolventaApplication.kt | Guardado de la constancia al recibirse |
 | movil/app/schemas/** | Esquema de la base de reportes |
 | movil/app/src/test/** | Pruebas de la constancia y del radicado provisional |
 

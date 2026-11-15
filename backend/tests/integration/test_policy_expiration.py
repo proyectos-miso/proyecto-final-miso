@@ -9,6 +9,7 @@ from app.modules.auth.service import auth_service
 from app.modules.policy.models import PolicyDB, PolicyEventDB
 from app.modules.policy.service import policy_service
 from tests.integration.policy_search_fixtures import BENEFICIARIES
+from tests.integration.otp_fixtures import signature_code
 
 
 def advisor_headers() -> dict:
@@ -46,7 +47,7 @@ async def test_policy_expiration_and_renewal_flow(
             "quote_id": quote_id,
             "tier": "standard",
             "beneficiaries": BENEFICIARIES,
-            "otp_code": "839201",
+            "otp_code": await signature_code(async_client, advisor_headers()),
         },
     )
     assert issue_resp.status_code == 200
