@@ -184,11 +184,11 @@
 | Preconditions | Portal en el navegador con lector de pantalla |
 | Procedure | 1. Llegar al buscador con Tab. 2. Buscar y escuchar el resultado. 3. Buscar sin coincidencias y activar "Limpiar filtro" con teclado |
 | Expected result | El campo tiene etiqueta, la tabla tiene encabezados, el número de resultados y el "sin resultados" se anuncian y el botón se usa con teclado |
-| Tool or method | Narrador o NVDA, teclado |
+| Tool or method | Teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, sin lector de pantalla |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING: auditoría automática con Chrome el 2026-10-27. axe-core 4.12.1 (WCAG 2.2 AA) sin violaciones en la lista y en «sin resultados». Árbol de accesibilidad: landmark de búsqueda, campo «Buscar», filtro «Estado», conteo en role=status con aria-live=polite, tabla «Pólizas encontradas» con 6 encabezados de columna y uno de fila por póliza. Teclado: Enter busca y «Limpiar filtro» devuelve el foco al buscador. A 320 px el encabezado del portal se desbordaba y se corrigió (app.component.css). Falta la pasada con lector de pantalla |
-| Status | PENDING |
+| Evidence | Pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: el buscador se alcanza con Tab y se llama «Buscar»; «27 pólizas encontradas.» y «Sin resultados.» salen en una región role=status; la tabla tiene encabezados (Póliza, Titular, Plan, Estado, Vigencia, Socio); «Limpiar filtro» se alcanza con Tab y funciona con Enter |
+| Status | PASS |
 
 ## Security test coverage
 
