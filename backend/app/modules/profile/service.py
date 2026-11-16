@@ -229,11 +229,12 @@ class ProfileService:
     async def consent_revoked_async(
         self, session: AsyncSession, document_number: str, consent_id: Optional[str] = None
     ) -> bool:
-        """Si la decisión quedó sin consentimiento: el suyo está revocado o el documento solo tiene revocados."""
+        """Si la decisión quedó sin consentimiento: el suyo está revocado o el documento solo tiene revocados.
+        Se miran los dos: una cotización con un consentimiento ajeno no deja ver los datos del documento."""
         if consent_id:
             consent = await session.get(ConsentDB, consent_id)
-            if consent is not None:
-                return consent.status == "REVOKED"
+            if consent is not None and consent.status == "REVOKED":
+                return True
         statuses = set(
             (await session.execute(select(ConsentDB.status).where(ConsentDB.document_number == document_number)))
             .scalars()

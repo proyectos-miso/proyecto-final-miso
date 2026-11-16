@@ -319,6 +319,8 @@ async def approve_partner_production(
 # -- Auditoría de suscripción (FE-WEB-08): solo el equipo de Solventa --------------------------------
 
 DECISION_ID = Path(..., pattern=r"^(QUO|UWR)-[0-9A-F]{12}$")
+# También en los errores: HTTPException no lleva las cabeceras puestas en `response`.
+NO_STORE = {"Cache-Control": "no-store"}
 
 
 class ConsentRevocationRequest(BaseModel):
@@ -338,36 +340,44 @@ async def decision_detail(
     try:
         return await audit.detail(db, decision_id, user.username)
     except audit.DecisionNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.", headers=NO_STORE)
 
 
 @router.post("/decisions/{decision_id}/replay", response_model=audit.ReplayResult)
 async def replay_decision(
+    response: Response,
     decision_id: str = DECISION_ID,
     user: Operator = Depends(solventa_operator),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Recalcula una cotización con las reglas vigentes y dice si coincide; un rechazo no se recalcula (409)."""
+    """Recalcula una cotización con las reglas vigentes y dice si coincide; un rechazo o una decisión con el
+    consentimiento revocado no se recalculan (409)."""
+    response.headers["Cache-Control"] = "no-store"
     try:
         return await audit.replay(db, decision_id, user.username)
     except audit.DecisionNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos la decisión.", headers=NO_STORE)
     except audit.RejectionNotReplayableError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=audit.REJECTION_NOT_REPLAYABLE)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=audit.REJECTION_NOT_REPLAYABLE, headers=NO_STORE)
+    except audit.ConsentRevokedNotReplayableError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=audit.CONSENT_REVOKED_NOT_REPLAYABLE, headers=NO_STORE)
     except audit.DecisionNotReplayableError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Decisión anterior a la auditoría: no se puede recalcular.",
+            headers=NO_STORE,
         )
 
 
 @router.post("/consents/revoke", response_model=audit.ConsentRevocation)
 async def revoke_consent(
     request: ConsentRevocationRequest,
+    response: Response,
     user: Operator = Depends(solventa_operator),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Registra la revocación del consentimiento del titular; ya no sirve para cotizar."""
+    response.headers["Cache-Control"] = "no-store"
     return await audit.revoke_consent(db, request.document_number, user.username)
 
 

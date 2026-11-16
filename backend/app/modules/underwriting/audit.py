@@ -4,12 +4,12 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.profile.service import profile_service
 from app.modules.rating import service as rating
-from app.modules.rating.models import PlanTier, PremiumFactor, QuoteDB
+from app.modules.rating.models import Coverage, PlanTier, PremiumFactor, QuoteDB
 from app.modules.rating.partners import operator_ref
 from app.modules.underwriting import rules
 from app.modules.underwriting.models import UnderwritingRejectionDB
@@ -20,6 +20,11 @@ QUOTE_PREFIX = "QUO-"
 REJECTION_NOT_REPLAYABLE = (
     "Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular."
 )
+CONSENT_REVOKED_NOT_REPLAYABLE = (
+    "El consentimiento del titular fue revocado: no se recalcula con sus datos personales."
+)
+# Diferencias menores a medio centavo o a medio milésimo de multiplicador no cuentan.
+FLOAT_TOLERANCE = 0.005
 
 
 class DecisionNotFoundError(Exception):
@@ -31,6 +36,10 @@ class DecisionNotReplayableError(Exception):
 
 
 class RejectionNotReplayableError(Exception):
+    pass
+
+
+class ConsentRevokedNotReplayableError(Exception):
     pass
 
 
@@ -49,9 +58,20 @@ class RejectionInputs(BaseModel):
 
 
 class TierOutcome(BaseModel):
+    """Con el consentimiento revocado no lleva `breakdown`: sus etiquetas dicen la edad y el multiplicador
+    de historial de pago delata la franja del puntaje."""
     tier: str
     monthly_premium: float
-    breakdown: List[PremiumFactor]
+    annual_premium: Optional[float] = None
+    coverages: List[Coverage] = []
+    breakdown: Optional[List[PremiumFactor]] = None
+
+    @model_serializer(mode="wrap")
+    def _without_empty_breakdown(self, handler):
+        data = handler(self)
+        if self.breakdown is None:
+            data.pop("breakdown", None)
+        return data
 
 
 class DecisionOutcome(BaseModel):
@@ -119,8 +139,10 @@ def _day(value: Optional[datetime]) -> Optional[date]:
 
 
 def _age_then(birth_date: date, created_at: datetime) -> int:
-    """Edad a la fecha de la decisión, no a la de hoy."""
-    return rating.age_on(birth_date, created_at.date())
+    """Edad a la fecha de la decisión, no a la de hoy, en la hora local del servidor como `date.today()` al cotizar."""
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return rating.age_on(birth_date, created_at.astimezone().date())
 
 
 async def _load(session: AsyncSession, decision_id: str):
@@ -154,7 +176,13 @@ async def detail(session: AsyncSession, decision_id: str, operator: str) -> Deci
             status=row.status,
             degradation_reason=row.degradation_reason,
             tiers=[
-                TierOutcome(tier=tier["tier"], monthly_premium=tier["monthly_premium"], breakdown=tier.get("breakdown", []))
+                TierOutcome(
+                    tier=tier["tier"],
+                    monthly_premium=tier["monthly_premium"],
+                    annual_premium=tier.get("annual_premium"),
+                    coverages=tier.get("coverages", []),
+                    breakdown=None if revoked else tier.get("breakdown", []),
+                )
                 for tier in row.tiers
             ],
         )
@@ -183,6 +211,21 @@ async def detail(session: AsyncSession, decision_id: str, operator: str) -> Deci
     )
 
 
+def _differs(then: Any, now: Any) -> bool:
+    numbers = (int, float)
+    if isinstance(then, numbers) and isinstance(now, numbers) and not isinstance(then, bool) and not isinstance(now, bool):
+        return abs(float(then) - float(now)) > FLOAT_TOLERANCE
+    return then != now
+
+
+def _compare(prefix: str, then: Optional[dict], now: Optional[dict], attributes: tuple, differences: List[Difference]) -> None:
+    for attribute in attributes:
+        old = None if then is None else then.get(attribute)
+        new = None if now is None else now.get(attribute)
+        if _differs(old, new):
+            differences.append(Difference(field=f"{prefix}.{attribute}", then=old, now=new))
+
+
 def _replay_quote(quote: QuoteDB) -> List[Difference]:
     age = _age_then(_day(quote.birth_date), quote.created_at)
     score = quote.score_applied
@@ -191,31 +234,49 @@ def _replay_quote(quote: QuoteDB) -> List[Difference]:
     if decision is not None:
         differences.append(Difference(field="decision", then="approved", now=f"review_required:{decision.rule_id}"))
         return differences
-    for stored in quote.tiers:
-        tier = PlanTier(stored["tier"])
+    stored_tiers = {stored["tier"]: stored for stored in quote.tiers}
+    offered = {tier.value: tier for tier in rating.OFFERED_TIERS}
+    for name in [*stored_tiers, *(name for name in offered if name not in stored_tiers)]:
+        stored, tier = stored_tiers.get(name), offered.get(name)
+        if stored is None or tier is None:
+            differences.append(
+                Difference(field=f"{name}.tier", then=name if stored else None, now=name if tier else None)
+            )
+            continue
         breakdown = rating.build_breakdown(
             quote.insured_amount, age, quote.occupation_risk, score, tier, partial_profile=quote.status == "degraded"
         )
         monthly = float(sum(factor.amount for factor in breakdown))
-        if monthly != float(stored["monthly_premium"]):
-            differences.append(Difference(field=f"{tier.value}.monthly_premium", then=stored["monthly_premium"], now=monthly))
+        premiums = {"monthly_premium": monthly, "annual_premium": monthly * 12}
+        _compare(name, stored, premiums, ("monthly_premium", "annual_premium"), differences)
         then_factors = {factor["code"]: factor for factor in stored.get("breakdown", [])}
-        now_factors = {factor.code: factor for factor in breakdown}
+        now_factors = {factor.code: factor.model_dump() for factor in breakdown}
         for code in sorted(set(then_factors) | set(now_factors)):
-            before, after = then_factors.get(code), now_factors.get(code)
-            for attribute in ("multiplier", "amount"):
-                old = None if before is None else float(before[attribute])
-                new = None if after is None else float(getattr(after, attribute))
-                if old != new:
-                    differences.append(Difference(field=f"{tier.value}.{code}.{attribute}", then=old, now=new))
+            _compare(f"{name}.{code}", then_factors.get(code), now_factors.get(code), ("multiplier", "amount"), differences)
+        then_coverages = {coverage["id"]: coverage for coverage in stored.get("coverages", [])}
+        now_coverages = {
+            coverage.id: coverage.model_dump() for coverage in rating.coverages_for(tier, quote.insured_amount)
+        }
+        for coverage_id in sorted(set(then_coverages) | set(now_coverages)):
+            before, after = then_coverages.get(coverage_id), now_coverages.get(coverage_id)
+            prefix = f"{name}.coverages.{coverage_id}"
+            if before is None or after is None:
+                differences.append(
+                    Difference(field=prefix, then=coverage_id if before else None, now=coverage_id if after else None)
+                )
+                continue
+            _compare(prefix, before, after, ("name", "limit", "deductible", "optional", "included"), differences)
     return differences
 
 
 async def replay(session: AsyncSession, decision_id: str, operator: str) -> ReplayResult:
-    """Recalcula la decisión con sus entradas guardadas y las reglas vigentes; un rechazo o una cotización sin entradas no se pueden (409)."""
+    """Recalcula la decisión con sus entradas guardadas y las reglas vigentes; un rechazo, una cotización sin
+    entradas o con el consentimiento revocado no se recalculan (409)."""
     row = await _load(session, decision_id)
     if not isinstance(row, QuoteDB):
         raise RejectionNotReplayableError()
+    if await profile_service.consent_revoked_async(session, row.document_number, row.consent_id):
+        raise ConsentRevokedNotReplayableError()
     if not _quote_replayable(row):
         raise DecisionNotReplayableError()
     differences = _replay_quote(row)

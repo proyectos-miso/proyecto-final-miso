@@ -1,11 +1,13 @@
 """Auditoría de suscripción desde el portal de Solventa (HOTFIX-auditoria-de-suscripcion, FE-WEB-08)."""
 import asyncio
+import copy
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core.security import create_access_token
@@ -13,7 +15,7 @@ from app.modules.profile.models import ConsentDB, ConsentRecord
 from app.modules.profile.service import profile_service
 from app.modules.rating import partners
 from app.modules.rating import service as rating_module
-from app.modules.rating.models import QuoteDB
+from app.modules.rating.models import PlanTier, QuoteDB
 from app.modules.rating.service import rating_service
 from app.modules.underwriting import audit, rules
 from app.modules.underwriting.models import UnderwritingRejectionDB
@@ -26,6 +28,8 @@ DEL_ALIADO = "analista@bancoaliado.example"
 DECISIONS = "/api/v1/experience/decisions"
 REVOKE = "/api/v1/experience/consents/revoke"
 DOCUMENT = "1020304050"
+OTHER_DOCUMENT = "52194832"
+OTHER_CONSENT = "cst-test-other-0001"
 SEEDED_CONSENT = "cst-test-default-001"
 OLD = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -60,6 +64,25 @@ async def add_old_decisions(session) -> None:
                                         reason="Supera el cupo.", requested_amount=900_000_000,
                                         max_approvable_amount=700_000_000, created_at=OLD))
     await session.commit()
+
+
+async def add_other_consent(session) -> None:
+    """Consentimiento vigente de otro titular (ficticio)."""
+    now = datetime.now(timezone.utc)
+    session.add(ConsentDB(id=OTHER_CONSENT, document_type="CC", document_number=OTHER_DOCUMENT, channel="web",
+                          purpose="Perfilamiento actuarial", scope="Scoring", validity_days=30, status="GRANTED",
+                          consent_hash=hashlib.sha256(b"otro titular").hexdigest(), granted_at=now,
+                          expires_at=now + timedelta(days=30)))
+    await session.commit()
+
+
+async def stored_quote(session, quote_id: str) -> QuoteDB:
+    """Copia en memoria (sin guardar) de una cotización, para recalcularla con otras salidas guardadas."""
+    row = await session.get(QuoteDB, quote_id)
+    return QuoteDB(quote_id=row.quote_id, document_number=row.document_number, status=row.status,
+                   score_applied=row.score_applied, birth_date=row.birth_date, created_at=row.created_at,
+                   insured_amount=row.insured_amount, occupation_risk=row.occupation_risk,
+                   rules_version=row.rules_version, tiers=copy.deepcopy(row.tiers))
 
 
 def audit_events(caplog) -> list:
@@ -272,7 +295,9 @@ async def test_la_revocacion_oculta_las_entradas_personales_e_impide_cotizar_con
         assert body["inputs"].get("birth_date") is None
         assert body["inputs"].get("score") is None
         assert "1990-05-15" not in detail.text and "*4050" not in detail.text and DOCUMENT not in detail.text
-    assert (await replay(async_client, created["quote_id"])).json()["matches"] is True
+    blocked = await replay(async_client, created["quote_id"])
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == audit.CONSENT_REVOKED_NOT_REPLAYABLE
 
     body = {"document_type": "CC", "document_number": DOCUMENT, "birth_date": "1990-05-15", "insured_amount": 100_000_000}
     with_id = await async_client.post("/api/v1/experience/quotes", headers=advisor(), json={**body, "consent_id": SEEDED_CONSENT})
@@ -321,3 +346,134 @@ async def test_la_revocacion_y_la_consulta_dejan_un_evento_sin_datos_personales(
     logged = " ".join(record.getMessage() for record in caplog.records)
     for personal in (DOCUMENT, "*4050", "1990-05-15", ANALISTA):
         assert personal not in logged
+
+
+async def test_con_el_consentimiento_revocado_el_detalle_no_revela_la_edad_ni_la_franja_del_buro_y_no_se_recalcula(
+    async_client: AsyncClient, seeded, caplog
+):
+    caplog.set_level("INFO", logger="solventa.audit")
+    created = await quote(async_client, consent_id=SEEDED_CONSENT)
+    await async_client.post(REVOKE, headers=headers(ANALISTA), json={"document_number": DOCUMENT})
+
+    detail = await async_client.get(f"{DECISIONS}/{created['quote_id']}", headers=headers(ANALISTA))
+    blocked = await replay(async_client, created["quote_id"])
+
+    assert detail.status_code == 200
+    tiers = detail.json()["outcome"]["tiers"]
+    assert [tier["tier"] for tier in tiers] == ["basic", "standard", "premium"]
+    assert all(set(tier) == {"tier", "monthly_premium", "annual_premium", "coverages"} for tier in tiers)
+    assert tiers[1]["annual_premium"] == created["tiers"][1]["annual_premium"]
+    assert tiers[1]["coverages"] == created["tiers"][1]["coverages"]
+    for revealing in ("años", "payment_history", "breakdown"):
+        assert revealing not in detail.text
+    assert blocked.status_code == 409
+    assert blocked.headers["cache-control"] == "no-store"
+    assert blocked.json()["detail"] == (
+        "El consentimiento del titular fue revocado: no se recalcula con sus datos personales."
+    )
+    for revealing in ("años", "payment_history", "breakdown"):
+        assert revealing not in blocked.text
+    assert "DECISION_REPLAYED" not in [event["event_code"] for event in audit_events(caplog)]
+
+
+async def test_el_recalculo_y_la_revocacion_responden_sin_cache(async_client: AsyncClient, seeded):
+    created = await quote(async_client)
+
+    replayed = await replay(async_client, created["quote_id"])
+    revoked = await async_client.post(REVOKE, headers=headers(ANALISTA), json={"document_number": DOCUMENT})
+
+    assert replayed.status_code == 200 and revoked.status_code == 200
+    assert replayed.headers["cache-control"] == "no-store"
+    assert revoked.headers["cache-control"] == "no-store"
+
+
+async def test_el_asesor_con_el_consentimiento_de_otro_documento_recibe_422_sin_consultar_el_buro_ni_guardar(
+    async_client: AsyncClient, seeded, monkeypatch
+):
+    await add_other_consent(seeded)
+    calls = []
+
+    async def counted_score(request, delay=0.0):
+        calls.append(request.document_number)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", counted_score)
+    body = {"document_type": "CC", "document_number": DOCUMENT, "birth_date": "1990-05-15",
+            "insured_amount": 100_000_000, "occupation_risk": 2, "consent_id": OTHER_CONSENT}
+
+    response = await async_client.post("/api/v1/experience/quotes", headers=advisor(), json=body)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == rating_module.CONSENT_OF_ANOTHER_CLIENT == "El consentimiento no corresponde al cliente."
+    assert calls == []
+    assert await seeded.scalar(select(func.count()).select_from(QuoteDB)) == 0
+    assert await seeded.scalar(select(func.count()).select_from(UnderwritingRejectionDB)) == 0
+
+
+async def test_una_cotizacion_con_un_consentimiento_ajeno_oculta_los_datos_si_el_documento_solo_tiene_revocados(
+    async_client: AsyncClient, seeded
+):
+    await add_other_consent(seeded)
+    seeded.add(QuoteDB(quote_id="QUO-0000000000BB", document_number=DOCUMENT, status="active", score_applied=720.0,
+                       tiers=[], created_at=OLD, expires_at=OLD + timedelta(days=15), consent_id=OTHER_CONSENT,
+                       birth_date=datetime(1990, 5, 15, tzinfo=timezone.utc), insured_amount=100_000_000,
+                       occupation_risk=2, rules_version="2026.11"))
+    await seeded.commit()
+    before = (await async_client.get(f"{DECISIONS}/QUO-0000000000BB", headers=headers(ANALISTA))).json()
+
+    await async_client.post(REVOKE, headers=headers(ANALISTA), json={"document_number": DOCUMENT})
+    after = await async_client.get(f"{DECISIONS}/QUO-0000000000BB", headers=headers(ANALISTA))
+
+    assert before["consent_revoked"] is False
+    assert after.json()["consent_revoked"] is True
+    assert after.json()["inputs"]["birth_date"] is None and after.json()["inputs"]["score"] is None
+    assert "1990-05-15" not in after.text and "*4050" not in after.text
+    assert (await replay(async_client, "QUO-0000000000BB")).status_code == 409
+
+
+async def test_el_recalculo_reporta_los_tiers_que_desaparecen_o_aparecen(async_client: AsyncClient, seeded, monkeypatch):
+    created = await quote(async_client)
+    monkeypatch.setattr(rating_module, "OFFERED_TIERS", [PlanTier.BASIC, PlanTier.STANDARD])
+
+    gone = (await replay(async_client, created["quote_id"])).json()
+    monkeypatch.setattr(rating_module, "OFFERED_TIERS", list(PlanTier))
+    row = await stored_quote(seeded, created["quote_id"])
+    row.tiers = [tier for tier in row.tiers if tier["tier"] != "basic"]
+    appeared = audit._replay_quote(row)
+
+    assert gone["matches"] is False
+    assert gone["differences"] == [{"field": "premium.tier", "then": "premium", "now": None}]
+    assert [difference.model_dump() for difference in appeared] == [{"field": "basic.tier", "then": None, "now": "basic"}]
+
+
+async def test_el_recalculo_compara_la_prima_anual_y_las_coberturas(async_client: AsyncClient, seeded):
+    created = await quote(async_client)
+    row = await stored_quote(seeded, created["quote_id"])
+    standard = next(tier for tier in row.tiers if tier["tier"] == "standard")
+    standard["annual_premium"] += 1_000
+    standard["coverages"][0]["limit"] = 50_000_000
+    standard["coverages"] = [coverage for coverage in standard["coverages"] if coverage["id"] != "disability"]
+
+    fields = {difference.field: difference for difference in audit._replay_quote(row)}
+
+    assert set(fields) == {"standard.annual_premium", "standard.coverages.death.limit", "standard.coverages.disability"}
+    assert fields["standard.annual_premium"].now == created["tiers"][1]["annual_premium"]
+    assert fields["standard.coverages.death.limit"].then == 50_000_000
+    assert fields["standard.coverages.death.limit"].now == 100_000_000
+    assert (fields["standard.coverages.disability"].then, fields["standard.coverages.disability"].now) == (None, "disability")
+
+
+async def test_el_recalculo_tolera_diferencias_de_coma_flotante_de_hasta_medio_centavo(async_client: AsyncClient, seeded):
+    created = await quote(async_client)
+    row = await stored_quote(seeded, created["quote_id"])
+    basic = next(tier for tier in row.tiers if tier["tier"] == "basic")
+    basic["monthly_premium"] += 0.004
+    basic["annual_premium"] -= 0.004
+    basic["breakdown"][1]["multiplier"] += 0.004
+    tolerated = audit._replay_quote(row)
+    basic["monthly_premium"] += 0.002
+
+    differences = audit._replay_quote(row)
+
+    assert tolerated == []
+    assert [difference.field for difference in differences] == ["basic.monthly_premium"]

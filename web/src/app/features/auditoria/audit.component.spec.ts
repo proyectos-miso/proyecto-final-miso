@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { DecisionDetail } from '../../core/models/audit.model';
-import { AuditComponent, REJECTION_NOT_REPLAYABLE } from './audit.component';
+import { AuditComponent, CONSENT_REVOKED_NOT_REPLAYABLE, RELOAD_FAILED, REJECTION_NOT_REPLAYABLE } from './audit.component';
 
 // Auditoría de suscripción (HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
 describe('AuditComponent (FE-WEB-08)', () => {
@@ -77,6 +77,7 @@ describe('AuditComponent (FE-WEB-08)', () => {
     const input = page().querySelector('#decisionId') as HTMLInputElement;
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(input.getAttribute('aria-errormessage')).toBe('decisionIdError');
+    expect(input.getAttribute('aria-describedby')).toBe('decisionIdHint decisionIdError');
     expect(page().querySelector('#decisionIdError')?.textContent).toContain('QUO- o UWR-');
     expect(page().querySelector('label[for="decisionId"]')).toBeTruthy();
     http.expectNone(() => true);
@@ -180,13 +181,78 @@ describe('AuditComponent (FE-WEB-08)', () => {
     expect(page().querySelector('[role="alert"]')?.textContent).toContain('anterior a la auditoría');
   });
 
+  it('un espacio pegado no corta el identificador: no hay maxlength de 16 y se recorta antes de validar', () => {
+    const input = page().querySelector('#decisionId') as HTMLInputElement;
+    expect(input.maxLength).toBe(32);
+    expect(input.getAttribute('aria-describedby')).toBe('decisionIdHint');
+
+    submitSearch('  QUO-1A2B3C4D5E6F');
+    http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(QUOTE);
+    fixture.detectChanges();
+
+    expect(page().querySelector('#decisionIdError')).toBeNull();
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('el campo del documento tiene texto de ayuda y su error en aria-describedby', () => {
+    const input = page().querySelector('#consentDocument') as HTMLInputElement;
+    expect(input.getAttribute('aria-describedby')).toBe('consentDocumentHint');
+    expect(page().querySelector('#consentDocumentHint')?.textContent).toContain('De 4 a 20 letras o números');
+
+    button('Registrar revocación del consentimiento').click();
+    fixture.detectChanges();
+
+    expect(input.getAttribute('aria-describedby')).toBe('consentDocumentHint consentDocumentError');
+    expect(input.getAttribute('aria-errormessage')).toBe('consentDocumentError');
+  });
+
+  it('con el consentimiento revocado no muestra el desglose ni Recalcular y explica por qué', () => {
+    submitSearch('QUO-1A2B3C4D5E6F');
+    http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush({
+      ...QUOTE,
+      consent_revoked: true,
+      inputs: { ...QUOTE.inputs, document_masked: null, birth_date: null, score: null },
+      outcome: { ...QUOTE.outcome, tiers: [{ tier: 'standard', monthly_premium: 30096, annual_premium: 361152, coverages: [] }] },
+    });
+    fixture.detectChanges();
+
+    expect(button('Recalcular')).toBeUndefined();
+    expect(page().querySelector('[data-testid="consent-not-replayable"]')?.textContent).toBe(CONSENT_REVOKED_NOT_REPLAYABLE);
+    expect(CONSENT_REVOKED_NOT_REPLAYABLE).toBe('El consentimiento del titular fue revocado: no se recalcula con sus datos personales.');
+    expect(page().querySelector('[data-testid="tier-table"]')).toBeNull();
+    expect(page().textContent).not.toContain('Desglose del plan');
+    expect(page().textContent).not.toContain('Multiplicador');
+    const summary = page().querySelector('[data-testid="tier-summary"]') as HTMLTableElement;
+    expect(summary.querySelector('caption')?.textContent).toContain('Primas por plan');
+    expect(summary.querySelector('tbody th[scope="row"]')?.textContent).toBe('Estándar');
+    expect(summary.textContent).toContain('361.152');
+  });
+
+  it('buscar otro identificador limpia el resultado del recálculo anterior', () => {
+    submitSearch('QUO-1A2B3C4D5E6F');
+    http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(QUOTE);
+    fixture.detectChanges();
+    button('Recalcular').click();
+    http.expectOne((req) => req.url.endsWith('/replay')).flush({
+      decision_id: QUOTE.decision_id, matches: true, differences: [], rules_version_then: '2026.11', rules_version_now: '2026.11',
+    });
+    fixture.detectChanges();
+    expect(page().querySelector('[data-testid="replay-result"]')).toBeTruthy();
+
+    submitSearch('QUO-ABCDEF012345');
+    expect(page().querySelector('[data-testid="replay-result"]')).toBeNull();
+    http.expectOne((req) => req.url.endsWith('/decisions/QUO-ABCDEF012345')).flush({ ...QUOTE, decision_id: 'QUO-ABCDEF012345' });
+    fixture.detectChanges();
+    expect(page().querySelector('[data-testid="replay-result"]')).toBeNull();
+  });
+
   it('la revocación del consentimiento pide confirmación, maneja el foco y solo al confirmar llama al servidor', async () => {
     button('Registrar revocación del consentimiento').click();
     fixture.detectChanges();
     expect(page().querySelector('#consentDocumentError')).toBeTruthy();
     expect(page().querySelector('section.confirm')).toBeNull();
 
-    type('#consentDocument', '1020304050');
+    type('#consentDocument', ' 1020304050 ');
     const opener = button('Registrar revocación del consentimiento');
     opener.click();
     fixture.detectChanges();
@@ -236,5 +302,34 @@ describe('AuditComponent (FE-WEB-08)', () => {
 
     expect(page().querySelector('[data-testid="consent-revoked"]')).toBeTruthy();
     expect(page().querySelector('[data-testid="input-document"]')?.textContent).toContain('consentimiento revocado');
+  });
+
+  it('tras revocar limpia el recálculo anterior y, si la recarga falla, avisa sin vaciar el detalle', async () => {
+    submitSearch('QUO-1A2B3C4D5E6F');
+    http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(QUOTE);
+    fixture.detectChanges();
+    button('Recalcular').click();
+    http.expectOne((req) => req.url.endsWith('/replay')).flush({
+      decision_id: QUOTE.decision_id, matches: true, differences: [], rules_version_then: '2026.11', rules_version_now: '2026.11',
+    });
+    fixture.detectChanges();
+
+    type('#consentDocument', '1020304050');
+    button('Registrar revocación del consentimiento').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    button('Confirmar: registrar revocación').click();
+    http.expectOne((req) => req.url.endsWith('/consents/revoke')).flush({ document_masked: '******4050', revoked: 1 });
+    fixture.detectChanges();
+    expect(page().querySelector('[data-testid="replay-result"]')).toBeNull();
+    http.expectOne((req) => req.method === 'GET' && req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(
+      { detail: 'Error interno.' },
+      { status: 500, statusText: 'Server Error' },
+    );
+    fixture.detectChanges();
+
+    expect(page().querySelector('[role="alert"]')?.textContent).toContain(RELOAD_FAILED);
+    expect(page().querySelector('section.detail')).toBeTruthy();
+    expect(status().textContent).toContain('quedaron revocados');
   });
 });

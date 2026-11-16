@@ -14,6 +14,10 @@ const COUNT = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
 const REVOKED_INPUT = 'Omitido: consentimiento revocado';
 export const REJECTION_NOT_REPLAYABLE =
   'Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.';
+export const CONSENT_REVOKED_NOT_REPLAYABLE =
+  'El consentimiento del titular fue revocado: no se recalcula con sus datos personales.';
+export const RELOAD_FAILED =
+  'La revocación quedó registrada, pero no se pudo actualizar la decisión abierta: búsquela de nuevo antes de seguir.';
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Cotización activa',
@@ -43,8 +47,9 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
         <h2 id="searchTitle">Buscar una decisión</h2>
         <div class="field">
           <label for="decisionId">Identificador de la cotización o del rechazo</label>
-          <input id="decisionId" name="decisionId" required maxlength="16" autocomplete="off" spellcheck="false"
-            aria-describedby="decisionIdHint" [attr.aria-invalid]="idError() ? 'true' : null"
+          <input id="decisionId" name="decisionId" required maxlength="32" autocomplete="off" spellcheck="false"
+            [attr.aria-describedby]="idError() ? 'decisionIdHint decisionIdError' : 'decisionIdHint'"
+            [attr.aria-invalid]="idError() ? 'true' : null"
             [attr.aria-errormessage]="idError() ? 'decisionIdError' : null"
             [ngModel]="decisionId()" (ngModelChange)="decisionId.set($event)" />
           <span id="decisionIdHint" class="hint">Empieza con QUO- (cotización) o UWR- (rechazo) y sigue con 12 caracteres, por ejemplo QUO-1A2B3C4D5E6F.</span>
@@ -69,7 +74,7 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
           @if (decision.consent_revoked) {
             <p class="notice info" data-testid="consent-revoked">
               @if (decision.kind === 'quote') {
-                El titular revocó su consentimiento: se omiten el documento, la fecha de nacimiento y el puntaje.
+                El titular revocó su consentimiento: se omiten el documento, la fecha de nacimiento, el puntaje y el desglose de la prima.
               } @else {
                 El titular revocó su consentimiento: se omite el documento.
               }
@@ -107,7 +112,27 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
             </dl>
           }
 
-          @for (tier of decision.outcome.tiers; track tier.tier) {
+          @if (decision.consent_revoked && decision.outcome.tiers.length) {
+            <div class="table-wrap">
+              <table data-testid="tier-summary">
+                <caption>Primas por plan</caption>
+                <thead>
+                  <tr><th scope="col">Plan</th><th scope="col">Prima mensual</th><th scope="col">Prima anual</th></tr>
+                </thead>
+                <tbody>
+                  @for (tier of decision.outcome.tiers; track tier.tier) {
+                    <tr>
+                      <th scope="row">{{ tierLabel(tier.tier) }}</th>
+                      <td>{{ money(tier.monthly_premium) }}</td>
+                      <td>{{ money(tier.annual_premium ?? null) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+
+          @for (tier of decision.consent_revoked ? [] : decision.outcome.tiers; track tier.tier) {
             <div class="table-wrap">
               <table data-testid="tier-table">
                 <caption>Desglose del plan {{ tierLabel(tier.tier) }}</caption>
@@ -115,7 +140,7 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
                   <tr><th scope="col">Factor</th><th scope="col">Multiplicador</th><th scope="col">Aporte mensual</th></tr>
                 </thead>
                 <tbody>
-                  @for (factor of tier.breakdown; track factor.code) {
+                  @for (factor of tier.breakdown ?? []; track factor.code) {
                     <tr>
                       <th scope="row">{{ factor.label }}</th>
                       <td>{{ multiplier(factor.multiplier) }}</td>
@@ -133,6 +158,8 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
           <div class="replay">
             @if (decision.kind === 'rejection') {
               <p class="hint" data-testid="rejection-not-replayable">{{ rejectionNotReplayable }}</p>
+            } @else if (decision.consent_revoked) {
+              <p class="hint" data-testid="consent-not-replayable">{{ consentRevokedNotReplayable }}</p>
             } @else if (decision.replayable) {
               <button type="button" class="btn-primary" [disabled]="busy()" (click)="replay()">Recalcular</button>
             } @else {
@@ -173,10 +200,12 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
         <p class="hint">Registre la revocación que pidió el titular: su consentimiento deja de servir para cotizar y sus datos se omiten en la auditoría.</p>
         <div class="field">
           <label for="consentDocument">Documento del titular</label>
-          <input id="consentDocument" name="consentDocument" maxlength="20" autocomplete="off" inputmode="text"
+          <input id="consentDocument" name="consentDocument" maxlength="32" autocomplete="off" inputmode="text"
+            [attr.aria-describedby]="documentError() ? 'consentDocumentHint consentDocumentError' : 'consentDocumentHint'"
             [attr.aria-invalid]="documentError() ? 'true' : null"
             [attr.aria-errormessage]="documentError() ? 'consentDocumentError' : null"
             [ngModel]="documentNumber()" (ngModelChange)="documentNumber.set($event)" />
+          <span id="consentDocumentHint" class="hint">De 4 a 20 letras o números, sin espacios ni puntos.</span>
           @if (documentError(); as text) {
             <span id="consentDocumentError" class="field-error">{{ text }}</span>
           }
@@ -256,16 +285,17 @@ export class AuditComponent {
 
   readonly maskedDocument = computed(() => mask(this.documentNumber().trim()));
   readonly rejectionNotReplayable = REJECTION_NOT_REPLAYABLE;
+  readonly consentRevokedNotReplayable = CONSENT_REVOKED_NOT_REPLAYABLE;
 
   search(): void {
     const id = this.decisionId().trim().toUpperCase();
+    this.result.set(null);
     if (!DECISION_ID.test(id)) {
       this.idError.set('Escriba un identificador válido: QUO- o UWR- seguido de 12 caracteres (0-9, A-F).');
       return;
     }
     this.idError.set(null);
     this.error.set(null);
-    this.result.set(null);
     this.busy.set(true);
     this.audit
       .detail(id)
@@ -322,7 +352,7 @@ export class AuditComponent {
   confirmRevocation(): void {
     this.busy.set(true);
     this.audit
-      .revokeConsent(this.documentNumber())
+      .revokeConsent(this.documentNumber().trim())
       .pipe(
         finalize(() => {
           this.busy.set(false);
@@ -381,9 +411,10 @@ export class AuditComponent {
 
   /** Tras revocar, la decisión abierta se vuelve a pedir para que omita las entradas personales. */
   private reload(decisionId: string): void {
+    this.result.set(null);
     this.audit.detail(decisionId).subscribe({
       next: (decision) => this.detail.set(decision),
-      error: () => this.detail.set(null),
+      error: () => this.error.set(RELOAD_FAILED),
     });
   }
 

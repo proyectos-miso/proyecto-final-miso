@@ -20,10 +20,20 @@ export interface DecisionInputs {
   score?: number | null;
 }
 
+export interface Coverage {
+  id: string;
+  name: string;
+  limit: number;
+  deductible: number;
+}
+
+/** Con el consentimiento revocado no llega `breakdown`: sus etiquetas dicen la edad y la franja del buró. */
 export interface TierOutcome {
   tier: string;
   monthly_premium: number;
-  breakdown: PremiumFactor[];
+  annual_premium?: number | null;
+  coverages?: Coverage[];
+  breakdown?: PremiumFactor[];
 }
 
 export interface DecisionOutcome {
