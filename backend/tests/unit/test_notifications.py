@@ -77,7 +77,8 @@ def test_el_emisor_de_firebase_manda_el_texto_general_con_prioridad_alta(monkeyp
     sent = []
     monkeypatch.setattr(credentials, "Certificate", lambda source: ("certificado", source))
     monkeypatch.setattr(firebase_admin, "initialize_app", lambda cert, name: SimpleNamespace(cert=cert, name=name))
-    monkeypatch.setattr(messaging, "send_each_for_multicast", lambda message, app: sent.append((message, app)))
+    monkeypatch.setattr(messaging, "send_each_for_multicast",
+                        lambda message, app: sent.append((message, app)) or messaging.BatchResponse([]))
 
     sender = service.FirebaseSender({"type": "service_account"})
     sender.send(["token-a"], "Solventa", "Su siniestro fue aprobado.", {"type": "CLAIM_STATUS", "claim_number": "SIN-1"})
@@ -87,6 +88,92 @@ def test_el_emisor_de_firebase_manda_el_texto_general_con_prioridad_alta(monkeyp
     assert message.tokens == ["token-a"]
     assert message.data == {"type": "CLAIM_STATUS", "claim_number": "SIN-1", "title": "Solventa", "body": "Su siniestro fue aprobado."}
     assert message.android.priority == "high"
+
+
+def firebase_sender_answering(monkeypatch, *exceptions):
+    """Emisor real con un send_each_for_multicast falso que responde un BatchResponse, un resultado por token."""
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+
+    monkeypatch.setattr(credentials, "Certificate", lambda source: source)
+    monkeypatch.setattr(firebase_admin, "initialize_app", lambda cert, name: SimpleNamespace(name=name))
+    monkeypatch.setattr(messaging, "send_each_for_multicast", lambda message, app: messaging.BatchResponse([
+        messaging.SendResponse(None if exc else {"name": "projects/p/messages/1"}, exc) for exc in exceptions
+    ]))
+    sender = service.FirebaseSender({"type": "service_account"})
+    tokens = [f"token-{i}" for i in range(len(exceptions))]
+    return lambda: sender.send(tokens, "Solventa", "Texto", {"type": "CLAIM_STATUS"})
+
+
+def test_si_todos_los_tokens_fallan_por_algo_pasajero_el_envio_lanza_para_reintentar(monkeypatch):
+    from firebase_admin import exceptions, messaging
+
+    send = firebase_sender_answering(
+        monkeypatch, exceptions.UnavailableError("caído"), messaging.QuotaExceededError("cuota"),
+        exceptions.InternalError("interno"), messaging.UnregisteredError("no registrado"),
+    )
+
+    with pytest.raises(service.PushDeliveryError):
+        send()
+
+
+def test_una_excepcion_de_red_sin_ningun_exito_tambien_se_reintenta(monkeypatch):
+    send = firebase_sender_answering(monkeypatch, ConnectionError("sin red"), TimeoutError("tiempo agotado"))
+
+    with pytest.raises(service.PushDeliveryError):
+        send()
+
+
+def test_los_tokens_no_registrados_o_invalidos_no_se_reintentan_y_se_devuelven_los_no_registrados(monkeypatch):
+    from firebase_admin import exceptions, messaging
+
+    send = firebase_sender_answering(
+        monkeypatch, messaging.UnregisteredError("no registrado"), exceptions.InvalidArgumentError("inválido"),
+    )
+
+    assert send() == ["token-0"]
+
+
+def test_un_exito_parcial_no_se_reintenta_para_no_duplicar(monkeypatch):
+    from firebase_admin import exceptions
+
+    send = firebase_sender_answering(monkeypatch, None, exceptions.UnavailableError("caído"))
+
+    assert send() == []
+
+
+async def test_los_tokens_no_registrados_se_borran_despues_del_envio():
+    executed = []
+
+    class Nested:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def begin_nested(self):
+            return Nested()
+
+        async def get(self, model, key):
+            return None
+
+        async def scalars(self, stmt):
+            return ["token-viejo", "token-nuevo"]
+
+        async def execute(self, stmt):
+            executed.append(str(stmt))
+
+    class Sender:
+        def send(self, tokens, title, body, data):
+            return ["token-viejo"]
+
+    notifications = service.NotificationService(lambda: Sender())
+    sent = await notifications.notify(Session(), "1020304050", "T", "B", {}, strict=True)
+
+    assert sent is True
+    assert any(sql.startswith("DELETE FROM push_tokens") for sql in executed)
 
 
 def event(kind, hours):
@@ -184,6 +271,33 @@ async def test_sin_cola_configurada_el_arranque_no_lanza_el_consumidor(monkeypat
     assert {"daily_policy_lifecycle", "publish_outbox"} <= set(started)
 
 
+async def test_con_la_cola_configurada_el_arranque_lanza_el_consumidor_y_al_apagar_espera_las_tareas(monkeypatch):
+    started = []
+    real_create_task = asyncio.create_task
+
+    def create_task(coro):
+        started.append(coro.__qualname__)
+        task = real_create_task(coro)
+        tasks.append(task)
+        return task
+
+    async def nothing(*args, **kwargs):
+        return None
+
+    tasks = []
+    monkeypatch.setattr(main, "upgrade_database", nothing)
+    monkeypatch.setattr(main, "events_queue_configured", lambda: True)
+    monkeypatch.setattr(main.outbox_consumer, "consume", nothing)
+    monkeypatch.setattr(main.asyncio, "create_task", create_task)
+    monkeypatch.setattr(main, "AsyncSessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("sin base")))
+
+    async with main.lifespan(main.app):
+        pass
+
+    assert "consume_outbox" in started
+    assert all(task.done() for task in tasks)
+
+
 async def test_una_falla_al_leer_la_cola_no_detiene_el_consumidor(monkeypatch, capsys):
     async def failing(sessions):
         raise RuntimeError("cola caída con detalle interno")
@@ -213,3 +327,55 @@ def test_el_outbox_de_core_no_importa_modulos():
     imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
 
     assert not [name for name in imported if name.startswith(("app.modules", "app.bff"))]
+
+
+class ListQueue:
+    def __init__(self, messages):
+        self.messages, self.deleted, self.retried = messages, [], []
+
+    def receive(self, max_messages, wait_seconds):
+        return self.messages
+
+    def delete(self, receipt_handle):
+        self.deleted.append(receipt_handle)
+
+    def retry_later(self, receipt_handle, seconds):
+        self.retried.append((receipt_handle, seconds))
+
+
+def message(receipt, receives, event_type="ClaimFiled"):
+    import json
+    import uuid
+
+    return {"ReceiptHandle": receipt, "Attributes": {"ApproximateReceiveCount": str(receives)},
+            "Body": json.dumps({"message_id": str(uuid.uuid4()), "event_type": event_type})}
+
+
+async def test_la_espera_entre_reintentos_crece_con_cada_recepcion_hasta_15_minutos():
+    from app.core import outbox
+
+    queue = ListQueue([message(f"r{n}", n) for n in (1, 2, 3, 4, 5, 6, 8)] + [{"ReceiptHandle": "r0", "Body": "{}"}])
+    consumer = outbox.OutboxConsumer(lambda: queue)
+
+    async def failing(sessions, body):
+        return outbox.RETRY if body != "{}" else outbox.DONE
+
+    consumer.process = failing
+    await consumer.consume(sessions=None, wait_seconds=0)
+
+    assert queue.retried == [("r1", 30), ("r2", 60), ("r3", 120), ("r4", 240), ("r5", 480), ("r6", 900), ("r8", 900)]
+    assert queue.deleted == ["r0"]
+    assert sum(consumer.retry_delay(n) for n in range(1, 9)) == 3630
+
+
+async def test_un_tipo_ignorado_se_borra_y_uno_sin_manejador_se_aplaza_al_maximo_hasta_la_dlq():
+    from app.core import outbox
+
+    queue = ListQueue([message("r1", 1, "PolicyIssued"), message("r2", 1, "PaymentApproved"),
+                       message("r3", 1, "TipoNuevo")])
+
+    done = await outbox.OutboxConsumer(lambda: queue).consume(sessions=None, wait_seconds=0)
+
+    assert done == 2
+    assert queue.deleted == ["r1", "r2"]
+    assert queue.retried == [("r3", outbox.MAX_RETRY_SECONDS)]

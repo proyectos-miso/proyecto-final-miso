@@ -108,6 +108,7 @@ async def lifespan(app: FastAPI):
     yield
     for task in tasks:
         task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def docs_urls(enabled: bool) -> dict:

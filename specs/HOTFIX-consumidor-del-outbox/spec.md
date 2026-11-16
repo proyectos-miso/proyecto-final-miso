@@ -24,8 +24,8 @@ las notificaciones salen del camino de la petición y se reintentan si Firebase 
 
 Problema: la cola de eventos no tiene lector, una caída de Firebase pierde el aviso y un Firebase lento frena la
 petición del analista. Resultado: cada cambio de estado de un siniestro, cada siniestro recibido y cada
-recordatorio de renovación queda como evento en el outbox, y un consumidor en el backend lo convierte en push una
-sola vez por mensaje, con reintentos de SQS y cola de mensajes fallidos.
+recordatorio de renovación queda como evento en el outbox, y un consumidor en el backend lo convierte en push en
+efecto una vez por mensaje, con reintentos de espera creciente y cola de mensajes fallidos.
 
 ### Goals and non-goals
 
@@ -33,28 +33,30 @@ Objetivos: eventos `ClaimStatusChanged` y `RenewalDue` en la misma transacción 
 consumidor con long polling, despacho por tipo, idempotencia por `message_id` y borrado solo de lo procesado;
 permisos de lectura de la cola para el rol de la tarea; ADR 0030.
 
-Fuera de alcance: consumidores para `PolicyIssued` y `PaymentApproved` (se descartan como desconocidos); reproceso de
-la DLQ; limpieza de `processed_messages`; orden entre eventos de una misma transacción; cambiar el texto o el
+Fuera de alcance: consumidores para `PolicyIssued` y `PaymentApproved` (están en la lista explícita de tipos
+ignorados y se borran); reproceso de la DLQ; alarma sobre la DLQ; limpieza de `processed_messages`; orden entre eventos de una misma transacción; cambiar el texto o el
 contenido de los push.
 
 ### Affected paths
 
 | Path | Change |
 |---|---|
-| backend/app/core/outbox.py | `ProcessedMessageDB`, `OutboxEvent`, `OutboxConsumer`, `events_queue_configured`; `SqsQueue` recibe, borra y aplaza |
-| backend/app/main.py | Registra los manejadores y lanza `consume_outbox()` solo con cola o emulador; la tarea diaria ya no envía push |
+| backend/app/core/outbox.py | `ProcessedMessageDB`, `OutboxEvent`, `OutboxConsumer`, `events_queue_configured`, `IGNORED_EVENT_TYPES`; `SqsQueue` recibe con `ApproximateReceiveCount`, borra y aplaza con espera creciente |
+| backend/app/main.py | Registra los manejadores y lanza `consume_outbox()` solo con cola o emulador; al apagar espera a que las tareas terminen; la tarea diaria ya no envía push |
 | backend/app/migrations/versions/0006_mensajes_procesados.py | Tabla `processed_messages` |
-| backend/app/modules/claims/service.py | `ClaimService.event` escribe `ClaimStatusChanged`; `commit` ya no avisa |
+| backend/app/modules/claims/service.py | `ClaimService.event` escribe `ClaimStatusChanged`; `commit` ya no avisa; `status_of` para el manejador de `ClaimFiled` |
+| backend/app/modules/policy/service.py | `PolicyService.find`: notificaciones lee la póliza por el servicio y no por el modelo |
 | backend/app/modules/claims/oracle.py | Sin la lista de avisos en la sesión |
 | backend/app/modules/policy/operations.py | `remind_renewals` escribe `RenewalDue` y ya no recibe `notify` |
-| backend/app/modules/notifications/service.py | `notify(strict=...)`, `PushDeliveryError`, manejadores `on_claim_filed`, `on_claim_status_changed`, `on_renewal_due` y `event_handlers()` |
+| backend/app/modules/notifications/service.py | `notify(strict=...)`, `PushDeliveryError`, revisión del `BatchResponse` de Firebase y borrado de tokens no registrados, manejadores `on_claim_filed`, `on_claim_status_changed`, `on_renewal_due` y `event_handlers()` |
 | backend/tests/integration/test_outbox_consumer.py | Pruebas del consumidor con PostgreSQL y el emulador SQS |
 | backend/tests/integration/test_migrations.py | Última versión `0006`; subida desde `0005` y reversión |
 | backend/tests/integration/test_insured_claims_api.py | El recordatorio deja `RenewalDue` en lugar de llamar al emisor |
 | backend/tests/integration/test_oracle_events_api.py | La liquidación paramétrica deja sus `ClaimStatusChanged` una vez |
-| backend/tests/unit/test_notifications.py | Tarea diaria sin emisor; arranque del consumidor y su bucle |
+| backend/tests/unit/test_notifications.py | Tarea diaria sin emisor; arranque del consumidor y su bucle; respuesta de Firebase; espera creciente y tipos ignorados |
 | terraform/modules/ecs/main.tf | Permisos de consumo de la cola `events` para el rol de la tarea |
-| terraform/tests/consumidor_del_outbox.tftest.hcl | Prueba de los permisos con el proveedor simulado |
+| terraform/modules/storage_events/main.tf | Cola `events` con visibilidad de 120 s y `maxReceiveCount` 8 |
+| terraform/tests/consumidor_del_outbox.tftest.hcl | Prueba de los permisos y de la cola con el proveedor simulado |
 | docs/adr/0030-backend-outbox-consumer.md | Decisión del consumidor |
 | docs/adr/0026-backend-outbox-publisher.md | Ya existe un consumidor; el rol ya no solo envía |
 | docs/adr/README.md | Índice |
@@ -66,8 +68,8 @@ contenido de los push.
 | ID | Actor | Use case | Main flow | Alternate flows |
 |---|---|---|---|---|
 | UC-01 | Analista | Decidir un siniestro sin esperar a Firebase | 1. Rechaza, liquida o toma el caso. 2. El cambio y su `ClaimStatusChanged` se confirman juntos. 3. Responde 204 sin llamar a Firebase | Si la transacción falla, no queda evento ni push |
-| UC-02 | Sistema | Entregar un evento como push | 1. El publicador lleva el evento a SQS. 2. El consumidor lo recibe, lee el outbox y el titular de la póliza. 3. Envía el push con su categoría. 4. Borra el mensaje | Categoría apagada o teléfono sin token: se borra sin push. Firebase falla: no se borra y se reintenta; al tercer intento va a la DLQ |
-| UC-03 | Sistema | Recordar la renovación | 1. La tarea diaria marca la póliza y escribe `RenewalDue`. 2. El consumidor envía el push de vencimiento | Póliza ya no vigente al consumir: se borra sin push |
+| UC-02 | Sistema | Entregar un evento como push | 1. El publicador lleva el evento a SQS. 2. El consumidor lo recibe, lee el outbox y el titular de la póliza. 3. Envía el push con su categoría. 4. Borra el mensaje | Categoría apagada o teléfono sin token: se borra sin push. Firebase falla: no se borra y se reintenta con espera creciente; tras ocho recepciones va a la DLQ. Siniestro ya decidido o evento de más de 24 h: se borra sin push |
+| UC-03 | Sistema | Recordar la renovación | 1. La tarea diaria marca la póliza y escribe `RenewalDue`. 2. El consumidor envía el push de vencimiento | Póliza ya no vigente o de otra versión al consumir: se borra sin push |
 
 ### Abuse cases
 
@@ -85,18 +87,22 @@ contenido de los push.
 | AC-02 | WHEN la tarea diaria marca un recordatorio de renovación, THE backend SHALL escribir `RenewalDue` con `aggregate_id` el número de póliza en lugar de enviar el push | STATED |
 | AC-03 | WHEN el consumidor recibe `ClaimFiled`, `ClaimStatusChanged` o `RenewalDue`, THE backend SHALL enviar el push con su texto y categoría (PAID a payments, vencimientos a renewals, el resto a claims) y borrar el mensaje | STATED |
 | AC-04 | IF un mensaje llega repetido, THE consumidor SHALL no enviar un segundo push y SHALL borrarlo | STATED |
-| AC-05 | IF Firebase falla, THE consumidor SHALL no borrar el mensaje para que SQS lo reintente y, tras tres recepciones, lo mueva a la DLQ | STATED |
-| AC-06 | IF el `event_type` es desconocido o el mensaje está mal formado, THE consumidor SHALL registrarlo sin datos personales y borrarlo | STATED |
+| AC-05 | IF Firebase falla, THE consumidor SHALL no borrar el mensaje y SHALL aplazarlo 30 s × 2^(n-1), hasta 15 min, según su número de recepciones n, para que SQS lo reintente y, tras ocho recepciones, lo mueva a la DLQ | STATED |
+| AC-06 | IF el mensaje está mal formado o su tipo está en la lista de ignorados (`PolicyIssued`, `PaymentApproved`), THE consumidor SHALL registrarlo sin datos personales y borrarlo; IF el tipo no tiene manejador ni está en esa lista, THE consumidor SHALL no borrarlo y SHALL aplazarlo 15 min hasta que llegue a la DLQ | STATED |
 | AC-07 | WHILE el asegurado tiene la categoría apagada o no tiene token, THE consumidor SHALL no enviar el push y SHALL contar el mensaje como procesado | STATED |
-| AC-08 | WHILE no hay `SQS_EVENTS_URL` ni emulador, THE backend SHALL no arrancar el consumidor | STATED |
+| AC-08 | WHILE no hay `SQS_EVENTS_URL` ni emulador, THE backend SHALL no arrancar el consumidor; WHILE los hay, SHALL arrancarlo y, al apagarse, esperar a que termine | STATED |
 | AC-09 | IF el id del mensaje no está en el outbox o su tipo no coincide con el guardado, THE consumidor SHALL descartarlo sin push | DERIVED: el consumidor confía solo en la base, no en el cuerpo de la cola |
-| AC-10 | THE rol de la tarea SHALL poder recibir, borrar, aplazar y consultar atributos solo en la cola `events`, y nada más de SQS | STATED |
+| AC-10 | THE rol de la tarea SHALL poder recibir, borrar y aplazar solo en la cola `events`, además de publicar, y nada más de SQS | STATED |
+| AC-11 | IF al consumir `ClaimFiled` el siniestro ya no está en REPORTED o el evento tiene más de 24 h, THE consumidor SHALL borrarlo sin push | DERIVED: una cola acumulada no debe avisar «Recibimos» de algo que ya cambió |
+| AC-12 | IF al consumir `RenewalDue` la póliza no está activa o su versión no es la del evento, THE consumidor SHALL borrarlo sin push | DERIVED: un endoso o una renovación posteriores dejan el aviso sin objeto |
+| AC-13 | IF Firebase responde sin ningún token entregado y con al menos un error pasajero (no disponible, interno, cuota, desconocido, tiempo agotado o red), THE consumidor SHALL tratarlo como falla y reintentarlo; IF los errores son `UNREGISTERED` o `INVALID_ARGUMENT`, o hubo un éxito parcial, SHALL no reintentar y SHALL borrar de `push_tokens` los no registrados | DERIVED: firebase-admin devuelve los fallos por token dentro de la respuesta y no los lanza |
+| AC-14 | IF procesar, confirmar o borrar un mensaje falla por la base o por SQS, THE consumidor SHALL seguir con el resto del lote y SHALL aplazar el que falló | DERIVED: un mensaje no debe frenar a los demás |
 
 ### Quality requirements
 
 | ID | Category | Requirement | Target and conditions |
 |---|---|---|---|
-| QR-01 | AVAILABILITY | Una caída de Firebase no pierde avisos | El mensaje vuelve a la cola tras 60 s y se entrega cuando Firebase responde; tras tres fallos queda en la DLQ 14 días |
+| QR-01 | AVAILABILITY | Una caída de Firebase no pierde avisos | Esperas de 30, 60, 120, 240, 480, 900, 900 y 900 s entre las ocho recepciones: el mensaje se entrega si Firebase vuelve antes de unos 60 min (3630 s) desde el primer intento; después queda en la DLQ 14 días. Un tipo sin manejador llega a la DLQ en unas 2 h (8 × 900 s). Si el consumidor cae sin aplazar, el mensaje vuelve a los 120 s de visibilidad de la cola |
 | QR-02 | MAINTAINABILITY | `core` no importa módulos | `app/core/outbox.py` no importa de `app.modules`; los manejadores se registran en `app/main.py` |
 
 ### Security triggers
@@ -124,7 +130,7 @@ contenido de los push.
 | SR-02 | Un mensaje produce a lo sumo un push aunque llegue varias veces o a dos réplicas | THR-02 | CTL-02 | MEDIUM |
 | SR-03 | Un mensaje mal formado o desconocido no bloquea la cola y se descarta sin datos personales en los registros | THR-03, THR-04 | CTL-03 | MEDIUM |
 | SR-04 | La cola y la tabla nueva no guardan datos personales | DATA-01, THR-04 | CTL-04 | HIGH |
-| SR-05 | El rol de la tarea tiene en SQS solo enviar, recibir, borrar, aplazar y consultar atributos de la cola `events` | THR-05 | CTL-05 | HIGH |
+| SR-05 | El rol de la tarea tiene en SQS solo enviar, obtener la URL, recibir, borrar y aplazar en la cola `events` | THR-05 | CTL-05 | HIGH |
 | SR-06 | Una falla de Firebase no se traga en el camino del consumidor: el mensaje se reintenta | THR-06 | CTL-06 | MEDIUM |
 
 ## 2. Design
@@ -133,18 +139,30 @@ contenido de los push.
 
 - **`app/core/outbox.py`:** `ProcessedMessageDB` (migración `0006`); `OutboxEvent` (id, tipo, agregado y payload
   leídos del outbox); `OutboxConsumer` con `register`, `consume` (long polling de 10 s y hasta 10 mensajes) y
-  `process`; `SqsQueue.receive`, `delete` y `retry_later` (`ChangeMessageVisibility` a 60 s);
-  `events_queue_configured()`.
+  `process`; `SqsQueue.receive` (pide `ApproximateReceiveCount` con `MessageSystemAttributeNames`, sin
+  `GetQueueAttributes`), `delete` y `retry_later` (`ChangeMessageVisibility` a 30 s × 2^(n-1), hasta 15 min);
+  `events_queue_configured()`. `process` devuelve DONE, RETRY o UNHANDLED; `consume` captura por mensaje
+  cualquier excepción (incluido el commit) y la falla de `delete`, y sigue con el lote. `IGNORED_EVENT_TYPES`
+  lista los tipos que se borran sin manejador; cualquier otro se aplaza al máximo hasta la DLQ.
 - **`app/modules/notifications/service.py`:** `notify(..., strict=False)`; con `strict=True` un fallo de Firebase
-  o de la lectura sale como `PushDeliveryError`. `on_claim_filed`, `on_claim_status_changed` y `on_renewal_due`
-  buscan el titular en `policies` y llaman `notify` estricto; `event_handlers()` los entrega al composition root.
+  o de la lectura sale como `PushDeliveryError`. `FirebaseSender.send` revisa el `BatchResponse`: sin ningún
+  éxito y con un error pasajero lanza `PushDeliveryError`; devuelve los tokens `UNREGISTERED` y `notify` los
+  borra de `push_tokens`. `on_claim_filed` (solo con el siniestro en REPORTED y el evento de menos de 24 h),
+  `on_claim_status_changed` y `on_renewal_due` (solo con la póliza activa y la misma versión) buscan el titular con
+  `policy_service.find` y llaman `notify` estricto; `event_handlers()` los entrega al composition root.
 - **`app/modules/claims/service.py`:** `ClaimService.event` agrega `ClaimStatusChanged` para ASSIGNED, REJECTED,
   SETTLED y PAID; cubre la decisión del analista, la liquidación paramétrica del oráculo y el reintento del pago.
   `commit` solo confirma. Se elimina `session.info["claim_notices"]`.
 - **`app/modules/policy/operations.py`:** `remind_renewals(session)` escribe `RenewalDue` con el evento
   `RENEWAL_REMINDER`.
-- **`app/main.py`:** registra los manejadores y lanza `consume_outbox()` si hay cola o emulador.
-- **Terraform:** sentencia `ConsumirEventos` en `aws_iam_role_policy.task_documents`.
+- **`app/main.py`:** registra los manejadores y lanza `consume_outbox()` si hay cola o emulador; al apagar cancela
+  las tareas y las espera con `asyncio.gather(..., return_exceptions=True)`.
+- **Terraform:** sentencia `ConsumirEventos` en `aws_iam_role_policy.task_documents` (recibir, borrar y aplazar);
+  la cola `events` con `visibility_timeout_seconds = 120` y `maxReceiveCount = 8`.
+
+Deuda conocida de arquitectura: notificaciones ya no importa modelos de otros módulos, pero depende de
+`policy_service` y `claim_service` para leer la póliza y el estado del siniestro; si esos servicios llegan a
+importar notificaciones habrá un ciclo, y la salida sería una consulta publicada por cada módulo.
 
 ### Data flows
 
@@ -188,7 +206,8 @@ cuando haya novedades.» con `type: CLAIM_STATUS`, categoría claims; los demás
 |---|---|---|
 | El consumidor lee el evento del outbox por `message_id` y exige el mismo tipo | CTL-01 | Usar el cuerpo de la cola: un mensaje forjado elegiría destinatario |
 | `processed_messages` insertado antes del manejador con `ON CONFLICT DO NOTHING`, en la misma transacción | CTL-02 | Marcar después de enviar: dos réplicas enviarían dos veces |
-| Mal formados y desconocidos se borran; los fallos de envío no | CTL-03, CTL-06 | Dejarlos todos a la DLQ: un tipo sin manejador llenaría la DLQ cada vez |
+| Mal formados, ajenos al outbox e ignorados se borran; un tipo sin manejador ni lista se aplaza hasta la DLQ; los fallos de envío se reintentan con espera creciente | CTL-03, CTL-06 | Borrar todo tipo desconocido: en un despliegue escalonado, una réplica vieja borraría eventos que la nueva sí sabe manejar |
+| Revisar el `BatchResponse` de Firebase y reintentar solo si ningún token recibió y hubo un error pasajero | CTL-06 | Ignorar la respuesta: los fallos por token no se lanzan y el aviso se perdía; reintentar ante un éxito parcial: duplicaría el push |
 | `notify(strict=True)` solo en el consumidor | CTL-06 | Cambiar `notify`: otros llamadores perderían el mejor esfuerzo |
 | IAM con acciones de consumo solo sobre el ARN de `events` | CTL-05 | `sqs:*` o `Resource = "*"` |
 
@@ -196,15 +215,19 @@ cuando haya novedades.» con `type: CLAIM_STATUS`, categoría claims; los demás
 
 | ADR | Title | Status |
 |---|---|---|
-| docs/adr/0030-backend-outbox-consumer.md | An in-process consumer delivers outbox events once per message | Proposed |
+| docs/adr/0030-backend-outbox-consumer.md | An in-process consumer delivers outbox events effectively once | Proposed |
 | docs/adr/0026-backend-outbox-publisher.md | Outbox events published to SQS at least once (actualizado) | Proposed |
 
 ### Configuration and deployment
 
 - Migración `0006`; sin variables nuevas. El consumidor usa `SQS_EVENTS_URL` (AWS) o `AWS_ENDPOINT_URL` (Floci).
-- La cola ya tiene DLQ con `maxReceiveCount = 3` y cifrado con la llave de almacenamiento; el rol ya tenía
-  `kms:Decrypt` y `kms:GenerateDataKey` sobre esa llave.
+- La cola pasa a `maxReceiveCount = 8` (antes 3) y `visibility_timeout_seconds = 120`; sigue cifrada con la llave
+  de almacenamiento; el rol ya tenía `kms:Decrypt` y `kms:GenerateDataKey` sobre esa llave.
 - Sin credenciales de Firebase los mensajes se borran sin push, igual que hoy el envío en línea no hacía nada.
+- Sin cola ni emulador (`SQS_EVENTS_URL` y `AWS_ENDPOINT_URL` vacíos) no se envían push: el consumidor no arranca
+  y los eventos se quedan publicados o pendientes en el outbox.
+- Antes del primer despliegue, purgar la cola `events` de DEV: tiene hasta cuatro días de eventos que nadie leía
+  (RISK-05).
 
 ## 3. Tasks
 
@@ -217,3 +240,4 @@ cuando haya novedades.» con `type: CLAIM_STATUS`, categoría claims; los demás
 | T-05 | ADR 0030, ADR 0026, índice y AGENTS.md; `core` sin importar módulos | QR-02 | — | DONE | docs/adr/0030-backend-outbox-consumer.md |
 | T-06 | Pruebas de integración y ajuste de las existentes | AC-01 a AC-10 | CTL-01 a CTL-06 | DONE | backend/tests/integration/test_outbox_consumer.py |
 | T-07 | Prueba manual: push real en el teléfono a través del consumidor | AC-03, QR-01 | — | TODO | — |
+| T-08 | Correcciones de la revisión independiente: respuesta de Firebase, tolerancia por mensaje, espera creciente, cola de 8 recepciones, tipos ignorados, frescura de `ClaimFiled`, versión de `RenewalDue`, IAM sin `GetQueueAttributes` y apagado ordenado | AC-05, AC-06, AC-08, AC-10, AC-11, AC-12, AC-13, AC-14, QR-01 | CTL-03, CTL-05, CTL-06 | DONE | backend/app/core/outbox.py; backend/app/modules/notifications/service.py; terraform/modules/storage_events/main.tf |

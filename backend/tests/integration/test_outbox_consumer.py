@@ -1,17 +1,22 @@
 """Consumidor del outbox: los avisos salen de la cola de eventos y no de la petición (ADR 0030)."""
+import asyncio
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core import outbox
-from app.core.outbox import OutboxConsumer, OutboxMessageDB, OutboxPublisher, ProcessedMessageDB, SqsQueue, message_body
+from app.core.outbox import (
+    DONE, OutboxConsumer, OutboxMessageDB, OutboxPublisher, ProcessedMessageDB, SqsQueue, message_body,
+)
 from app.modules.claims.service import claim_service
 from app.modules.notifications.service import NotificationService, PushPreferences, notification_service
+from app.modules.policy.models import PolicyDB
 from app.modules.policy.operations import policy_operations
 from tests.integration.claims_fixtures import FLOCI, report
 from tests.integration.policy_search_fixtures import NOW, add_policies, headers, policy_row, seed_partners_and_users
@@ -61,8 +66,28 @@ async def policy(postgres_session):
     await NotificationService(lambda: None).register(postgres_session, DOCUMENT, TOKEN)
 
 
-def consumer_for(queue, sender) -> OutboxConsumer:
-    consumer = OutboxConsumer(lambda: queue, retry_after_seconds=0)
+class ListQueue:
+    """Cola en memoria para provocar fallas que el emulador no simula."""
+
+    def __init__(self, bodies, fail_delete=()):
+        self.messages = [{"ReceiptHandle": f"r{i}", "Body": body} for i, body in enumerate(bodies, 1)]
+        self.fail_delete = set(fail_delete)
+        self.deleted, self.retried = [], []
+
+    def receive(self, max_messages, wait_seconds):
+        return self.messages
+
+    def delete(self, receipt_handle):
+        if receipt_handle in self.fail_delete:
+            raise RuntimeError("SQS no responde")
+        self.deleted.append(receipt_handle)
+
+    def retry_later(self, receipt_handle, seconds):
+        self.retried.append((receipt_handle, seconds))
+
+
+def consumer_for(queue, sender, **options) -> OutboxConsumer:
+    consumer = OutboxConsumer(lambda: queue, **{"retry_after_seconds": 0, "max_retry_seconds": 0, **options})
     for event_type, handler in NotificationService(lambda: sender).event_handlers().items():
         consumer.register(event_type, handler)
     return consumer
@@ -116,12 +141,15 @@ async def test_el_consumidor_envia_cada_push_con_su_categoria_y_el_pago_va_a_pag
     async_client: AsyncClient, postgres_session, sessions, policy, queue
 ):
     await report(postgres_session, "SIN-2026-00001", "POL-2026-00001", coverage_id="death")
+    sender = FakeSender()
+    consumer = consumer_for(queue, sender)
+    assert await publish(postgres_session, queue) == 1
+    deleted = await drain(consumer, sessions)
     await async_client.post(f"{CLAIMS}/SIN-2026-00001/decision", headers=headers("operaciones@solventa.example"),
                             json={"decision": "APPROVE", "justification": JUSTIFICATION, "amount": 1_000_000})
-    sender = FakeSender()
 
-    assert await publish(postgres_session, queue) == 3
-    deleted = await drain(consumer_for(queue, sender), sessions)
+    assert await publish(postgres_session, queue) == 2
+    deleted += await drain(consumer, sessions)
 
     assert deleted == 3
     assert sorted((body, data["category"]) for _, body, data in sender.sent) == [
@@ -184,7 +212,7 @@ async def test_el_recordatorio_de_renovacion_y_el_siniestro_recibido_producen_su
     assert by_type["CLAIM_STATUS"][1] == {"type": "CLAIM_STATUS", "claim_number": "SIN-2026-00001", "category": "claims"}
 
 
-async def test_un_evento_desconocido_mal_formado_o_ajeno_al_outbox_se_borra_sin_push(
+async def test_un_evento_mal_formado_ajeno_al_outbox_o_ignorado_se_borra_y_uno_desconocido_vuelve(
     postgres_session, sessions, policy, queue
 ):
     await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
@@ -194,14 +222,16 @@ async def test_un_evento_desconocido_mal_formado_o_ajeno_al_outbox_se_borra_sin_
     queue.send(json.dumps({"message_id": "1; DROP TABLE outbox", "event_type": "ClaimFiled"}), "ClaimFiled", "z")
     queue.send(json.dumps({"message_id": str(uuid.uuid4()), "event_type": "ClaimFiled"}), "ClaimFiled", "w")
     queue.send(json.dumps({"message_id": filed.id, "event_type": "ClaimStatusChanged"}), "ClaimStatusChanged", "v")
+    queue.send(json.dumps({"message_id": str(uuid.uuid4()), "event_type": "PolicyIssued"}), "PolicyIssued", "u")
+    queue.send(json.dumps({"message_id": str(uuid.uuid4()), "event_type": "PaymentApproved"}), "PaymentApproved", "t")
     sender = FakeSender()
 
     deleted = await drain(consumer_for(queue, sender), sessions)
 
-    assert deleted == 5
+    assert deleted == 6
     assert sender.sent == []
     assert await postgres_session.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 0
-    assert left_in(queue) == 0
+    assert left_in(queue) == 1
 
 
 async def test_una_categoria_apagada_o_un_telefono_sin_token_cuentan_como_procesados(
@@ -221,3 +251,128 @@ async def test_una_categoria_apagada_o_un_telefono_sin_token_cuentan_como_proces
     assert sender.sent == []
     assert await postgres_session.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 2
     assert left_in(queue) == 0
+
+
+async def test_un_siniestro_ya_decidido_no_recibe_el_aviso_de_recibido(
+    async_client: AsyncClient, postgres_session, sessions, policy, queue
+):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001", coverage_id="death")
+    await async_client.post(f"{CLAIMS}/SIN-2026-00001/decision", headers=headers("operaciones@solventa.example"),
+                            json={"decision": "REJECT", "justification": JUSTIFICATION})
+    await publish(postgres_session, queue)
+    sender = FakeSender()
+
+    deleted = await drain(consumer_for(queue, sender), sessions)
+
+    assert deleted == 2
+    assert [body for _, body, _ in sender.sent] == [
+        "Hay una decisión sobre su siniestro SIN-2026-00001. Ábralo para ver el motivo."]
+
+
+async def test_un_siniestro_recibido_hace_mas_de_un_dia_se_borra_sin_push(postgres_session, sessions, policy, queue):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    await postgres_session.execute(
+        update(OutboxMessageDB).where(OutboxMessageDB.event_type == "ClaimFiled")
+        .values(created_at=datetime.now(timezone.utc) - timedelta(hours=25))
+    )
+    await postgres_session.commit()
+    await publish(postgres_session, queue)
+    sender = FakeSender()
+
+    deleted = await drain(consumer_for(queue, sender), sessions)
+
+    assert deleted == 1
+    assert sender.sent == []
+    assert left_in(queue) == 0
+
+
+async def test_un_recordatorio_de_una_version_anterior_de_la_poliza_no_se_envia(
+    postgres_session, sessions, policy, queue, monkeypatch
+):
+    monkeypatch.setattr(policy_operations, "now", lambda: NOW + timedelta(days=345))
+    await policy_operations.remind_renewals(postgres_session)
+    row = await postgres_session.get(PolicyDB, "POL-2026-00001")
+    row.version = (row.version or 1) + 1
+    await postgres_session.commit()
+    await publish(postgres_session, queue)
+    sender = FakeSender()
+
+    deleted = await drain(consumer_for(queue, sender), sessions)
+
+    assert deleted == 1
+    assert sender.sent == []
+
+
+async def test_dos_replicas_con_el_mismo_mensaje_a_la_vez_envian_un_solo_push(postgres_session, sessions, policy):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    filed = (await events(postgres_session, "ClaimFiled"))[0]
+    loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class BlockingSender:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, tokens, title, body, data):
+            loop.call_soon_threadsafe(entered.set)
+            asyncio.run_coroutine_threadsafe(release.wait(), loop).result(timeout=10)
+            self.sent.append(body)
+
+    sender = BlockingSender()
+    consumer = consumer_for(None, sender)
+
+    async def release_while_the_other_waits():
+        await entered.wait()
+        await asyncio.sleep(0.5)
+        release.set()
+
+    first, second, _ = await asyncio.wait_for(asyncio.gather(
+        consumer.process(sessions, message_body(filed)), consumer.process(sessions, message_body(filed)),
+        release_while_the_other_waits(),
+    ), timeout=20)
+
+    assert (first, second) == (DONE, DONE)
+    assert len(sender.sent) == 1
+    assert await postgres_session.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 1
+
+
+async def test_una_falla_de_la_base_al_confirmar_no_detiene_el_lote_y_aplaza_el_mensaje(
+    postgres_session, sessions, policy
+):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    await report(postgres_session, "SIN-2026-00002", "POL-2026-00001", minutes=1)
+    filed = await events(postgres_session, "ClaimFiled")
+    queue = ListQueue([message_body(e) for e in filed])
+    opened = []
+
+    def failing_first_commit():
+        session = sessions()
+        if not opened:
+            async def broken():
+                raise OperationalError("COMMIT", {}, Exception("base caída"))
+            session.commit = broken
+        opened.append(session)
+        return session
+
+    consumer = consumer_for(queue, FakeSender(), retry_after_seconds=30, max_retry_seconds=900)
+    done = await consumer.consume(failing_first_commit, wait_seconds=0)
+
+    assert done == 1
+    assert queue.retried == [("r1", 30)]
+    assert queue.deleted == ["r2"]
+    assert await postgres_session.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 1
+
+
+async def test_un_borrado_que_falla_no_detiene_el_lote(postgres_session, sessions, policy):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    await report(postgres_session, "SIN-2026-00002", "POL-2026-00001", minutes=1)
+    filed = await events(postgres_session, "ClaimFiled")
+    queue = ListQueue([message_body(e) for e in filed], fail_delete={"r1"})
+    sender = FakeSender()
+
+    done = await consumer_for(queue, sender).consume(sessions, wait_seconds=0)
+
+    assert done == 1
+    assert queue.deleted == ["r2"]
+    assert queue.retried == []
+    assert len(sender.sent) == 2

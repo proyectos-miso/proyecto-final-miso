@@ -37,7 +37,7 @@ run "el_rol_de_la_tarea_consume_solo_la_cola_de_eventos" {
     condition = one([
       for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement : s if s.Sid == "ConsumirEventos"
       ]).Action == [
-      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes",
+      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
     ]
     error_message = "El consumidor necesita leer, aplazar y borrar mensajes, y nada más."
   }
@@ -54,7 +54,7 @@ run "el_rol_de_la_tarea_consume_solo_la_cola_de_eventos" {
     condition = length(distinct(flatten([
       for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement :
       s.Action if anytrue([for a in s.Action : startswith(a, "sqs:")])
-    ]))) == 6
+    ]))) == 5
     error_message = "El rol no debe tener permisos de SQS además de publicar y consumir."
   }
 
@@ -63,5 +63,36 @@ run "el_rol_de_la_tarea_consume_solo_la_cola_de_eventos" {
       for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement : s if s.Sid == "LlaveDelBucket"
     ]).Resource == var.storage_kms_key_arn
     error_message = "La cola está cifrada con la llave de almacenamiento: el rol debe poder descifrar con ella."
+  }
+}
+
+run "la_cola_de_eventos_tolera_reintentos_crecientes" {
+  command = plan
+
+  module {
+    source = "./modules/storage_events"
+  }
+
+  variables {
+    project_name = "solventa"
+    environment  = "test"
+  }
+
+  override_resource {
+    target          = aws_sqs_queue.dlq
+    override_during = plan
+    values = {
+      arn = "arn:aws:sqs:us-east-1:000000000000:solventa-events-dlq-test"
+    }
+  }
+
+  assert {
+    condition     = aws_sqs_queue.events.visibility_timeout_seconds == 120
+    error_message = "La visibilidad de la cola debe dejar procesar un lote antes de que el mensaje vuelva."
+  }
+
+  assert {
+    condition     = jsondecode(aws_sqs_queue.events.redrive_policy).maxReceiveCount == 8
+    error_message = "Con la espera creciente del consumidor, ocho recepciones cubren cerca de una hora de caída."
   }
 }
