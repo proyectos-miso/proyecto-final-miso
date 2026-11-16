@@ -38,7 +38,7 @@ contra la meta y un semáforo de dependencias que se actualiza solo mientras la 
 
 Objetivos: medir la latencia de las rutas críticas con muy bajo costo y sin guardar datos del pedido;
 `GET /experience/operations/indicators?period=today|7d|30d`; comprobación en paralelo de base, S3, SQS y Firebase
-con un segundo de límite; respuesta guardada 15 s por réplica y periodo; pestaña «Operación» con refresco cada 30 s,
+con un segundo de límite; estado de las dependencias guardado 15 s por réplica para todos los periodos y respuesta guardada por periodo hasta que ese estado vence; pestaña «Operación» con refresco cada 30 s,
 accesible y que marca como desactualizado lo que no pudo refrescar.
 
 Fuera de alcance: métricas agregadas entre réplicas (CloudWatch, Prometheus); alertas o notificaciones; histórico de
@@ -50,7 +50,7 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
 |---|---|
 | backend/app/core/metrics.py | Middleware ASGI de latencia que solo registra respuestas por debajo de 400, ventana de 500 muestras por grupo, clasificación por plantilla de ruta y percentiles |
 | backend/app/main.py | Registra `LatencyMiddleware` como el middleware más externo |
-| backend/app/modules/reports/dashboard.py | Indicadores por periodo en una sola sentencia con `statement_timeout`, latencia contra la meta, comprobación de dependencias con clientes y hilos propios y caché de 15 s |
+| backend/app/modules/reports/dashboard.py | Indicadores por periodo en una sola sentencia con `statement_timeout`, latencia contra la meta, comprobación de dependencias con clientes y hilos propios, compartida entre periodos con caché de 15 s, y caché por periodo |
 | backend/app/bff/experience/operations_router.py | `GET /experience/operations/indicators` con `dashboard_operator` (2 s de límite a la lectura del analista) y `no-store` |
 | backend/app/modules/notifications/service.py | `get_sender()` inicia Firebase una sola vez aunque lo llamen dos hilos a la vez |
 | backend/tests/integration/test_operations_dashboard_api.py | Pruebas del endpoint, de las dependencias, de la base caída, del caché y del middleware |
@@ -91,13 +91,13 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
 | AC-01 | WHEN el analista de Solventa pide los indicadores de `today`, `7d` o `30d`, THE backend SHALL devolver las cotizaciones del periodo, las cotizaciones por minuto, la conversión (pólizas de cotizaciones del periodo sobre cotizaciones del periodo), las pólizas emitidas, los siniestros en curso (ni SETTLED, ni REJECTED, ni PAID) y los pendientes del outbox, con los periodos desde las 00:00 de Colombia | STATED |
 | AC-02 | IF no hay cotizaciones en el periodo, THEN THE backend SHALL devolver la conversión en null sin fallar y el portal SHALL mostrar «Sin cotizaciones» | DERIVED: división segura |
 | AC-03 | THE backend SHALL medir p50, p95 y p99 de cotización, emisión, cobro y reporte de siniestro sobre las últimas 500 respuestas con estado por debajo de 400 de cada grupo en la réplica y compararlos con su meta por p95 (cotización 400 ms, HA-01; las demás 1000 ms); las respuestas 4xx y 5xx SHALL no contar; sin muestras, los percentiles y el cumplimiento SHALL ser null | STATED |
-| AC-04 | THE backend SHALL informar base, S3, SQS y Firebase con `status` (`ok`, `degraded`, `down`, `not_configured`) y `latency_ms`, cada comprobación con 1 s de límite y en paralelo; IF una falla o pasa el límite, THEN SHALL marcarla `down`, y si tarda 500 ms o más, `degraded`, sin fallar el endpoint. (a) IF la base falla o se cuelga después de validar al analista, THEN THE backend SHALL responder 200 con la base `down` y los conteos en null, y un conteo que pase de 2 s SHALL quedar en null; (b) IF la base está caída del todo y no se puede leer al analista, THEN THE backend SHALL responder 503 con un mensaje genérico en a lo sumo unos 2 s | STATED |
+| AC-04 | THE backend SHALL informar base, S3, SQS y Firebase con `status` (`ok`, `degraded`, `down`, `not_configured`, `unchecked`) y `latency_ms`, cada comprobación con 1 s de límite y en paralelo; IF una falla o pasa el límite, THEN SHALL marcarla `down`, y si tarda 500 ms o más, `degraded`, sin fallar el endpoint; IF la réplica no tiene hilo libre para comprobarla, THEN SHALL marcarla `unchecked` sin latencia y sin guardar ese resultado en caché. (a) IF la base falla o se cuelga después de validar al analista, THEN THE backend SHALL responder 200 con la base `down` y los conteos en null, y un conteo que pase de 2 s SHALL quedar en null; (b) IF la base está caída del todo y no se puede leer al analista, THEN THE backend SHALL responder 503 con un mensaje genérico en a lo sumo unos 2 s | STATED |
 | AC-05 | THE pestaña «Operación» SHALL verse solo si `GET /experience/operator` dice `solventa: true`; su ruta SHALL devolver a `/gestion` al analista de un socio; el endpoint SHALL responder 403 al analista de un socio y al asesor y 401 sin sesión | STATED |
 | AC-06 | WHILE la pestaña del navegador está visible, THE portal SHALL actualizar cada 30 s; WHILE está oculta SHALL no consultar; WHEN vuelve a estar visible SHALL actualizar; WHEN se sale de la pantalla SHALL detener el temporizador | STATED |
 | AC-07 | THE semáforo de dependencias y el estado de la latencia SHALL usar texto e icono, no solo color | STATED |
 | AC-08 | IF un periodo no es `today`, `7d` ni `30d`, THEN THE backend SHALL responder 422 | DERIVED: validación de entrada |
 | AC-09 | IF un refresco falla, THEN THE portal SHALL marcar las tarjetas, la latencia y el semáforo con «Sin datos desde HH:mm:ss» (la hora de la última respuesta), con texto visible y anunciado en `role="alert"`, y no SHALL mostrar los estados anteriores como actuales; WHEN un refresco vuelve a responder SHALL quitar la marca y anunciarlo | DERIVED: un semáforo viejo que parece actual engaña al analista |
-| AC-10 | THE backend SHALL guardar la respuesta completa de cada periodo 15 s en la réplica, después de autorizar el pedido | DERIVED: varias pestañas abiertas no multiplican las comprobaciones ni los conteos (THR-04) |
+| AC-10 | THE backend SHALL guardar el estado de las dependencias 15 s en la réplica, compartido por todos los periodos y por los pedidos que llegan mientras se calcula, y la respuesta de cada periodo hasta que ese estado vence, siempre después de autorizar el pedido | DERIVED: varias pestañas abiertas no multiplican las comprobaciones ni los conteos (THR-04) |
 
 ### Quality requirements
 
@@ -148,12 +148,13 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
     - Una excepción al clasificar o registrar va al registro con su tipo y el pedido sigue.
     - Se registra con `app.add_middleware` después de `TenantContextMiddleware`, así que es el más externo de los nuestros.
   - `app/modules/reports/dashboard.py`:
-    - `build_indicators` primero comprueba las dependencias en paralelo con `asyncio.gather`. Cada comprobación usa `asyncio.wait_for` con 1 s.
-    - S3, SQS y Firebase corren en hilos daemon, a lo sumo 4 a la vez (`BoundedSemaphore`): sin hilo libre, la comprobación da `down` en seguida. Al ser daemon, un hilo colgado no retrasa el apagado del proceso.
+    - `check_dependencies` comprueba las dependencias en paralelo con `asyncio.gather`. Cada comprobación usa `asyncio.wait_for` con 1 s.
+    - `shared_dependencies` comparte ese resultado entre periodos: lo guarda 15 s en la réplica y, mientras se calcula, quien llega espera la misma tarea (`asyncio.shield`, para que un pedido cancelado no la corte). Un resultado con alguna dependencia `unchecked` no se guarda.
+    - S3, SQS y Firebase corren en hilos daemon, a lo sumo 4 a la vez (`BoundedSemaphore`): sin hilo libre, `NoCheckSlotError` y la comprobación da `unchecked` en seguida, sin latencia; no se informa como `down` porque no se comprobó. Al ser daemon, un hilo colgado no retrasa el apagado del proceso.
     - S3 y SQS usan clientes propios de las sondas (`s3_probe_client`, `sqs_probe_client`), cacheados por proceso, con `Config(connect_timeout=1, read_timeout=1, retries={"total_max_attempts": 1})`, la misma región y el mismo endpoint que `storage.py` y `outbox.py`, y las credenciales de prueba con el emulador. Así un hilo colgado se libera en unos 2 s.
     - La base se comprueba con su propia conexión del pool (`session.bind.connect()`), no con la sesión del pedido: si el límite corta la consulta, la sesión queda usable y cerrable.
     - Si la base no está `down`, calcula los cinco conteos en una sola sentencia de subconsultas escalares, con `set_config('statement_timeout', '2000', true)` local a la transacción; si pasa el límite o falla, los deja en null y deshace la transacción.
-    - `cached_indicators` guarda la respuesta completa por periodo 15 s en la memoria de la réplica. La dependencia de autorización corre antes, así que el caché nunca responde a quien no pasó `dashboard_operator`.
+    - `cached_indicators` guarda la respuesta de cada periodo en la memoria de la réplica hasta que vence el estado de las dependencias que lleva (a lo sumo 15 s), salvo si alguna quedó `unchecked`. La dependencia de autorización corre antes, así que el caché nunca responde a quien no pasó `dashboard_operator`.
     - Los periodos empiezan a las 00:00 de Colombia (`COLOMBIA` de `reports/service.py`): hoy, hace 6 días o hace 29 días, hasta ahora.
     - La conversión usa `safe_ratio`, que devuelve null con 0 cotizaciones.
     - Las cotizaciones por minuto son las cotizaciones sobre los minutos transcurridos del periodo, con mínimo 1.
@@ -163,7 +164,7 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
       - SQS: `get_queue_url` con el nombre de la cola, también cuando la configuración trae la URL;
       - Firebase: `get_sender() is not None`, o `not_configured` si no hay credenciales.
     - `get_dependency_checks` es una dependencia de FastAPI para poder simularla en las pruebas.
-  - `operations_router.py`: `GET /experience/operations/indicators` con `dashboard_operator`, `period: Literal` y `Cache-Control: no-store`. `dashboard_operator` hace lo mismo que `solventa_operator`, pero envuelve la lectura del analista (`operations_scope`) en un `asyncio.wait_for` de 2 s: con la base caída del todo, el pedido no espera la conexión y responde 503 con «El tablero no está disponible en este momento. Intente de nuevo en unos segundos.». El 401 y el 403 siguen igual. Los demás endpoints no cambian.
+  - `operations_router.py`: `GET /experience/operations/indicators` con `dashboard_operator`, `period: Literal` y `Cache-Control: no-store`. `dashboard_operator` hace lo mismo que `solventa_operator`, pero envuelve la lectura del analista (`operations_scope`) en un `asyncio.wait_for` de 2 s: con la base caída del todo, el pedido no espera la conexión y responde 503 con «El tablero no está disponible en este momento. Intente de nuevo en unos segundos.». Solo `TimeoutError`, `OSError` y `SQLAlchemyError` dan 503; cualquier otro error es un defecto y sale como 500. El 401 y el 403 siguen igual. Los demás endpoints no cambian.
   - `notifications/service.py`: `get_sender()` toma un `threading.Lock` antes del `lru_cache` que inicia Firebase. Sin él, dos hilos podían iniciarlo a la vez; el segundo fallaba con «ya existe» y el caché podía quedar sin emisor.
 - **Portal:**
   - `OperationsService` y `OperationsComponent`, en la ruta `/operacion`. La ruta es diferida para no sumar al bundle inicial y usa `solventaGuard`. La pestaña «Operación» aparece en `AppComponent` junto a «Socios».
@@ -173,7 +174,7 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
     - la hora de la última actualización, fuera de la región viva;
     - seis tarjetas en una `dl`;
     - la tabla de latencia contra la meta;
-    - la tabla del semáforo (✓ Operativa, ! Degradada, ✕ Caída, – Sin configurar), con el icono `aria-hidden` y el texto visible.
+    - la tabla del semáforo (✓ Operativa, ! Degradada, ✕ Caída, – Sin configurar, – Sin comprobar), con el icono `aria-hidden` y el texto visible.
   - El refresco usa un `setInterval` de 30 s:
     - arranca solo con `visibilityState` distinto de `hidden`;
     - se detiene con `visibilitychange` a oculto;
@@ -186,8 +187,8 @@ latencias; réplica de lectura; indicadores por socio; cambiar `/health` del ALB
 ### Data flows
 
 Rutas críticas → `LatencyMiddleware` → `LatencyWindow` (memoria de la réplica, solo números). Analista → portal →
-`GET /experience/operations/indicators` → `dashboard_operator` (lee el usuario en la base, 2 s de límite) → caché de
-15 s por periodo → comprobaciones en paralelo (PostgreSQL con su propia conexión, S3, SQS, Firebase) y conteos
+`GET /experience/operations/indicators` → `dashboard_operator` (lee el usuario en la base, 2 s de límite) → caché por
+periodo → estado de las dependencias compartido 15 s (PostgreSQL con su propia conexión, S3, SQS, Firebase) y conteos
 agregados en una sentencia (`quotes`, `policies`, `claims`, `outbox`) → respuesta `no-store` con números y estados →
 señal del componente.
 
@@ -195,7 +196,7 @@ señal del componente.
 
 | Método y ruta | Entrada | Respuesta |
 |---|---|---|
-| GET /experience/operations/indicators | `period`: `today` (por omisión), `7d` o `30d`; otro valor 422 | `{period, since, generated_at, quotes, quotes_per_minute, conversion, policies_issued, open_claims, outbox_pending, latency: [{group, samples, p50_ms, p95_ms, p99_ms, target_ms, within_target}], dependencies: [{name, status, latency_ms}]}`, `no-store`; los conteos son null si la base falló después de validar al analista o el conteo pasó de 2 s; 401 sin sesión; 403 asesor o analista de socio; 503 genérico si la base está caída del todo |
+| GET /experience/operations/indicators | `period`: `today` (por omisión), `7d` o `30d`; otro valor 422 | `{period, since, generated_at, quotes, quotes_per_minute, conversion, policies_issued, open_claims, outbox_pending, latency: [{group, samples, p50_ms, p95_ms, p99_ms, target_ms, within_target}], dependencies: [{name, status, latency_ms}]}` con `status` en `ok`, `degraded`, `down`, `not_configured` o `unchecked` (sin hilo libre para comprobarla, `latency_ms` null), `no-store`; los conteos son null si la base falló después de validar al analista o el conteo pasó de 2 s; 401 sin sesión; 403 asesor o analista de socio; 503 genérico si la base está caída del todo |
 
 ### Security design decisions
 
@@ -207,7 +208,7 @@ señal del componente.
 | Hilos daemon propios, a lo sumo 4, con clientes de sonda de 1 s y un intento | CTL-04 | `asyncio.to_thread`: un S3 o SQS colgado ocuparía los hilos que usan las fotos, los PDF y el outbox; `ThreadPoolExecutor`: sus hilos se esperan al salir del intérprete; los clientes de `storage.py` y `outbox.py`: reintentos y timeouts pensados para guardar documentos, no para una sonda |
 | Comprobar la base con su propia conexión y limitar los conteos con `statement_timeout` | CTL-04 | Cortar con `wait_for` una consulta de la sesión del pedido: la deja con la transacción inválida hasta un `rollback` |
 | `wait_for` de 2 s solo sobre la lectura del analista de este endpoint | CTL-04 | `statement_timeout` o `connect_timeout` globales: cambiarían el comportamiento de todos los endpoints |
-| Caché de 15 s por periodo después de autorizar | CTL-04 | Sin caché: cada pestaña visible repite cuatro comprobaciones y los conteos cada 30 s |
+| Estado de las dependencias compartido 15 s entre periodos y caché por periodo después de autorizar | CTL-04 | Sin caché: cada pestaña visible repite cuatro comprobaciones y los conteos cada 30 s; caché por periodo sin compartir: tres periodos abiertos triplican las sondas |
 | Reutilizar `solventa_operator` | CTL-01 | Un rol nuevo: el analista de Solventa ya existe y se valida en la base |
 | Tratar el 403 de `head_bucket` como «S3 responde» | CTL-04 | Dar `s3:ListBucket` al rol: es un cambio de IAM que pide ADR y amplía permisos solo para el tablero. Deja abierto RISK-02 |
 
@@ -232,4 +233,5 @@ del portal (ADR 0008, 0009, 0010). No cambia infraestructura ni IAM.
 | T-04 | Pantalla y pestaña «Operación» con refresco visible y accesible | AC-02, AC-05, AC-06, AC-07, AC-09, QR-01, SR-04 | CTL-05 | DONE | web/src/app/features/operacion/operations.component.ts; web/src/app/app.routes.ts |
 | T-05 | Pruebas | AC-01 a AC-10, QR-01, QR-02 | CTL-01, CTL-02, CTL-03, CTL-04, CTL-05 | DONE | backend/tests/integration/test_operations_dashboard_api.py; backend/tests/unit/test_operations_metrics.py; web/src/app/features/operacion/operations.component.spec.ts |
 | T-06 | Prueba manual en el portal local | AC-05, AC-06, AC-07, QR-01 | CTL-05 | TODO | — |
+| T-08 | Segunda revisión: sondas compartidas entre periodos con caché propio y cálculo en curso reutilizado, `unchecked` sin hilos libres y sin caché, 503 solo para errores de la base, pruebas del middleware con una ruta 200, de la cotización por `app.main` y del caso (b) con la base real | AC-03, AC-04, AC-10, SR-04 | CTL-02, CTL-04 | DONE | backend/app/modules/reports/dashboard.py; backend/app/bff/experience/operations_router.py; backend/tests/integration/test_operations_dashboard_api.py; backend/tests/unit/test_operations_metrics.py; web/src/app/core/models/operations.model.ts; web/src/app/features/operacion/operations.component.ts |
 | T-07 | Correcciones de la revisión independiente: base caída en dos casos, filtro por estado de la latencia, clientes e hilos de las sondas, caché y límite de los conteos, inicio de Firebase, refresco y anuncios del portal, ruta `/operacion` y nombre de la base de pruebas | AC-03, AC-04, AC-06, AC-09, AC-10, QR-01, SR-02, SR-04 | CTL-02, CTL-04, CTL-05 | DONE | backend/app/modules/reports/dashboard.py; backend/app/bff/experience/operations_router.py; backend/app/core/metrics.py; backend/app/modules/notifications/service.py; backend/tests/db_name.py; web/src/app/features/operacion/operations.component.ts; web/src/app/app.routes.spec.ts |

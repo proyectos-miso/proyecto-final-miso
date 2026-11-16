@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bff.experience.router import operations_scope
@@ -332,12 +333,10 @@ async def dashboard_operator(
     db: AsyncSession = Depends(get_db_session),
 ) -> Operator:
     """Como `solventa_operator`, con un límite a la lectura del analista: con la base caída del todo responde un
-    503 genérico en unos 2 s en lugar de esperar la conexión."""
+    503 genérico en unos 2 s en lugar de esperar la conexión. Cualquier otro error es un defecto y sale como 500."""
     try:
         partner_id = await asyncio.wait_for(operations_scope(claims, db), OPERATOR_TIMEOUT_SECONDS)
-    except HTTPException:
-        raise
-    except Exception as exc:
+    except (TimeoutError, OSError, SQLAlchemyError) as exc:
         logger.warning("Tablero sin base para validar al analista (%s)", type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DASHBOARD_UNAVAILABLE)
     return await solventa_operator(Operator(username=claims["sub"], partner_id=partner_id))

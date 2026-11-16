@@ -43,6 +43,7 @@ const STATE: Record<DependencyState, { icon: string; text: string }> = {
   degraded: { icon: '!', text: 'Degradada' },
   down: { icon: '✕', text: 'Caída' },
   not_configured: { icon: '–', text: 'Sin configurar' },
+  unchecked: { icon: '–', text: 'Sin comprobar' },
 };
 
 const COUNT = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });

@@ -28,7 +28,7 @@ logger = logging.getLogger("solventa.operations")
 
 Period = Literal["today", "7d", "30d"]
 DependencyName = Literal["database", "s3", "sqs", "firebase"]
-DependencyState = Literal["ok", "degraded", "down", "not_configured"]
+DependencyState = Literal["ok", "degraded", "down", "not_configured", "unchecked"]
 
 PERIOD_DAYS = {"today": 1, "7d": 7, "30d": 30}
 CLOSED_CLAIM_STATUSES = ("SETTLED", "REJECTED", "PAID")
@@ -140,10 +140,14 @@ Check = Callable[[], Awaitable[Optional[str]]]
 _check_slots = threading.BoundedSemaphore(MAX_CHECK_THREADS)
 
 
+class NoCheckSlotError(RuntimeError):
+    """Sin hilo libre: la dependencia no se comprobó, lo que no dice que esté caída."""
+
+
 def _in_thread(function: Callable[[], Optional[str]]) -> Check:
     async def run() -> Optional[str]:
         if not _check_slots.acquire(blocking=False):
-            raise RuntimeError("Sin hilos libres para la comprobación")
+            raise NoCheckSlotError("Sin hilos libres para la comprobación")
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
 
@@ -230,6 +234,9 @@ async def run_check(name: str, check: Check) -> DependencyStatus:
     start = time.perf_counter()
     try:
         outcome = await asyncio.wait_for(check(), CHECK_TIMEOUT_SECONDS)
+    except NoCheckSlotError:
+        logger.warning("Dependencia %s sin comprobar: sin hilos libres", name)
+        return DependencyStatus(name=name, status="unchecked", latency_ms=None)
     except Exception as exc:
         logger.warning("Dependencia %s sin respuesta (%s)", name, type(exc).__name__)
         return DependencyStatus(name=name, status="down", latency_ms=_elapsed(start))
@@ -256,16 +263,48 @@ async def check_dependencies(session: AsyncSession, checks: Dict[str, Check]) ->
     return list(await asyncio.gather(*(run_check(name, check) for name, check in names)))
 
 
+# Las sondas no dependen del periodo: un solo resultado para todos durante CACHE_SECONDS en la memoria de la réplica,
+# y quien llega mientras se calcula espera ese mismo cálculo. Un resultado con alguna dependencia sin comprobar no se
+# guarda, para que el siguiente pedido lo intente de nuevo.
+_dependencies: Optional[Tuple[float, List[DependencyStatus]]] = None
+_dependencies_task: Optional["asyncio.Task[List[DependencyStatus]]"] = None
+
+
+def _cacheable(dependencies: List[DependencyStatus]) -> bool:
+    return all(item.status != "unchecked" for item in dependencies)
+
+
+async def _probe_and_store(session: AsyncSession, checks: Dict[str, Check]) -> List[DependencyStatus]:
+    global _dependencies
+    dependencies = await check_dependencies(session, checks)
+    if _cacheable(dependencies):
+        _dependencies = (time.monotonic() + CACHE_SECONDS, dependencies)
+    return dependencies
+
+
+async def shared_dependencies(session: AsyncSession, checks: Dict[str, Check]) -> Tuple[float, List[DependencyStatus]]:
+    """Estado de las dependencias y hasta cuándo vale; `shield` evita que un pedido cancelado corte el cálculo ajeno."""
+    global _dependencies_task
+    if _dependencies is not None and _dependencies[0] > time.monotonic():
+        return _dependencies
+    task = _dependencies_task
+    if task is None or task.done() or task.get_loop() is not asyncio.get_running_loop():
+        task = _dependencies_task = asyncio.ensure_future(_probe_and_store(session, checks))
+    dependencies = await asyncio.shield(task)
+    if _dependencies is not None and _dependencies[1] is dependencies:
+        return _dependencies
+    return time.monotonic(), dependencies
+
+
 async def build_indicators(
     session: AsyncSession,
     period: Period,
-    checks: Dict[str, Check],
+    dependencies: List[DependencyStatus],
     window: LatencyWindow = latency_window,
     now: Optional[datetime] = None,
 ) -> OperationsIndicators:
     now = now or datetime.now(timezone.utc)
     start = period_start(period, now)
-    dependencies = await check_dependencies(session, checks)
     counts: Optional[Dict[str, int]] = None
     if dependencies[0].status != "down":
         try:
@@ -296,8 +335,8 @@ async def build_indicators(
     )
 
 
-# Respuesta completa por periodo durante CACHE_SECONDS en la memoria de la réplica: varias pestañas abiertas no
-# multiplican las comprobaciones ni los conteos.
+# Respuesta por periodo en la memoria de la réplica, a lo sumo hasta que vence el estado de las dependencias que
+# lleva: varias pestañas abiertas no multiplican las comprobaciones ni los conteos.
 _cache: Dict[str, Tuple[float, OperationsIndicators]] = {}
 
 
@@ -305,10 +344,15 @@ async def cached_indicators(session: AsyncSession, period: Period, checks: Dict[
     hit = _cache.get(period)
     if hit is not None and hit[0] > time.monotonic():
         return hit[1]
-    indicators = await build_indicators(session, period, checks)
-    _cache[period] = (time.monotonic() + CACHE_SECONDS, indicators)
+    valid_until, dependencies = await shared_dependencies(session, checks)
+    indicators = await build_indicators(session, period, dependencies)
+    if _cacheable(dependencies):
+        _cache[period] = (min(valid_until, time.monotonic() + CACHE_SECONDS), indicators)
     return indicators
 
 
 def clear_cache() -> None:
+    global _dependencies, _dependencies_task
     _cache.clear()
+    _dependencies = None
+    _dependencies_task = None

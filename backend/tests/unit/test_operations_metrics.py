@@ -161,8 +161,36 @@ async def test_las_comprobaciones_corren_en_hilos_daemon_y_sin_hilos_libres_fall
 
     monkeypatch.setattr(dashboard, "_check_slots", threading.BoundedSemaphore(1))
     dashboard._check_slots.acquire()
-    with pytest.raises(RuntimeError):
+    with pytest.raises(dashboard.NoCheckSlotError):
         await dashboard._in_thread(lambda: None)()
+
+
+async def test_sin_hilos_libres_la_comprobacion_queda_sin_comprobar_y_no_caida(monkeypatch):
+    monkeypatch.setattr(dashboard, "_check_slots", threading.BoundedSemaphore(1))
+    dashboard._check_slots.acquire()
+
+    status = await dashboard.run_check("s3", dashboard._in_thread(lambda: None))
+
+    assert status == dashboard.DependencyStatus(name="s3", status="unchecked", latency_ms=None)
+
+
+async def test_una_falla_del_middleware_no_rompe_el_pedido(monkeypatch):
+    """La ruta crítica responde 200, así que el middleware sí intenta registrar y el registro falla."""
+    window = LatencyWindow()
+    attempts = []
+
+    def boom(*args, **kwargs):
+        attempts.append(1)
+        raise RuntimeError("falla de la medición")
+
+    monkeypatch.setattr(window, "record", boom)
+    transport = ASGITransport(app=critical_routes_app(window))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/quote-edge/quotes")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert attempts == [1]
 
 
 def test_las_sondas_tienen_clientes_propios_con_un_intento_y_un_segundo(monkeypatch):

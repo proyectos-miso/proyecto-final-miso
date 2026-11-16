@@ -2,7 +2,8 @@
 export type OperationsPeriod = 'today' | '7d' | '30d';
 export type LatencyGroupName = 'quote' | 'issue' | 'payment' | 'claim';
 export type DependencyName = 'database' | 's3' | 'sqs' | 'firebase';
-export type DependencyState = 'ok' | 'degraded' | 'down' | 'not_configured';
+/** `unchecked`: la réplica no tenía hilo libre para comprobarla; no dice que esté caída. */
+export type DependencyState = 'ok' | 'degraded' | 'down' | 'not_configured' | 'unchecked';
 
 export interface LatencyGroup {
   group: LatencyGroupName;

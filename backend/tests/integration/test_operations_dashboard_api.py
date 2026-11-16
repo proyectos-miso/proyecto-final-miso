@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert, text
 
 from app.bff.experience import operations_router
@@ -295,10 +295,64 @@ async def test_dos_llamadas_seguidas_hacen_una_sola_comprobacion(async_client: A
     assert first.status_code == second.status_code == 200
     assert len(calls) == 1
     assert first.json()["generated_at"] == second.json()["generated_at"]
-    assert (await async_client.get(INDICATORS, params={"period": "7d"}, headers=headers(ANALISTA))).status_code == 200
-    assert len(calls) == 2
+    # Las sondas no dependen del periodo: otro periodo calcula sus conteos con el mismo estado de las dependencias.
+    other = await async_client.get(INDICATORS, params={"period": "7d"}, headers=headers(ANALISTA))
+    assert other.status_code == 200
+    assert other.json()["generated_at"] != first.json()["generated_at"]
+    assert len(calls) == 1
     # El caché no salta la autorización: el analista de un socio sigue recibiendo 403.
     assert (await async_client.get(INDICATORS, headers=headers(DEL_ALIADO))).status_code == 403
+
+
+async def test_pedidos_simultaneos_de_varios_periodos_comparten_una_comprobacion_en_curso(
+    async_client: AsyncClient, seeded
+):
+    calls = []
+
+    async def slow() -> None:
+        calls.append(1)
+        await asyncio.sleep(0.2)
+
+    app.dependency_overrides[dashboard.get_dependency_checks] = lambda: {"s3": slow, "sqs": slow}
+
+    responses = await asyncio.gather(*(
+        async_client.get(INDICATORS, params={"period": period}, headers=headers(ANALISTA))
+        for period in ("today", "7d", "30d", "today")
+    ))
+
+    assert [response.status_code for response in responses] == [200, 200, 200, 200]
+    assert len(calls) == 2
+    assert {response.json()["dependencies"][1]["latency_ms"] for response in responses} == {
+        responses[0].json()["dependencies"][1]["latency_ms"]
+    }
+
+
+async def test_sin_hilos_libres_la_dependencia_queda_sin_comprobar_y_no_se_guarda(
+    async_client: AsyncClient, seeded, monkeypatch
+):
+    """Un cupo de hilos agotado no es una dependencia caída: «unchecked», sin latencia y sin caché."""
+    calls = []
+    real = dashboard._in_thread(lambda: calls.append(1))
+    monkeypatch.setattr(dashboard, "_check_slots", dashboard.threading.BoundedSemaphore(1))
+    dashboard._check_slots.acquire()
+    app.dependency_overrides[dashboard.get_dependency_checks] = lambda: {"s3": real}
+
+    first = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+
+    assert first.status_code == 200
+    states = {item["name"]: item for item in first.json()["dependencies"]}
+    assert states["s3"] == {"name": "s3", "status": "unchecked", "latency_ms": None}
+    assert states["database"]["status"] in ("ok", "degraded")
+    assert first.json()["quotes"] == 0
+    assert calls == []
+
+    dashboard._check_slots.release()
+    second = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+
+    states = {item["name"]: item for item in second.json()["dependencies"]}
+    assert states["s3"]["status"] in ("ok", "degraded")
+    assert calls == [1]
+    assert second.json()["generated_at"] != first.json()["generated_at"]
 
 
 async def test_la_latencia_por_grupo_se_compara_con_su_meta(async_client: AsyncClient, seeded):
@@ -339,14 +393,69 @@ async def test_el_middleware_no_guarda_respuestas_de_error_ni_identificadores(as
         assert leaked not in stored
 
 
-async def test_una_falla_del_middleware_no_rompe_el_pedido(async_client: AsyncClient, monkeypatch):
-    def boom(*args, **kwargs):
-        raise RuntimeError("falla de la medición")
+async def test_una_cotizacion_exitosa_en_la_aplicacion_completa_deja_una_muestra(async_client: AsyncClient, seeded):
+    """Con la pila de `app.main` (CORS y `TenantContextMiddleware` incluidos) la cotización 200 sí cuenta."""
+    response = await async_client.post(
+        "/api/v1/experience/quotes",
+        headers={**headers("asesor@solventa.example", "advisor"), "Origin": "http://localhost:4200"},
+        json={
+            "document_type": "CC",
+            "document_number": "1020304050",
+            "birth_date": "1990-05-15",
+            "insured_amount": 100000000.0,
+            "occupation_risk": 2,
+        },
+    )
 
-    monkeypatch.setattr(latency_window, "record", boom)
+    assert response.status_code == 200
+    assert {group: len(samples) for group, samples in latency_window.snapshot().items()} == {
+        "quote": 1, "issue": 0, "payment": 0, "claim": 0}
+    groups = {item["group"]: item for item in (await async_client.get(INDICATORS, headers=headers(ANALISTA))).json()["latency"]}
+    assert groups["quote"]["samples"] == 1
+    assert "1020304050" not in repr(latency_window.__dict__)
 
-    response = await async_client.post("/api/v1/quote-edge/quotes", json={})
-    health = await async_client.get("/health")
 
-    assert response.status_code == 401
-    assert health.status_code == 200
+async def test_la_base_lenta_al_validar_al_analista_da_503_y_el_pool_sigue_sirviendo(
+    async_client: AsyncClient, seeded, monkeypatch
+):
+    """Caso (b) con la base real: la lectura del analista se corta a los 0,2 s y el siguiente pedido responde bien."""
+    monkeypatch.setattr(operations_router, "OPERATOR_TIMEOUT_SECONDS", 0.2)
+    real_scope = operations_router.operations_scope
+
+    async def slow_scope(claims, db):
+        await db.execute(text("SELECT pg_sleep(1)"))
+        return await real_scope(claims, db)
+
+    monkeypatch.setattr(operations_router, "operations_scope", slow_scope)
+    started = time.perf_counter()
+    response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": operations_router.DASHBOARD_UNAVAILABLE}
+    assert elapsed < 1
+    assert "pg_sleep" not in response.text
+
+    monkeypatch.setattr(operations_router, "operations_scope", real_scope)
+    for _ in range(3):
+        after = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+        assert after.status_code == 200
+        assert after.json()["dependencies"][0]["status"] in ("ok", "degraded")
+        assert after.json()["quotes"] == 0
+        dashboard.clear_cache()
+
+
+async def test_un_error_que_no_es_de_la_base_al_validar_al_analista_no_da_503(seeded, monkeypatch):
+    """Solo los errores de conexión, de tiempo o de SQLAlchemy dan 503; un defecto sale como 500."""
+
+    async def broken_scope(claims, db):
+        raise KeyError("partner_id")
+
+    monkeypatch.setattr(operations_router, "operations_scope", broken_scope)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(INDICATORS, headers=headers(ANALISTA))
+
+    assert response.status_code == 500
+    assert operations_router.DASHBOARD_UNAVAILABLE not in response.text
+    assert "partner_id" not in response.text

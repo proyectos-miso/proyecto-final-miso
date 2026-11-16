@@ -108,6 +108,25 @@ describe('OperationsComponent (FE-WEB-07)', () => {
     expect(states.every((state) => state?.querySelector('[aria-hidden="true"]'))).toBe(true);
   });
 
+  it('una dependencia sin comprobar lo dice con texto y no como caída', () => {
+    one().flush(indicators({
+      dependencies: [
+        { name: 'database', status: 'ok', latency_ms: 3 },
+        { name: 's3', status: 'unchecked', latency_ms: null },
+        { name: 'sqs', status: 'ok', latency_ms: 20 },
+        { name: 'firebase', status: 'ok', latency_ms: 5 },
+      ],
+    }));
+    fixture.detectChanges();
+
+    const s3 = page().querySelectorAll('table')[1].querySelectorAll('tbody tr')[1];
+    const state = s3.querySelector('.state');
+    expect(state?.textContent?.replace(/\s+/g, ' ').trim()).toBe('– Sin comprobar');
+    expect(state?.getAttribute('data-state')).toBe('unchecked');
+    expect(state?.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(s3.textContent).not.toContain('Caída');
+  });
+
   it('sin cotizaciones lo dice en lugar de mostrar una conversión', () => {
     one().flush(indicators({ quotes: 0, quotes_per_minute: 0, conversion: null }));
     fixture.detectChanges();
