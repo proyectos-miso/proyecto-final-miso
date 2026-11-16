@@ -70,7 +70,7 @@ Rules:
    variables. The team chose this over a secrets manager on 2026-10-23
    (`specs/HOTFIX-configuracion-de-produccion`), accepting that the values are readable in the task
    definition and the state; moving them to a secrets manager needs a new ADR. ADR 0029 keeps the first
-   two sentences and replaces the rest: backend secrets live in Secrets Manager with a KMS key and reach
+   sentence and the `sensitive`/`TF_VAR_*` part of the second, and replaces the rest: backend secrets live in Secrets Manager with a KMS key and reach
    the container through the ECS `secrets` block.
 6. Network, IAM, keys, listeners and base images change only with an ADR. The ADR gate
    (`sdd/tools/sddlib/config.py`) enforces it when a commit adds a security group, IAM resource, KMS

@@ -47,7 +47,8 @@ Rules:
    `<project>-<name>-<environment>`, encrypted with a customer-managed KMS key, and the task definition
    references it by ARN (`valueFrom`). The task definition depends on the secret versions and on the
    execution role policy.
-3. Only the task execution role reads the secrets: `secretsmanager:GetSecretValue` on the exact ARNs of
+3. The task execution role is the only workload role allowed to read the secrets (deployment and IAM
+   administrators still can, because the key delegates to IAM): `secretsmanager:GetSecretValue` on the exact ARNs of
    the task and `kms:Decrypt` on the key, conditioned on `kms:ViaService = secretsmanager.<region>.amazonaws.com`.
    The task role has no Secrets Manager permissions.
 4. An optional secret with an empty value is not created and not injected; the backend treats the missing
@@ -77,6 +78,8 @@ Rules:
     that coupling.
   - **`kms:ViaService`:** added to the execution role policy by the hotfix; a dedicated key should carry
     the same condition in its key policy.
+  - **AWS provider 6:** `data.aws_region.current.name` is deprecated there; the policy and the test mock
+    must move to `.region` when the provider major version changes.
 
 ## Security and privacy impact
 

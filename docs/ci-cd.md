@@ -105,8 +105,10 @@ los registros ni a los paquetes de spec.
 llave KMS de RDS: `solventa-rds-password-production` para `DB_PASSWORD` y `solventa-<nombre>-production`
 para los demás (`solventa-jwt-secret-key-production`, `solventa-otp-secret-key-production`,
 `solventa-firebase-credentials-json-production`, `solventa-oracle-secret-production`). La tarea de ECS los
-recibe con el bloque `secrets`: la definición de tarea solo contiene el ARN de cada uno, y solo el rol de
-ejecución puede leerlos y descifrarlos, y solo a través de Secrets Manager (`kms:ViaService`). El backend
+recibe con el bloque `secrets`: la definición de tarea solo contiene el ARN de cada uno. El rol de ejecución
+es el único rol de carga de trabajo con permiso para leerlos, y solo descifra a través de Secrets Manager
+(`kms:ViaService`); la identidad de despliegue y los administradores IAM de la cuenta también pueden, porque
+la llave delega en IAM (pendiente en el ADR 0029: llave dedicada). El backend
 los sigue leyendo como variables de entorno (ADR 0029, `specs/HOTFIX-secretos-en-ecs`).
 `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` vacíos no crean secreto ni variable; `ORACLE_SECRET` con
 valor debe tener al menos 32 caracteres o Terraform falla la validación. Los valores siguen en el estado de
@@ -149,7 +151,10 @@ permisos de ECS, sin imprimir el contenido de ninguna definición:
    `DELETE_IN_PROGRESS` y termina cuando ninguna tarea usa la revisión.
 5. Verificar con una revisión vieja que ya no se puede leer:
    `aws ecs describe-task-definition --task-definition solventa-backend-production:<revisión> --query taskDefinition.status`
-   debe fallar (`ClientException`) o mostrar `DELETE_IN_PROGRESS` hasta que termine, nunca `INACTIVE`.
+   debe fallar con `ClientException`. Mientras muestre `DELETE_IN_PROGRESS` la revisión todavía se puede leer
+   completa: repetir hasta el `ClientException`; solo entonces T-05 está hecho.
+   **Nunca** ejecutar `describe-task-definition` sobre una revisión vieja sin `--query` ni con `--debug`:
+   imprime los valores en claro.
 6. Rotar los valores que estuvieron expuestos (T-06 del hotfix), porque quien leyó una revisión antes del
    borrado los conoce.
 

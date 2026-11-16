@@ -128,7 +128,7 @@
 | Level | E2E |
 | Preconditions | TC-05 en PASS y despliegue estable: rolloutState COMPLETED del servicio y /health en 200. Desde aquí el circuit breaker ya no puede volver a las revisiones borradas |
 | Procedure | 1. Anotar la revisión vigente con aws ecs describe-services. 2. aws ecs list-task-definitions --family-prefix solventa-backend-production --status ACTIVE y aws ecs deregister-task-definition de cada una distinta de la vigente. 3. aws ecs list-task-definitions --family-prefix solventa-backend-production --status INACTIVE. 4. aws ecs delete-task-definitions con esos ARN en lotes de máximo 10 por llamada, revisando failures. 5. aws ecs describe-task-definition --task-definition solventa-backend-production:<revisión vieja> --query taskDefinition.status. 6. Confirmar la rotación decidida en T-06. Procedimiento completo en docs/ci-cd.md |
-| Expected result | La lista ACTIVE solo tiene la revisión vigente y la lista INACTIVE queda vacía; describe-task-definition de una revisión vieja falla (ClientException) o muestra DELETE_IN_PROGRESS hasta terminar, nunca INACTIVE; los valores rotados no coinciden con los expuestos |
+| Expected result | La lista ACTIVE solo tiene la revisión vigente y la lista INACTIVE queda vacía; describe-task-definition de una revisión vieja, con --query, termina en ClientException (DELETE_IN_PROGRESS todavía no cuenta); los valores rotados no coinciden con los expuestos |
 | Tool or method | AWS CLI |
 | Automation | MANUAL |
 | Environment | DEV |

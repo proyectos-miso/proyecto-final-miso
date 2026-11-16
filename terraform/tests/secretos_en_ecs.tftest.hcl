@@ -83,8 +83,8 @@ run "llaves_obligatorias_como_secretos" {
   }
 
   assert {
-    condition     = contains(jsondecode(aws_iam_role_policy.execution_secrets.policy).Statement[0].Resource, var.db_password_secret_arn) && startswith(var.db_password_secret_arn, "arn:aws:secretsmanager:")
-    error_message = "DB_PASSWORD sigue llegando por Secrets Manager, así que la condición kms:ViaService no le impide descifrarse."
+    condition     = contains(jsondecode(aws_iam_role_policy.execution_secrets.policy).Statement[0].Resource, var.db_password_secret_arn)
+    error_message = "La política del rol de ejecución sigue incluyendo el secreto de DB_PASSWORD."
   }
 
   assert {
