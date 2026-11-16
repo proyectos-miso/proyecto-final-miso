@@ -49,7 +49,7 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0009"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
@@ -73,7 +73,7 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0009"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
 
@@ -190,3 +190,24 @@ async def test_la_migracion_de_documentos_del_siniestro_crea_su_tabla_desde_0007
     assert (created, constraint) == ("claim_documents", 1)
     assert await scalar(empty_database, table) is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"
+
+
+async def test_la_migracion_de_prestadores_y_asistencia_crea_sus_tablas_desde_0008_y_se_revierte(empty_database):
+    await upgrade(empty_database, "0008")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE assistance_requests"))
+        await conn.execute(text("DROP TABLE providers"))
+    await engine.dispose()
+    tables = ("SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname IN ('providers', 'assistance_requests')")
+    location = ("SELECT count(*) FROM information_schema.columns WHERE table_name = 'assistance_requests' "
+                "AND column_name IN ('lat', 'lng')")
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+    created, stored_location = await scalar(empty_database, tables), await scalar(empty_database, location)
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0008")
+
+    assert (created, stored_location) == (2, 0)
+    assert await scalar(empty_database, tables) == 0
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"

@@ -449,3 +449,9 @@ def test_los_documentos_agregados_a_un_siniestro_no_tienen_aviso_y_se_ignoran():
     from app.core.outbox import IGNORED_EVENT_TYPES
 
     assert "ClaimDocumentsAdded" in IGNORED_EVENT_TYPES
+
+
+def test_la_solicitud_de_asistencia_no_tiene_aviso_y_se_ignora():
+    from app.core.outbox import IGNORED_EVENT_TYPES
+
+    assert "AssistanceRequested" in IGNORED_EVENT_TYPES

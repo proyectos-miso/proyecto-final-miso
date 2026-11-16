@@ -93,6 +93,7 @@ fun WalletScreen(
     onOpenReceipt: ((String) -> Unit)? = null,
     onDismissReceipt: () -> Unit = {},
     onOpenNotices: (() -> Unit)? = null,
+    onOpenAssistance: (() -> Unit)? = null,
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -189,6 +190,12 @@ fun WalletScreen(
         }
         if (onOpenClaims != null && !uiState.loading) {
             item(key = "claims") { SecondaryButton(stringResource(R.string.claims_open_button), onOpenClaims, Modifier.fillMaxWidth()) }
+        }
+        // Prestadores y asistencia (mejora FE-MOV-07).
+        if (onOpenAssistance != null && !uiState.loading) {
+            item(key = "assistance") {
+                SecondaryButton(stringResource(R.string.assistance_open_button), onOpenAssistance, Modifier.fillMaxWidth())
+            }
         }
         // Preferencias de avisos (FE-MOV-04).
         if (onOpenNotices != null && !uiState.loading) {

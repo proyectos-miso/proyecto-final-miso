@@ -31,6 +31,8 @@ from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar t
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.identity import db_models as identity_db_models  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.assistance.models import AssistanceRequestDB, ProviderDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.assistance.service import assistance_service
 from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
@@ -109,6 +111,8 @@ async def lifespan(app: FastAPI):
             # Después de los socios: el analista de prueba de Banco Aliado se liga a su socio.
             if settings.debug_enabled:
                 await auth_service.seed_default_users(session)
+                # Prestadores ficticios: en producción el catálogo real se carga aparte (mejora FE-MOV-07).
+                await assistance_service.seed_providers(session)
             await insured_auth_service.seed_default_account(session)
     except Exception as exc:
         print(f"Aviso de inicialización de base de datos en arranque: {exc}")

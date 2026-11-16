@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
 import android.content.ContextWrapper
@@ -36,12 +37,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.solventa.app.data.assistance.AndroidApproximateLocator
+import com.solventa.app.data.assistance.AndroidProviderContact
 import com.solventa.app.data.auth.AndroidBiometricAuthenticator
 import com.solventa.app.data.claims.AndroidCaptureLocator
 import com.solventa.app.data.claims.AndroidTrustedClock
 import com.solventa.app.data.notifications.AndroidNotificationPoster
 import com.solventa.app.data.notifications.SolventaMessagingService
 import com.solventa.app.domain.auth.BiometricAuthenticator
+import com.solventa.app.ui.assistance.AssistanceActions
+import com.solventa.app.ui.assistance.AssistanceRequestScreen
+import com.solventa.app.ui.assistance.AssistanceScreen
+import com.solventa.app.ui.assistance.AssistanceViewModel
+import com.solventa.app.ui.assistance.RequestFormActions
 import com.solventa.app.ui.claims.ClaimDetailScreen
 import com.solventa.app.ui.claims.ClaimDocumentsFlow
 import com.solventa.app.ui.claims.ClaimDocumentsViewModel
@@ -133,6 +141,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val assistanceViewModel: AssistanceViewModel by viewModels {
+        viewModelFactory {
+            initializer {
+                val app = application as SolventaApplication
+                AssistanceViewModel(app.assistance, app.providersCopy, AndroidApproximateLocator(app), AndroidProviderContact(app))
+            }
+        }
+    }
+
     // Siniestro que pidió abrir un aviso tocado (HU-MOV-11, AC-08).
     private var pendingClaim by mutableStateOf<String?>(null)
 
@@ -177,6 +194,8 @@ class MainActivity : FragmentActivity() {
             var documentsOpen by rememberSaveable { mutableStateOf(false) }
             // Preferencias de avisos abiertas (FE-MOV-04).
             var noticesOpen by rememberSaveable { mutableStateOf(false) }
+            // Prestadores y asistencia: solo la marca; la ubicación y la lista no se guardan en el estado (mejora FE-MOV-07).
+            var assistanceOpen by rememberSaveable { mutableStateOf(false) }
             val authState = authViewModel.uiState.collectAsState().value
             val authenticated = authState.isAuthenticated
             LaunchedEffect(authenticated) {
@@ -198,7 +217,7 @@ class MainActivity : FragmentActivity() {
                     contentWindowInsets = WindowInsets.safeDrawing,
                     topBar = {
                         // El reporte de siniestro tiene su propia barra con «atrás» y el paso.
-                        if (!claimOpen && !claimsOpen && !noticesOpen && !(authState.showRegistration && !authenticated)) {
+                        if (!claimOpen && !claimsOpen && !noticesOpen && !assistanceOpen && !(authState.showRegistration && !authenticated)) {
                             BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
                                 darkTheme = !darkTheme
                                 themeStore.saveDarkTheme(darkTheme)
@@ -237,6 +256,9 @@ class MainActivity : FragmentActivity() {
                         documentScanner = documentScanner,
                         documentsOpen = documentsOpen,
                         onDocumentsOpenChange = { documentsOpen = it },
+                        assistanceViewModel = assistanceViewModel,
+                        assistanceOpen = assistanceOpen,
+                        onAssistanceOpenChange = { assistanceOpen = it },
                     )
                 }
             }
@@ -273,6 +295,9 @@ fun SolventaMobileRoot(
     documentScanner: DocumentScanner? = null,
     documentsOpen: Boolean = false,
     onDocumentsOpenChange: (Boolean) -> Unit = {},
+    assistanceViewModel: AssistanceViewModel? = null,
+    assistanceOpen: Boolean = false,
+    onAssistanceOpenChange: (Boolean) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -293,9 +318,11 @@ fun SolventaMobileRoot(
             onSelectedClaimChange(null)
             onNoticesOpenChange(false)
             onDocumentsOpenChange(false)
+            onAssistanceOpenChange(false)
             claimsViewModel?.close()
             preferencesViewModel?.close()
             documentsViewModel?.close()
+            assistanceViewModel?.close()
         }
     }
     LaunchedEffect(uiState.isAuthenticated, pendingClaim) {
@@ -324,6 +351,8 @@ fun SolventaMobileRoot(
                 claimsViewModel?.close()
                 preferencesViewModel?.close()
                 documentsViewModel?.close()
+                assistanceViewModel?.close()
+                onAssistanceOpenChange(false)
                 onDocumentsOpenChange(false)
                 onClaimOpenChange(false)
                 onClaimsOpenChange(false)
@@ -368,6 +397,53 @@ fun SolventaMobileRoot(
                 LaunchedEffect(email, walletState.policies) { claimViewModel.open(email, walletState.policies.map { it.policy }) }
                 SecureWindow(secureScreens)
                 ClaimFlow(claimViewModel, camera, onClosed = { onClaimOpenChange(false) }, modifier = modifier, receipt = receipt)
+            } else if (assistanceOpen && assistanceViewModel != null && email != null) {
+                val activePolicies = walletState.policies.filter { !it.expired }.map { it.policy.policyNumber }
+                LaunchedEffect(email, activePolicies) { assistanceViewModel.open(email, activePolicies) }
+                val assistanceState by assistanceViewModel.uiState.collectAsState()
+                // Basta la ubicación aproximada; si el asegurado la niega, elige su ciudad.
+                val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    assistanceViewModel.onLocationPermission(granted)
+                }
+                if (assistanceState.form != null) {
+                    AssistanceRequestScreen(
+                        state = assistanceState,
+                        actions = RequestFormActions(
+                            onClose = assistanceViewModel::closeForm,
+                            onSelectPolicy = assistanceViewModel::selectPolicy,
+                            onSelectService = assistanceViewModel::selectFormService,
+                            onDescribe = assistanceViewModel::describe,
+                            onSubmit = assistanceViewModel::submit,
+                            onCall = assistanceViewModel::call,
+                        ),
+                        modifier = modifier,
+                    )
+                } else {
+                    AssistanceScreen(
+                        state = assistanceState,
+                        actions = AssistanceActions(
+                            onBack = {
+                                assistanceViewModel.close()
+                                onAssistanceOpenChange(false)
+                            },
+                            onUseLocation = {
+                                if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                    assistanceViewModel.useLocation()
+                                } else {
+                                    locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                                }
+                            },
+                            onShowCities = assistanceViewModel::showCities,
+                            onSelectCity = assistanceViewModel::selectCity,
+                            onSelectService = assistanceViewModel::selectService,
+                            onRetry = assistanceViewModel::retry,
+                            onCall = assistanceViewModel::call,
+                            onShowOnMap = assistanceViewModel::showOnMap,
+                            onOpenForm = assistanceViewModel::openForm,
+                        ),
+                        modifier = modifier,
+                    )
+                }
             } else if (noticesOpen && preferencesViewModel != null && email != null) {
                 LaunchedEffect(email) { preferencesViewModel.open(email) }
                 val preferencesState by preferencesViewModel.uiState.collectAsState()
@@ -455,6 +531,11 @@ fun SolventaMobileRoot(
                     onDismissReceipt = walletViewModel::dismissReceipt,
                     onOpenNotices = if (preferencesViewModel != null) {
                         { onNoticesOpenChange(true) }
+                    } else {
+                        null
+                    },
+                    onOpenAssistance = if (assistanceViewModel != null) {
+                        { onAssistanceOpenChange(true) }
                     } else {
                         null
                     },

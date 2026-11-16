@@ -1,19 +1,27 @@
 """Router BFF del asegurado en la app móvil: billetera (HU-MOV-04), siniestros, carátula, renovación y avisos (HU-MOV-11),
-envío del reporte del siniestro (HU-MOV-09) y documentos del siniestro abierto (mejora FE-MOV-05)."""
-from typing import Any, Dict, Optional
+envío del reporte del siniestro (HU-MOV-09), documentos del siniestro abierto (mejora FE-MOV-05) y prestadores y asistencia
+(mejora FE-MOV-07)."""
+from typing import Any, Dict, List, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile as FormFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.database import get_db_session
+from app.core.idempotency import IdempotencyConflictError, find_response, save_response
 from app.core.security import decode_access_token, require_roles, security_bearer
 from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
+from app.modules.assistance.models import CITY_CODE, AssistanceReceipt, AssistanceRequest, AssistanceRequests, Providers, Service
+from app.modules.assistance.service import (
+    NoProviderError, PolicyNotAvailableError as AssistancePolicyError, TooManyRequestsError, assistance_service, provider_view,
+)
 from app.modules.claims.documents import (
     MAX_PAGE_BYTES,
     MAX_PAGES,
@@ -46,6 +54,8 @@ from app.modules.policy import document as policy_document
 from app.modules.policy.models import CaratulaLink, InsuredPolicies, PolicyDB, PolicyOperationResult
 from app.modules.policy.operations import NotRenewableError, policy_operations
 from app.modules.policy.service import policy_service
+from app.modules.profile.models import CityResponse
+from app.modules.profile.service import profile_service
 from app.modules.rating.partners import PartnerBlockedError
 
 router = APIRouter(prefix="/insured", tags=["Asegurado"])
@@ -339,3 +349,88 @@ async def revoke_biometric_consent(
             headers={"Retry-After": "30"},
         )
     return MessageResponse(message="Revocamos su autorización y borramos las imágenes de su verificación.")
+
+
+@router.get("/catalogs/cities", response_model=List[CityResponse])
+async def assistance_cities(account: InsuredAccountDB = Depends(insured_account), db: AsyncSession = Depends(get_db_session)):
+    """Ciudades para buscar prestadores sin dar permiso de ubicación (mejora FE-MOV-07)."""
+    return await profile_service.get_active_cities(db)
+
+
+@router.get("/providers", response_model=Providers)
+async def nearby_providers(
+    response: Response,
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
+    city: Optional[str] = Query(None, pattern=CITY_CODE),
+    service: Optional[Service] = Query(None),
+    account: InsuredAccountDB = Depends(insured_account),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Hasta 20 prestadores activos, por distancia o por ciudad; la ubicación no se guarda (mejora FE-MOV-07)."""
+    if (lat is None) != (lng is None) or (lat is None and city is None):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Indique su ubicación o una ciudad.")
+    response.headers["Cache-Control"] = "no-store"
+    found = await assistance_service.nearby(db, lat, lng, city, service)
+    return Providers(providers=[provider_view(p, d) for p, d in found])
+
+
+def saved_assistance(record) -> JSONResponse:
+    return JSONResponse(status_code=record.response_status, content=record.response_body)
+
+
+@router.post("/assistance", response_model=AssistanceReceipt, status_code=status.HTTP_201_CREATED)
+async def request_assistance(
+    request: AssistanceRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", pattern=r"^[A-Za-z0-9-]{8,128}$"),
+    account: InsuredAccountDB = Depends(insured_account),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Pide asistencia con el prestador más cercano; la misma llave repite la respuesta sin crear otra (mejora FE-MOV-07)."""
+    scope = f"insured:{account.user_id}"
+    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La llave ya se usó con otra solicitud.")
+    try:
+        saved = await find_response(db, scope, idempotency_key, request)
+    except IdempotencyConflictError:
+        raise conflict
+    if saved is not None:
+        return saved_assistance(saved)
+    try:
+        receipt = await assistance_service.request(db, account.user_id, account.document_number, request)
+    except AssistancePolicyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos una póliza vigente para esta solicitud.")
+    except TooManyRequestsError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Ya pidió varias asistencias en la última hora. Llame a la línea de Solventa.",
+            headers={"Retry-After": "600"},
+        )
+    except NoProviderError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No hay prestadores de ese servicio en su zona. Llame a la línea de Solventa.",
+        )
+    body = receipt.model_dump(mode="json")
+    save_response(db, scope, idempotency_key, request, status.HTTP_201_CREATED, body)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Dos envíos simultáneos con la misma llave: gana el primero y este devuelve su respuesta.
+        await db.rollback()
+        try:
+            saved = await find_response(db, scope, idempotency_key, request)
+        except IdempotencyConflictError:
+            raise conflict
+        if saved is None:
+            raise
+        return saved_assistance(saved)
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
+
+
+@router.get("/assistance", response_model=AssistanceRequests)
+async def my_assistance_requests(
+    response: Response, account: InsuredAccountDB = Depends(insured_account), db: AsyncSession = Depends(get_db_session)
+):
+    """Las solicitudes de asistencia del asegurado del token, de la más reciente a la más antigua (mejora FE-MOV-07)."""
+    response.headers["Cache-Control"] = "no-store"
+    return AssistanceRequests(requests=await assistance_service.requests_of(db, account.user_id))

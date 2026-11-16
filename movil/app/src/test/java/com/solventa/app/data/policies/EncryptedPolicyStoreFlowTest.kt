@@ -273,4 +273,19 @@ class EncryptedPolicyStoreFlowTest {
         val SYNCED_AT: Instant = Instant.parse("2026-10-20T15:00:00Z")
         val LATER: Instant = Instant.parse("2026-10-21T15:00:00Z")
     }
+
+    // Mejora FE-MOV-07: la última lista de prestadores vive en la copia de la cuenta y se borra con ella.
+    @Test
+    fun `guarda la lista de prestadores con la copia de la billetera y la borra con ella`() = runBlocking {
+        val copy = com.solventa.app.domain.assistance.ProvidersCopy(listOf(com.solventa.app.data.assistance.sampleProvider()), "BOGOTA", LATER)
+        assertFalse(store.saveProviders(EMAIL, copy))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.saveProviders(EMAIL, copy))
+        assertEquals(copy, store.readProviders(EMAIL))
+        assertNull(store.readProviders(OTHER_EMAIL))
+
+        store.delete(EMAIL)
+        assertNull(store.readProviders(EMAIL))
+    }
 }

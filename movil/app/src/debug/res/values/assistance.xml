@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Línea ficticia de Solventa solo en depuración; en release queda vacía y el botón no aparece (mejora FE-MOV-07). -->
+    <string name="assistance_line_phone" translatable="false">+576015550100</string>
+</resources>
