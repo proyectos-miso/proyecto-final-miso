@@ -58,6 +58,8 @@ class DocumentOtpDB(Base):
     document_number = Column(String(20), nullable=False, index=True)
     purpose = Column(String(30), nullable=False)  # "consent", "policy_signature"
     code_hash = Column(String(64), nullable=False)
+    # HMAC del teléfono del registro: cada teléfono tiene su propio código (mejora FE-MOV-01); nulo en los demás usos.
+    binding_hash = Column(String(64), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)

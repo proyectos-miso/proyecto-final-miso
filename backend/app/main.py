@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.metrics import LatencyMiddleware
-from app.core.middleware import TenantContextMiddleware
+from app.core.middleware import BodyLimit, BodySizeLimitMiddleware, TenantContextMiddleware
 from app.core.storage import ensure_emulator_bucket, get_document_storage
 from app.bff.experience.router import router as experience_router
 from app.bff.experience.operations_router import router as operations_router
@@ -19,6 +19,7 @@ from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en B
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.policy.models import PolicyDB, PolicySignatureDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.claims.intake import REPORT_MAX_BODY_BYTES as CLAIM_REPORT_MAX_BODY_BYTES
 from app.modules.claims.service import claim_service
 from app.modules.claims.oracle import OracleEventDB  # noqa: F401 - registrar tablas
 from app.modules.notifications.service import PushPreferencesDB, PushTokenDB, notification_service  # noqa: F401 - registrar tablas
@@ -38,7 +39,7 @@ from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
 from app.modules.identity.adapters import get_identity_verifier
-from app.modules.identity.service_registration import insured_registration_service
+from app.modules.identity.service_registration import REGISTRATION_MAX_BODY_BYTES, insured_registration_service
 from app.modules.policy.search import create_search_indexes
 
 
@@ -50,9 +51,11 @@ async def run_policy_lifecycle() -> None:
 
 
 async def run_identity_verifications() -> None:
-    """Pide la decisión de las verificaciones de identidad pendientes y borra sus imágenes (mejora FE-MOV-01)."""
+    """Vence las verificaciones pendientes de más de 30 días, pide la decisión de las demás y borra sus imágenes (mejora FE-MOV-01)."""
     async with AsyncSessionLocal() as session:
-        await insured_registration_service.decide_pending(session, get_document_storage(), get_identity_verifier())
+        storage = get_document_storage()
+        await insured_registration_service.expire_pending(session, storage)
+        await insured_registration_service.decide_pending(session, storage, get_identity_verifier())
 
 
 async def publish_outbox() -> None:
@@ -161,8 +164,18 @@ app.add_middleware(
 # 2. Middleware de Contexto Multi-Tenant (ASR-06 / HA-14)
 app.add_middleware(TenantContextMiddleware)
 
-# Latencia de las rutas críticas para el tablero operativo (FE-WEB-07); el más externo, mide de punta a punta.
+# Latencia de las rutas críticas para el tablero operativo (FE-WEB-07); envuelve a CORS, al contexto y a las rutas.
 app.add_middleware(LatencyMiddleware)
+
+# El más externo, porque se agrega de último: corta los cuerpos con fotos antes de leer el multipart (mejora FE-MOV-01).
+# Un 413 por tamaño no pasa por la latencia ni por CORS.
+BODY_LIMITS = [
+    BodyLimit("POST", f"{settings.API_V1_STR}/auth/register", REGISTRATION_MAX_BODY_BYTES),
+    BodyLimit("POST", f"{settings.API_V1_STR}/insured/claims", CLAIM_REPORT_MAX_BODY_BYTES),
+    # Documentos de un siniestro (otra rama): diez archivos de 5 MB y el sobrecosto; la ruta aún no existe aquí.
+    BodyLimit("POST", f"{settings.API_V1_STR}/insured/claims/{{claim_number}}/documents", 51 * 1024 * 1024),
+]
+app.add_middleware(BodySizeLimitMiddleware, limits=BODY_LIMITS)
 
 # 3. Endpoint de Sondeo de Salud para AWS ALB (HA-09: cada 5s, umbral 2)
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])

@@ -147,12 +147,13 @@ class ProfileService:
         session: AsyncSession,
         consent_id: str,
     ) -> Optional[ConsentRecord]:
-        """Consulta el consentimiento por su identificador único persistido en PostgreSQL."""
-        stmt = select(ConsentDB).where(ConsentDB.id == consent_id)
+        """Consulta el consentimiento por su identificador único persistido en PostgreSQL.
+        La autorización biométrica del registro no es un consentimiento Open Finance: no sirve para cotizar (mejora FE-MOV-01)."""
+        stmt = select(ConsentDB).where(ConsentDB.id == consent_id, ConsentDB.purpose != BIOMETRIC_PURPOSE)
         db_consent = (await session.execute(stmt)).scalars().first()
         if not db_consent:
             for c in self._consents.values():
-                if c.consent_id == consent_id:
+                if c.consent_id == consent_id and c.purpose != BIOMETRIC_PURPOSE:
                     return c
             return None
         return ConsentRecord(
@@ -260,7 +261,7 @@ class ProfileService:
         return "REVOKED" in statuses and "GRANTED" not in statuses
 
     def add_biometric_consent(
-        self, session: AsyncSession, document_type: str, document_number: str, now: datetime
+        self, session: AsyncSession, user_id: str, document_type: str, document_number: str, now: datetime
     ) -> ConsentDB:
         """Deja la autorización en la transacción de quien registra la cuenta; no hace commit (mejora FE-MOV-01)."""
         granted_at = now.isoformat()
@@ -269,6 +270,7 @@ class ProfileService:
             id=f"CNS-{uuid.uuid4().hex[:12].upper()}",
             document_type=document_type,
             document_number=document_number,
+            user_id=user_id,
             channel="app",
             purpose=BIOMETRIC_PURPOSE,
             scope=BIOMETRIC_SCOPE,
@@ -282,13 +284,14 @@ class ProfileService:
         session.add(consent)
         return consent
 
-    async def revoke_biometric_consent(self, session: AsyncSession, document_number: str) -> int:
-        """Marca REVOKED la autorización biométrica del documento; no hace commit (mejora FE-MOV-01)."""
+    async def revoke_biometric_consent(self, session: AsyncSession, user_id: str) -> int:
+        """Marca REVOKED la autorización biométrica de la cuenta, no la de otras cuentas con el mismo documento; no hace
+        commit (mejora FE-MOV-01)."""
         rows = (
             await session.execute(
                 select(ConsentDB)
                 .where(
-                    ConsentDB.document_number == document_number,
+                    ConsentDB.user_id == user_id,
                     ConsentDB.status == "GRANTED",
                     ConsentDB.purpose == BIOMETRIC_PURPOSE,
                 )

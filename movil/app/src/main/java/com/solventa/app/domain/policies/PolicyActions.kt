@@ -49,6 +49,9 @@ sealed interface PreferencesResult {
     data object Unavailable : PreferencesResult
 }
 
+/** Revocación de la autorización biométrica del registro (mejora FE-MOV-01). */
+enum class ConsentRevocationResult { Revoked, Unauthorized, Unavailable }
+
 /** Carátula, renovación, token y preferencias de avisos del asegurado (HU-MOV-11, FE-MOV-04). */
 interface PolicyActionsApi {
     suspend fun caratula(accessToken: String, policyNumber: String): CaratulaResult
@@ -58,6 +61,8 @@ interface PolicyActionsApi {
     suspend fun registerPushToken(accessToken: String, token: String): Boolean?
     suspend fun pushPreferences(accessToken: String): PreferencesResult
     suspend fun savePushPreferences(accessToken: String, preferences: PushPreferences): PreferencesResult
+
+    suspend fun revokeBiometricConsent(accessToken: String): ConsentRevocationResult = ConsentRevocationResult.Unavailable
 }
 
 /** Las mismas acciones con la sesión abierta; un 401 renueva la sesión una vez. */
@@ -67,6 +72,8 @@ interface PolicyActions {
     suspend fun registerPushToken(token: String): Boolean
     suspend fun pushPreferences(): PreferencesResult
     suspend fun savePushPreferences(preferences: PushPreferences): PreferencesResult
+
+    suspend fun revokeBiometricConsent(): ConsentRevocationResult = ConsentRevocationResult.Unavailable
 }
 
 /**

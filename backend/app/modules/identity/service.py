@@ -48,8 +48,14 @@ PURPOSE_REGISTRATION = "registration"
 VERIFICATION_APPROVED = "APPROVED"
 VERIFICATION_PENDING = "PENDING"
 VERIFICATION_REJECTED = "REJECTED"
+VERIFICATION_EXPIRED = "EXPIRED"
+VERIFICATION_REVOKED = "REVOKED"
+# Cuentas cuya identidad se rechazó, venció sin decisión o quedó sin imágenes porque el titular revocó la autorización:
+# el ingreso, el código y la recuperación las tratan como inexistentes.
+CLOSED_VERIFICATIONS = (VERIFICATION_REJECTED, VERIFICATION_EXPIRED, VERIFICATION_REVOKED)
 
-FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked")
+# `duplicate` y `rejected` son intentos de registro fallidos: cuentan en el límite por IP (mejora FE-MOV-01).
+FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked", "duplicate", "rejected")
 SUCCESS_CHANNELS = ("password", "biometric", "reset")
 
 # Cuentas de prueba para desarrollo; nunca se cargan en producción. La clave de prueba está en el README.
@@ -179,7 +185,7 @@ class InsuredAuthService:
             session, LoginAttemptDB.email == email, "otp_request", ("success", "unknown_user"), since
         )
         retry_after = policy.otp_request_retry_after(requested, now)
-        account = await self._find(session, email)
+        account = self._open(await self._find(session, email))
         if retry_after is not None:
             await self._audit(session, email, account.user_id if account else None, ip, "otp_request", "rate_limited", now)
             await session.commit()
@@ -223,8 +229,8 @@ class InsuredAuthService:
         await self._reject_if_locked(session, email, None, ip, "password", now)
 
         account = await self._find(session, email, for_update=True)
-        # Una cuenta cuya identidad se rechazó después del registro responde como si no existiera (mejora FE-MOV-01).
-        if account is None or account.verification_status == VERIFICATION_REJECTED:
+        # Una cuenta cuya identidad se rechazó o venció responde como si no existiera (mejora FE-MOV-01).
+        if self._open(account) is None:
             await self._register_failure(session, email, None, ip, "password", "unknown_user", now)
             raise InvalidCredentialsError()
 
@@ -301,6 +307,10 @@ class InsuredAuthService:
             raise InvalidCredentialsError()
 
         account = await session.get(InsuredAccountDB, device.user_id)
+        if self._open(account) is None:
+            await self._audit(session, account.email, account.user_id, ip, "biometric", "bad_device", now)
+            await session.commit()
+            raise InvalidCredentialsError()
         await self._reject_if_locked(session, account.email, account.user_id, ip, "biometric", now)
         device.last_used_at = now
         await self._audit(session, account.email, account.user_id, ip, "biometric", "success", now)
@@ -351,7 +361,7 @@ class InsuredAuthService:
         email = _normalize(email)
         await self._check_ip(session, ip, now)
 
-        account = await self._find(session, email, for_update=True)
+        account = self._open(await self._find(session, email, for_update=True))
         if account is None:
             await self._audit(session, email, None, ip, "reset", "unknown_user", now)
             await session.commit()
@@ -378,6 +388,13 @@ class InsuredAuthService:
         await session.execute(delete(LoginLockDB).where(LoginLockDB.email == email))
         await self._audit(session, email, account.user_id, ip, "reset", "success", now)
         await session.commit()
+
+    @staticmethod
+    def _open(account: Optional[InsuredAccountDB]) -> Optional[InsuredAccountDB]:
+        """None si no existe o si su identidad se rechazó, venció o se revocó (mejora FE-MOV-01)."""
+        if account is None or account.verification_status in CLOSED_VERIFICATIONS:
+            return None
+        return account
 
     async def _find(self, session: AsyncSession, email: str, for_update: bool = False) -> Optional[InsuredAccountDB]:
         stmt = select(InsuredAccountDB).where(InsuredAccountDB.email == _normalize(email))
@@ -561,6 +578,29 @@ class InsuredAuthService:
         message = f"doc:{document_number}:{purpose}:{code}{':' + binding if binding else ''}".encode()
         return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
 
+    @staticmethod
+    def _binding_hash(document_number: str, purpose: str, binding: str) -> Optional[str]:
+        """Seudónimo del `binding` (el teléfono del registro) para elegir la fila sin guardar el número."""
+        if not binding:
+            return None
+        message = f"binding:{document_number}:{purpose}:{binding}".encode()
+        return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
+
+    @classmethod
+    def _document_otp_filter(cls, document_number: str, purpose: str, binding: str) -> list:
+        """Sin `binding`, todos los códigos del documento y propósito; con él, solo el de ese teléfono: pedir un código
+        de registro con el documento de otra persona no borra el que ella pidió desde su celular (mejora FE-MOV-01)."""
+        conditions = [DocumentOtpDB.document_number == document_number, DocumentOtpDB.purpose == purpose]
+        if binding:
+            conditions.append(DocumentOtpDB.binding_hash == cls._binding_hash(document_number, purpose, binding))
+        return conditions
+
+    async def consume_document_otp(
+        self, session: AsyncSession, document_number: str, purpose: str, binding: str = ""
+    ) -> None:
+        """Borra el código sin validarlo; no hace commit. Lo usa el registro tras un rollback (mejora FE-MOV-01)."""
+        await session.execute(delete(DocumentOtpDB).where(*self._document_otp_filter(document_number, purpose, binding)))
+
     async def request_document_otp(
         self,
         session: AsyncSession,
@@ -573,18 +613,14 @@ class InsuredAuthService:
         """Genera un OTP de 6 dígitos asociado a un documento para consentimiento o firma de póliza (RC-02, RC-06)."""
         now = self._clock()
         code = f"{secrets.randbelow(1_000_000):06d}"
-        await session.execute(
-            delete(DocumentOtpDB).where(
-                DocumentOtpDB.document_number == document_number,
-                DocumentOtpDB.purpose == purpose,
-            )
-        )
+        await session.execute(delete(DocumentOtpDB).where(*self._document_otp_filter(document_number, purpose, binding)))
         session.add(
             DocumentOtpDB(
                 document_type=document_type,
                 document_number=document_number,
                 purpose=purpose,
                 code_hash=self._document_code_hash(document_number, purpose, code, binding),
+                binding_hash=self._binding_hash(document_number, purpose, binding),
                 expires_at=now + OTP_TTL,
                 attempts=0,
                 created_at=now,
@@ -611,10 +647,7 @@ class InsuredAuthService:
         now = self._clock()
         stmt = (
             select(DocumentOtpDB)
-            .where(
-                DocumentOtpDB.document_number == document_number,
-                DocumentOtpDB.purpose == purpose,
-            )
+            .where(*self._document_otp_filter(document_number, purpose, binding))
             .with_for_update()
         )
         otp = (await session.execute(stmt)).scalars().first()

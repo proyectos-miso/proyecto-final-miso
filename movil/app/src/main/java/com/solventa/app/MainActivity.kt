@@ -453,6 +453,9 @@ fun SolventaMobileRoot(
                     onToggle = preferencesViewModel::toggle,
                     onRetry = preferencesViewModel::retry,
                     modifier = modifier,
+                    onAskRevocation = preferencesViewModel::askRevocation,
+                    onConfirmRevocation = preferencesViewModel::revokeBiometricConsent,
+                    onCancelRevocation = preferencesViewModel::cancelRevocation,
                 )
             } else if (claimsOpen && claimsViewModel != null && email != null) {
                 LaunchedEffect(email) { claimsViewModel.open(email) }

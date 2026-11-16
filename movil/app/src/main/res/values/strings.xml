@@ -360,14 +360,14 @@
     <string name="register_camera_settings">Abrir ajustes</string>
     <string name="register_camera_allow">Permitir la cámara</string>
     <string name="register_consent_title">Autorización de datos biométricos</string>
-    <string name="register_consent_body">Para crear su cuenta comparamos la foto de su documento con su selfie. Son datos biométricos, una categoría especial de datos personales. Solo los usamos para verificar su identidad: si la verificación termina en el momento, no guardamos las fotos; si queda en revisión, las guardamos cifradas hasta la decisión y luego las borramos. Puede revocar esta autorización cuando quiera.</string>
+    <string name="register_consent_body">Para crear su cuenta comparamos la foto de su documento con su selfie. Son datos biométricos, una categoría especial de datos personales. Solo los usamos para verificar su identidad: si la verificación termina en el momento, no guardamos las fotos; si queda en revisión, las guardamos cifradas hasta la decisión, máximo 30 días, y luego las borramos. Puede revocar esta autorización en «Avisos», dentro de la app, o escribiendo a soporte de Solventa.</string>
     <string name="register_consent_check">Autorizo el tratamiento de la foto de mi documento y mi selfie para verificar mi identidad.</string>
     <string name="register_submit">Crear cuenta</string>
     <string name="register_submitting">Verificando su identidad…</string>
     <string name="register_approved_title">Su cuenta está lista</string>
     <string name="register_approved_body">Verificamos su identidad. Ya puede usar la app.</string>
     <string name="register_pending_title">Estamos verificando su identidad</string>
-    <string name="register_pending_body">Su cuenta quedó creada. Mientras terminamos la verificación no verá sus pólizas; le avisaremos cuando esté lista.</string>
+    <string name="register_pending_body">Su cuenta quedó creada. Mientras terminamos la verificación no verá sus pólizas. Vuelva a entrar más tarde para saber si ya está lista; si en 30 días no terminamos, borraremos sus fotos y tendrá que registrarse de nuevo.</string>
     <string name="register_rejected_title">No pudimos verificar su identidad</string>
     <string name="register_rejected_body">No creamos la cuenta y no guardamos sus fotos. Si cree que es un error, comuníquese con Solventa.</string>
     <string name="register_enter">Entrar a la app</string>
@@ -463,4 +463,19 @@
     <string name="assistance_request_too_many">Ya pidió varias asistencias en la última hora. Llame a la línea de Solventa.</string>
     <string name="assistance_request_session">Su sesión venció. Ingrese de nuevo para pedir asistencia.</string>
     <string name="assistance_request_rejected">No pudimos registrar la solicitud. Revise los datos.</string>
+    <string name="register_camera_missing_back">No pudimos abrir la cámara trasera de este teléfono. Sin ella no es posible fotografiar el documento desde la app.</string>
+    <string name="register_camera_missing_front">Este teléfono no tiene cámara frontal o no pudimos abrirla. Sin ella no es posible tomar la selfie desde la app.</string>
+    <string name="register_camera_missing_help">Puede crear la cuenta desde otro teléfono. Lo que escribió no se guardó.</string>
+    <string name="register_leave">Salir del registro</string>
+    <string name="biometric_consent_title">Autorización de datos biométricos</string>
+    <string name="biometric_consent_help">Si su identidad sigue en verificación, revocarla borra la foto de su documento y su selfie y detiene la verificación.</string>
+    <string name="biometric_consent_revoke">Revocar autorización</string>
+    <string name="biometric_consent_confirm_title">¿Revocar la autorización?</string>
+    <string name="biometric_consent_confirm_body">Borraremos las fotos de una verificación pendiente y no podremos terminarla. Si su identidad ya está verificada, las fotos ya se borraron.</string>
+    <string name="biometric_consent_confirm">Revocar</string>
+    <string name="biometric_consent_cancel">Cancelar</string>
+    <string name="biometric_consent_revoking">Revocando…</string>
+    <string name="biometric_consent_revoked">Revocamos su autorización y borramos las imágenes de su verificación.</string>
+    <string name="biometric_consent_error">No pudimos revocar la autorización. Intente de nuevo en unos minutos.</string>
+    <string name="biometric_consent_error_session">Vuelva a ingresar para revocar la autorización.</string>
 </resources>

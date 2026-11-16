@@ -44,12 +44,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillNode
+import androidx.compose.ui.autofill.AutofillType
+import androidx.compose.ui.composed
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -72,6 +83,7 @@ import com.solventa.app.domain.auth.DocumentType
 import com.solventa.app.ui.claims.ClaimTopBar
 import com.solventa.app.ui.claims.EvidenceCamera
 import com.solventa.app.ui.theme.PrimaryButton
+import com.solventa.app.ui.theme.SolventaTheme
 
 private const val CODE_LENGTH = 6
 private val STEPS = RegistrationStep.entries.size - 1
@@ -96,7 +108,13 @@ fun RegistrationFlow(
         viewModel.close()
         onClose()
     }
-    BackHandler { if (!viewModel.back()) leave() }
+    val enter = {
+        val session = viewModel.takeSession()
+        viewModel.close()
+        if (session != null) onFinished(session) else onClose()
+    }
+    // En el resultado la cuenta ya existe: «Atrás» continúa como «Entrar a la app» y no descarta la sesión.
+    BackHandler { if (state.step == RegistrationStep.RESULT) enter() else if (!viewModel.back()) leave() }
 
     var granted by remember { mutableStateOf(cameraGranted(context)) }
     var asked by remember { mutableStateOf(false) }
@@ -127,16 +145,19 @@ fun RegistrationFlow(
                 onResend = viewModel::resendCode,
                 onBack = { viewModel.back() },
             )
-            RegistrationStep.DOCUMENT, RegistrationStep.SELFIE -> {
+            // Cada paso con su propio grupo: la selfie no hereda la vista ni el enlace de CameraX del documento.
+            RegistrationStep.DOCUMENT, RegistrationStep.SELFIE -> key(state.step) {
                 val document = state.step == RegistrationStep.DOCUMENT
                 val camera = if (document) documentCamera else selfieCamera
-                if (granted) {
+                if (state.error == RegistrationError.CAMERA_UNAVAILABLE) {
+                    CameraUnavailableScreen(state = state, document = document, onLeave = leave, onBack = { viewModel.back() })
+                } else if (granted) {
                     IdentityCameraScreen(
                         state = state,
                         title = if (document) R.string.register_document_title else R.string.register_selfie_title,
                         hint = if (document) R.string.register_document_hint else R.string.register_selfie_hint,
                         preview = { previewModifier ->
-                            camera.Preview(previewModifier, onUnavailable = { viewModel.capture { null } })
+                            camera.Preview(previewModifier, onUnavailable = viewModel::cameraUnavailable)
                         },
                         onShoot = { viewModel.capture { camera.capture() } },
                         onBack = { viewModel.back() },
@@ -163,11 +184,7 @@ fun RegistrationFlow(
             )
             RegistrationStep.RESULT -> RegistrationResultScreen(
                 outcome = state.outcome ?: RegistrationOutcome.REJECTED,
-                onEnter = {
-                    val session = viewModel.takeSession()
-                    viewModel.close()
-                    if (session != null) onFinished(session) else onClose()
-                },
+                onEnter = enter,
                 onClose = leave,
             )
         }
@@ -326,7 +343,9 @@ fun RegistrationCodeScreen(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             shape = MaterialTheme.shapes.small,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .smsCodeAutofill { value -> code = value.filter(Char::isDigit).take(CODE_LENGTH) },
         )
         RegistrationErrorText(state.error)
         PrimaryButton(
@@ -352,20 +371,22 @@ fun IdentityCameraScreen(
     onBack: () -> Unit,
 ) {
     val pane = stringResource(title)
+    val scrim = SolventaTheme.colors.camera
+    val onScrim = SolventaTheme.colors.onCamera
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(scrim)
             .semantics { paneTitle = pane },
     ) {
         preview(Modifier.fillMaxSize())
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
             IconButton(onClick = onBack) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.register_back), tint = Color.White)
+                Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.register_back), tint = onScrim)
             }
             Text(
                 pane,
-                color = Color.White,
+                color = onScrim,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
@@ -375,14 +396,14 @@ fun IdentityCameraScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(scrim.copy(alpha = 0.55f))
                 .padding(horizontal = 24.dp, vertical = 20.dp),
         ) {
-            Text(stringResource(hint), color = Color.White, style = MaterialTheme.typography.bodySmall)
-            state.error?.let {
+            Text(stringResource(hint), color = onScrim, style = MaterialTheme.typography.bodySmall)
+            state.error?.let { error ->
                 Text(
-                    stringResource(R.string.register_error_capture),
-                    color = Color.White,
+                    stringResource(errorMessage(error)),
+                    color = onScrim,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
@@ -394,7 +415,7 @@ fun IdentityCameraScreen(
                 enabled = !state.busy,
                 shape = CircleShape,
                 color = Color.Transparent,
-                border = BorderStroke(5.dp, Color.White.copy(alpha = if (state.busy) 0.4f else 1f)),
+                border = BorderStroke(5.dp, onScrim.copy(alpha = if (state.busy) 0.4f else 1f)),
                 modifier = Modifier
                     .size(78.dp)
                     .semantics {
@@ -403,10 +424,24 @@ fun IdentityCameraScreen(
                     },
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    if (state.busy) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(32.dp))
+                    if (state.busy) CircularProgressIndicator(color = onScrim, modifier = Modifier.size(32.dp))
                 }
             }
         }
+    }
+}
+
+/** El teléfono no tiene la cámara del paso o no abrió: un aviso con una salida, no un obturador que siempre falla. */
+@Composable
+fun CameraUnavailableScreen(state: RegistrationUiState, document: Boolean, onLeave: () -> Unit, onBack: () -> Unit) {
+    val title = if (document) R.string.register_document_title else R.string.register_selfie_title
+    StepScaffold(state, title, onBack) {
+        Text(
+            stringResource(if (document) R.string.register_camera_missing_back else R.string.register_camera_missing_front),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Text(stringResource(R.string.register_camera_missing_help), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        PrimaryButton(stringResource(R.string.register_leave), onLeave)
     }
 }
 
@@ -501,19 +536,39 @@ private fun CheckRow(text: String, checked: Boolean, onChange: (Boolean) -> Unit
     }
 }
 
+@StringRes
+private fun errorMessage(error: RegistrationError): Int = when (error) {
+    RegistrationError.INVALID_DATA -> R.string.register_error_invalid
+    RegistrationError.INVALID_CODE -> R.string.register_error_code
+    RegistrationError.WEAK_PASSWORD -> R.string.recovery_error_weak
+    RegistrationError.DUPLICATE -> R.string.register_error_duplicate
+    RegistrationError.TOO_MANY_REQUESTS -> R.string.auth_error_too_many
+    RegistrationError.SMS_UNAVAILABLE -> R.string.auth_error_sms
+    RegistrationError.NETWORK -> R.string.auth_error_network
+    RegistrationError.CAPTURE_FAILED -> R.string.register_error_capture
+    RegistrationError.CAMERA_UNAVAILABLE -> R.string.register_camera_missing_front
+}
+
+/**
+ * Ofrece al servicio de autocompletar del sistema el código que llegó por SMS (`AutofillType.SmsOtpCode`), como en
+ * los teclados que lo sugieren; la persona lo acepta o lo escribe.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun Modifier.smsCodeAutofill(onFill: (String) -> Unit): Modifier = composed {
+    val autofill = LocalAutofill.current
+    val currentOnFill by rememberUpdatedState(onFill)
+    val node = remember { AutofillNode(autofillTypes = listOf(AutofillType.SmsOtpCode), onFill = { currentOnFill(it) }) }
+    LocalAutofillTree.current += node
+    this
+        .onGloballyPositioned { node.boundingBox = it.boundsInWindow() }
+        .onFocusChanged { focus ->
+            autofill?.run { if (focus.isFocused) requestAutofillForNode(node) else cancelAutofillForNode(node) }
+        }
+}
+
 @Composable
 private fun RegistrationErrorText(error: RegistrationError?) {
-    val message = when (error) {
-        null -> return
-        RegistrationError.INVALID_DATA -> R.string.register_error_invalid
-        RegistrationError.INVALID_CODE -> R.string.register_error_code
-        RegistrationError.WEAK_PASSWORD -> R.string.recovery_error_weak
-        RegistrationError.DUPLICATE -> R.string.register_error_duplicate
-        RegistrationError.TOO_MANY_REQUESTS -> R.string.auth_error_too_many
-        RegistrationError.SMS_UNAVAILABLE -> R.string.auth_error_sms
-        RegistrationError.NETWORK -> R.string.auth_error_network
-        RegistrationError.CAPTURE_FAILED -> R.string.register_error_capture
-    }
+    val message = errorMessage(error ?: return)
     Text(
         stringResource(message),
         color = MaterialTheme.colorScheme.error,

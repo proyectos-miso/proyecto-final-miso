@@ -18,6 +18,8 @@ from app.modules.policy.models import PolicyDB
 MAX_PHOTOS = 5
 MAX_PHOTO_BYTES = 2_000_000
 MAX_DESCRIPTION = 500
+# Cinco fotos de 2 MB, el reporte (máximo 20 000 caracteres) y el sobrecosto del multipart: unos 11 MB.
+REPORT_MAX_BODY_BYTES = MAX_PHOTOS * MAX_PHOTO_BYTES + 1024 * 1024
 JPEG_MAGIC = b"\xff\xd8\xff"
 
 

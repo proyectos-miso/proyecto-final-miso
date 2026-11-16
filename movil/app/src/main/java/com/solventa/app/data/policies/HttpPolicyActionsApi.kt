@@ -1,6 +1,7 @@
 package com.solventa.app.data.policies
 
 import com.solventa.app.domain.policies.CaratulaResult
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.PolicyActionsApi
 import com.solventa.app.domain.policies.PreferencesResult
 import com.solventa.app.domain.policies.PushPreferences
@@ -62,6 +63,16 @@ class HttpPolicyActionsApi(private val baseUrl: String) : PolicyActionsApi {
             .toString()
         return call(PREFERENCES_PATH, "PUT", accessToken, body, PreferencesResult.Unavailable, ::preferences)
     }
+
+    /** Borra las imágenes de una verificación pendiente y marca revocada la autorización (mejora FE-MOV-01). */
+    override suspend fun revokeBiometricConsent(accessToken: String): ConsentRevocationResult =
+        call("insured/consents/biometric/revoke", "POST", accessToken, "{}", ConsentRevocationResult.Unavailable) { code, _ ->
+            when (code) {
+                HttpURLConnection.HTTP_OK -> ConsentRevocationResult.Revoked
+                HttpURLConnection.HTTP_UNAUTHORIZED -> ConsentRevocationResult.Unauthorized
+                else -> ConsentRevocationResult.Unavailable
+            }
+        }
 
     private fun preferences(code: Int, body: String): PreferencesResult = when (code) {
         HttpURLConnection.HTTP_OK -> JSONObject(body).let {

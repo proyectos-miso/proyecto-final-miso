@@ -15,11 +15,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +49,9 @@ fun NotificationPreferencesScreen(
     onToggle: (NoticeCategory, Boolean) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    onAskRevocation: () -> Unit = {},
+    onConfirmRevocation: () -> Unit = {},
+    onCancelRevocation: () -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
     Column(modifier.fillMaxSize()) {
@@ -78,7 +84,64 @@ fun NotificationPreferencesScreen(
                 }
             }
             Status(state)
+            BiometricConsentSection(state.revocation, onAskRevocation)
         }
+    }
+    if (state.revocation == BiometricRevocation.CONFIRMING) {
+        AlertDialog(
+            onDismissRequest = onCancelRevocation,
+            title = { Text(stringResource(R.string.biometric_consent_confirm_title)) },
+            text = { Text(stringResource(R.string.biometric_consent_confirm_body)) },
+            confirmButton = {
+                TextButton(onClick = onConfirmRevocation, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.biometric_consent_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onCancelRevocation, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.biometric_consent_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** Revocar la autorización de la selfie y el documento del registro (mejora FE-MOV-01). */
+@Composable
+private fun BiometricConsentSection(revocation: BiometricRevocation?, onAsk: () -> Unit) {
+    Spacer(Modifier.heightIn(min = 8.dp))
+    Text(
+        stringResource(R.string.biometric_consent_title),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.semantics { heading() },
+    )
+    Text(
+        stringResource(R.string.biometric_consent_help),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val message = when (revocation) {
+        BiometricRevocation.REVOKING -> R.string.biometric_consent_revoking
+        BiometricRevocation.REVOKED -> R.string.biometric_consent_revoked
+        BiometricRevocation.FAILED -> R.string.biometric_consent_error
+        BiometricRevocation.SESSION -> R.string.biometric_consent_error_session
+        BiometricRevocation.CONFIRMING, null -> null
+    }
+    message?.let {
+        Text(
+            stringResource(it),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+    if (revocation != BiometricRevocation.REVOKED) {
+        SecondaryButton(
+            stringResource(R.string.biometric_consent_revoke),
+            onAsk,
+            enabled = revocation != BiometricRevocation.REVOKING,
+        )
     }
 }
 

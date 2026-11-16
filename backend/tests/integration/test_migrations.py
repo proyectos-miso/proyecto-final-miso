@@ -150,14 +150,18 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
         await conn.execute(text("DROP TABLE identity_verifications"))
         await conn.execute(text("ALTER TABLE insured_accounts DROP COLUMN document_type, "
                                 "DROP COLUMN verification_status, DROP COLUMN verified_at"))
+        await conn.execute(text("ALTER TABLE document_otps DROP COLUMN binding_hash"))
+        await conn.execute(text("ALTER TABLE consents DROP COLUMN IF EXISTS user_id"))
         await conn.execute(text(
             "INSERT INTO insured_accounts (user_id, email, full_name, document_number, phone, password_hash, "
             "token_version) VALUES ('ins-prueba', 'previa@example.com', 'Cuenta Previa', '52000999', "
             "'+573000000000', 'hash', 0)"
         ))
     await engine.dispose()
-    columns = ("SELECT count(*) FROM information_schema.columns WHERE table_name = 'insured_accounts' "
-               "AND column_name IN ('document_type', 'verification_status', 'verified_at')")
+    columns = ("SELECT count(*) FROM information_schema.columns WHERE (table_name = 'insured_accounts' "
+               "AND column_name IN ('document_type', 'verification_status', 'verified_at')) OR "
+               "(table_name = 'document_otps' AND column_name = 'binding_hash') OR "
+               "(table_name = 'consents' AND column_name = 'user_id')")
     table = "SELECT to_regclass('identity_verifications')::text"
 
     await upgrade(empty_database)
@@ -166,7 +170,7 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
     status = await scalar(empty_database, "SELECT verification_status || '/' || document_type FROM insured_accounts")
     await asyncio.to_thread(command.downgrade, config_for(empty_database), "0006")
 
-    assert (added, created, status) == (3, "identity_verifications", "APPROVED/CC")
+    assert (added, created, status) == (5, "identity_verifications", "APPROVED/CC")
     assert await scalar(empty_database, columns) == 0
     assert await scalar(empty_database, table) is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
@@ -211,3 +215,44 @@ async def test_la_migracion_de_prestadores_y_asistencia_crea_sus_tablas_desde_00
     assert (created, stored_location) == (2, 0)
     assert await scalar(empty_database, tables) == 0
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"
+
+
+CONSENT = (
+    "INSERT INTO consents (id, document_type, document_number, channel, purpose, scope, validity_days, status, "
+    "consent_hash, granted_at, expires_at) VALUES ('{id}', 'CC', '{document}', '{channel}', '{purpose}', 'Alcance', "
+    "30, 'GRANTED', repeat('a', 64), now(), now() + interval '30 days')"
+)
+
+
+async def test_revertir_la_verificacion_de_identidad_borra_las_cuentas_no_aprobadas_y_las_autorizaciones_biometricas(
+    empty_database,
+):
+    await upgrade(empty_database)
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        for user_id, status in (("ins-aprobada", "APPROVED"), ("ins-pendiente", "PENDING"), ("ins-rechazada", "REJECTED")):
+            await conn.execute(text(
+                "INSERT INTO insured_accounts (user_id, email, full_name, document_type, document_number, phone, "
+                f"password_hash, token_version, verification_status) VALUES ('{user_id}', '{user_id}@example.com', "
+                f"'Cuenta Prueba', 'CC', '5200{len(user_id)}', '+573000000000', 'hash', 0, '{status}')"
+            ))
+        await conn.execute(text(
+            "INSERT INTO identity_verifications (verification_id, user_id, status, created_at) "
+            "VALUES ('ver-pendiente', 'ins-pendiente', 'PENDING', now())"
+        ))
+        await conn.execute(text(
+            "INSERT INTO insured_devices (device_id, user_id, secret_hash, created_at) "
+            "VALUES ('dev-pendiente', 'ins-pendiente', repeat('b', 64), now())"
+        ))
+        await conn.execute(text(CONSENT.format(id="CNS-BIO", document="52000099", channel="app",
+                                               purpose="biometric_verification")))
+        await conn.execute(text(CONSENT.format(id="CNS-OF", document="52000099", channel="web",
+                                               purpose="Perfilamiento")))
+    await engine.dispose()
+
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0006")
+
+    assert await scalar(empty_database, "SELECT string_agg(user_id, ',') FROM insured_accounts") == "ins-aprobada"
+    assert await scalar(empty_database, "SELECT count(*) FROM insured_devices") == 0
+    assert await scalar(empty_database, "SELECT string_agg(id, ',') FROM consents") == "CNS-OF"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"

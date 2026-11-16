@@ -225,6 +225,12 @@ class RegistrationRefused(Exception):
         return JSONResponse(status_code=self.status_code, content={"detail": self.detail, "code": self.code})
 
 
+def registration_open() -> None:
+    """Con REGISTRATION_ENABLED apagado el registro no existe: 404, como cualquier ruta desconocida (mejora FE-MOV-01)."""
+    if not settings.registration_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
 def _unprocessable(code: str, detail: str) -> RegistrationRefused:
     return RegistrationRefused(status.HTTP_422_UNPROCESSABLE_CONTENT, code, detail)
 
@@ -243,7 +249,7 @@ async def _read_jpeg(upload: Optional[UploadFile], required: bool) -> Optional[b
     return content
 
 
-@router.post("/register/otp", response_model=OtpResponse)
+@router.post("/register/otp", response_model=OtpResponse, dependencies=[Depends(registration_open)])
 async def request_registration_otp(
     request: RegistrationOtpRequest, http: Request, db: AsyncSession = Depends(get_db_session)
 ):
@@ -307,6 +313,7 @@ async def _register(
 
 @router.post(
     "/register",
+    dependencies=[Depends(registration_open)],
     response_model=RegistrationResult,
     status_code=status.HTTP_201_CREATED,
     responses={202: {"model": RegistrationResult, "description": "Cuenta creada con la identidad en verificación"}},

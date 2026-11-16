@@ -267,6 +267,26 @@ class RegistrationViewModelTest {
         assertFalse(state.toString().contains("1098765432"))
     }
 
+    @Test
+    fun `sin la camara del paso se avisa y el obturador ya no intenta tomar la foto`() {
+        viewModel.updateDraft(draft)
+        viewModel.submitData()
+        viewModel.cameraUnavailable()
+        assertNull(state.error)
+
+        viewModel.submitCode("417902")
+        viewModel.capture { document.copyOf() }
+        viewModel.cameraUnavailable()
+        var shots = 0
+        viewModel.capture { shots++; selfie.copyOf() }
+
+        assertEquals(RegistrationStep.SELFIE, state.step)
+        assertEquals(RegistrationError.CAMERA_UNAVAILABLE, state.error)
+        assertEquals(0, shots)
+        assertTrue(viewModel.back())
+        assertNull(state.error)
+    }
+
     private class FakeRegistrationApi : AuthApi {
         var otpResult: OtpResult = OtpResult.Sent("417902")
         var registerResult: RegistrationResult = RegistrationResult.Registered(
