@@ -99,6 +99,25 @@ los registros ni a los paquetes de spec.
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Secretos | Firma del APK de release (HU-MOV-09, RC-12) | El job `mobile-release` se omite |
 | `ANDROID_API_BASE_URL` | Variable | URL `https` del API para el APK de release | El job `mobile-release` se omite |
 
+**Dónde terminan los secretos del backend.** `deploy.yml` y `destroy.yml` pasan `DB_PASSWORD`,
+`JWT_SECRET_KEY`, `OTP_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` a Terraform como
+`TF_VAR_*`, a variables con `sensitive = true`. Terraform los guarda en AWS Secrets Manager, cifrados con la
+llave KMS de RDS (`solventa-<nombre>-production`, por ejemplo `solventa-jwt-secret-key-production`), y la
+tarea de ECS los recibe con el bloque `secrets`: la definición de tarea solo contiene el ARN de cada uno y
+solo el rol de ejecución puede leerlos y descifrarlos (`specs/HOTFIX-secretos-en-ecs`). El backend los sigue
+leyendo como variables de entorno. `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` vacíos no crean secreto ni
+variable. Los valores siguen en el estado de Terraform: el bucket de estado es tan sensible como los secretos.
+
+- **Para rotar** un secreto se cambia en GitHub y se despliega: Terraform guarda una versión nueva y el
+  despliegue del backend reemplaza las tareas. Cambiar `JWT_SECRET_KEY` cierra todas las sesiones y cambiar
+  `OTP_SECRET_KEY` invalida los códigos pendientes.
+- **Antes del primer despliegue con este cambio**, si en la cuenta ya existe a mano un secreto con alguno
+  de esos nombres, se borra o se importa al estado; si no, el apply falla.
+- **Después del primer despliegue**, las revisiones anteriores de la definición de tarea todavía tienen los
+  valores en claro. Se desregistran (`aws ecs deregister-task-definition`) y se borran
+  (`aws ecs delete-task-definitions`) todas menos la activa, y el equipo decide si rota los valores que
+  estuvieron expuestos.
+
 **`ORACLE_SECRET`.** Texto aleatorio de al menos 32 caracteres que comparten el backend y el oráculo. Se
 genera con `python -c "import secrets; print(secrets.token_urlsafe(48))"`, se pega directamente en GitHub y
 se entrega al oráculo por un canal privado. Para rotarla se cambia en los dos lados a la vez.
