@@ -58,18 +58,19 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
 | backend/app/modules/underwriting/rules.py | `RULES_VERSION = "2026.11"` |
 | backend/app/modules/underwriting/models.py | `underwriting_rejections` agrega solo `rules_version`; sigue sin puntaje ni fecha de nacimiento (CTL-03 de HU-WEB-07) |
 | backend/app/modules/underwriting/service.py | `record_rejection` guarda la versión de reglas |
-| backend/app/modules/underwriting/audit.py | Nuevo: detalle (sin desglose con el consentimiento revocado), recálculo de cotizaciones (un rechazo o una decisión con el consentimiento revocado da 409; compara tiers, primas, factores y coberturas con tolerancia), revocación, enmascarado del documento y eventos `solventa.audit` |
+| backend/app/modules/underwriting/audit.py | Nuevo: detalle (sin desglose con el consentimiento revocado; un rechazo con el consentimiento revocado sin regla, motivo ni montos), recálculo de cotizaciones (un rechazo o una decisión con el consentimiento revocado da 409; compara tiers, primas, factores y coberturas con tolerancia), revocación, enmascarado del documento y eventos `solventa.audit` |
 | backend/app/modules/rating/models.py | `quotes` agrega `rules_version`, `insured_amount` y `occupation_risk` y queda inmutable con `make_immutable` |
-| backend/app/modules/rating/service.py | `create_quote` guarda las entradas y la versión de la cotización; un `consent_id` revocado o de otro documento da 422 en cualquier canal antes de consultar el buró; `OFFERED_TIERS` |
+| backend/app/modules/rating/service.py | `create_quote` guarda las entradas y la versión de la cotización; un `consent_id` inexistente, revocado o de otro documento da 422 en cualquier canal antes de consultar el buró; `OFFERED_TIERS` |
 | backend/app/modules/profile/service.py | `revoke_consents_async`, `consent_revoked_async` (revocado por el `consent_id` o por el documento); la copia en memoria no vale si la base ya no tiene ese consentimiento GRANTED |
 | backend/app/bff/experience/operations_router.py | `GET /experience/decisions/{id}`, `POST .../replay`, `POST /experience/consents/revoke`, las tres con `no-store`; el 403 de `solventa_operator` es genérico |
 | backend/app/migrations/versions/0005_auditoria_de_suscripcion.py | Columnas nuevas y disparador `quotes_no_change`, idempotente y con `downgrade` |
 | backend/tests/integration/test_underwriting_audit_api.py | Pruebas de los endpoints, el recálculo, el rechazo sin puntaje, la inmutabilidad, la revocación y los eventos |
-| backend/tests/integration/test_partner_quote_api.py | El socio con un `consent_id` revocado o de otro documento recibe 422 sin consultar el buró |
+| backend/tests/integration/test_partner_quote_api.py | El socio con un `consent_id` inexistente, revocado o de otro documento recibe 422 sin consultar el buró |
+| backend/tests/conftest.py | El doble de la base devuelve vacío si se busca un consentimiento por un id que no existe, como PostgreSQL |
 | backend/tests/integration/test_migrations.py | La última versión es `0005`; subida desde `0004`, sin columnas de puntaje ni fecha en los rechazos, y reversión |
 | web/src/app/core/models/audit.model.ts | Contrato de la auditoría |
 | web/src/app/core/audit/audit.service.ts | Llamadas de la auditoría; el documento va en el cuerpo |
-| web/src/app/features/auditoria/audit.component.ts | Pantalla «Auditoría»; un rechazo muestra solo lo guardado y, en lugar de «Recalcular», por qué no se recalcula; con el consentimiento revocado, solo las primas por plan y el motivo en lugar de «Recalcular» |
+| web/src/app/features/auditoria/audit.component.ts | Pantalla «Auditoría»; un rechazo muestra solo lo guardado y, en lugar de «Recalcular», por qué no se recalcula; con el consentimiento revocado, solo las primas por plan y el motivo en lugar de «Recalcular»; un rechazo con el consentimiento revocado, sin regla, motivo ni montos |
 | web/src/app/app.routes.ts | Ruta `/auditoria` con `authGuard`, `roleGuard(['analyst'])` y `solventaGuard`, cargada bajo demanda para no crecer el paquete inicial |
 | web/src/app/app.component.html | Pestaña «Auditoría» junto a «Socios» |
 | web/src/app/app.component.ts | Comentario: las pestañas de Solventa ya son dos |
@@ -113,6 +114,8 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
 | AC-09 | THE pestaña «Auditoría» SHALL verse solo si `GET /experience/operator` dice `solventa: true`, y su ruta SHALL devolver a `/gestion` al analista de un socio | STATED |
 | AC-10 | THE pantalla SHALL validar el identificador antes de llamar, mostrar las entradas y el desglose en tablas, anunciar el resultado del recálculo y pedir confirmación antes de registrar la revocación | STATED |
 | AC-12 | IF el `consent_id` de una cotización del asesor o de un socio es de otro documento, THEN THE backend SHALL responder 422 «El consentimiento no corresponde al cliente.» antes de consultar el buró y sin guardar la cotización | DERIVED: revisión independiente (B-2) |
+| AC-14 | WHILE un rechazo tenga el consentimiento revocado, THE detalle SHALL devolver solo `decision_id`, `kind`, `status`, `rules_version`, `created_at`, `consent_revoked` y `replayable: false`, sin el documento, la regla, el motivo, el monto máximo aprobable ni el monto solicitado; y el portal SHALL mostrar solo la nota «Se omiten los datos personales y los montos derivados de ellos.» | DERIVED: segunda revisión independiente (N-B1): el monto máximo aprobable sale de `SCORE_LIMITS` o `AGE_LIMITS` y delata la franja del buró o la edad |
+| AC-15 | IF el `consent_id` de una cotización del asesor o de un socio no existe, THEN THE backend SHALL responder 422 «El consentimiento no existe.» antes de consultar el buró y sin guardar la cotización | DERIVED: segunda revisión independiente: un `consent_id` inexistente no debe pasar a buscar el consentimiento por documento ni al canal de socios sin consentimiento |
 | AC-11 | THE rechazo SHALL guardar solo la versión de reglas además de lo que ya guardaba, sin puntaje del buró ni fecha de nacimiento; IF se pide recalcular un rechazo, THEN THE backend SHALL responder 409 «Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.» y el portal SHALL mostrar ese texto en lugar del botón «Recalcular» | DERIVED: se respeta CTL-03 de HU-WEB-07, decidido por el usuario el 2026-11-15 |
 
 ### Quality requirements
@@ -145,7 +148,7 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
 | SR-01 | Solo el analista de Solventa (`partner_id` nulo leído de la base) consulta, recalcula y revoca; el portal solo oculta | THR-01 | CTL-01 | HIGH |
 | SR-02 | El detalle enmascara el documento, responde `no-store` y no pone datos personales en la URL, el navegador ni los registros | DATA-01, DATA-02, DATA-03, THR-02 | CTL-02, CTL-05, CTL-07 | HIGH |
 | SR-03 | `quotes` y `underwriting_rejections` son de solo inserción en la base, también tras la migración | THR-03 | CTL-03 | HIGH |
-| SR-04 | Un consentimiento revocado no sirve para cotizar en ningún canal ni desde la copia en memoria; un consentimiento solo sirve para el documento de su titular, y el de otro da 422 antes de consultar el buró; las decisiones con el consentimiento revocado (el suyo o todos los del documento) omiten en la auditoría las entradas personales y el desglose, y no se recalculan | DATA-01, DATA-02, DATA-04, THR-04, THR-06 | CTL-04 | HIGH |
+| SR-04 | Un consentimiento revocado no sirve para cotizar en ningún canal ni desde la copia en memoria; un consentimiento solo sirve para el documento de su titular, y el de otro o uno inexistente da 422 antes de consultar el buró; las decisiones con el consentimiento revocado (el suyo o todos los del documento) omiten en la auditoría las entradas personales y el desglose, los rechazos también la regla, el motivo y los montos, y no se recalculan | DATA-01, DATA-02, DATA-04, THR-04, THR-06 | CTL-04 | HIGH |
 | SR-05 | Cada consulta, recálculo y revocación deja un evento en `solventa.audit` con `operator_ref` y sin documento, fecha, puntaje ni correo | THR-01, THR-02 | CTL-05 | MEDIUM |
 | SR-06 | El identificador y el documento se validan por formato antes de tocar la base | THR-05 | CTL-06 | MEDIUM |
 | SR-07 | `underwriting_rejections` solo agrega `rules_version`: el rechazo no guarda el puntaje del buró ni la fecha de nacimiento, y su detalle no devuelve entradas que no existen | DATA-01, DATA-02, THR-02 | CTL-08 | HIGH |
@@ -163,7 +166,8 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
   `UWR-` rechazo), enmascara el documento (solo los cuatro últimos); en un rechazo devuelve `RejectionInputs`
   (documento y monto solicitado) con la regla, el motivo, el monto máximo, la versión y la fecha; omite fecha, documento y puntaje si
   `consent_revoked_async` dice que el consentimiento de la decisión está revocado (el de su `consent_id` o el
-  documento tiene revocados y ninguno vigente), y entonces cada tier va sin `breakdown`; `replay` recalcula con
+  documento tiene revocados y ninguno vigente), y entonces cada tier va sin `breakdown` y un rechazo va sin regla,
+  motivo, monto máximo ni monto solicitado (el monto máximo sale de la franja del buró o de la edad); `replay` recalcula con
   `age_on` a la fecha de la decisión en la hora local del servidor (la misma de `date.today()` al cotizar), `evaluate`
   y `build_breakdown` (con `partial_profile` si la cotización está degradada), reporta los tiers que aparecen o
   desaparecen frente a `OFFERED_TIERS` y compara la prima mensual y anual, el multiplicador y el aporte de cada factor
@@ -172,8 +176,8 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
   `CONSENT_REVOKED_NOT_REPLAYABLE`), sin registrar `DECISION_REPLAYED`; `revoke_consent` llama a
   `profile_service.revoke_consents_async`, que pasa a REVOKED los GRANTED del documento con `FOR UPDATE` y saca la
   copia en memoria. `get_consent_async` ya no devuelve la copia en memoria de un consentimiento que en la base ya no
-  está GRANTED (otra réplica). `create_quote` rechaza en cualquier canal un `consent_id` revocado o de otro
-  documento antes de consultar el buró. El router agrega
+  está GRANTED (otra réplica). `create_quote` rechaza en cualquier canal un `consent_id` inexistente, revocado o de
+  otro documento antes de consultar el buró. El router agrega
   tres rutas delgadas con `solventa_operator`.
 - **Portal:** `AuditService`, `AuditComponent` en `/auditoria` y la pestaña «Auditoría» junto a «Socios», con
   `OperatorService` y `solventaGuard` sin cambios de lógica. La pantalla valida el id con la misma expresión del
@@ -182,8 +186,10 @@ titular; exigir consentimiento al canal de socios cuando no envía `consent_id` 
   pueden recalcular.»), el
   resultado en `aria-live` y la tabla de diferencias; la revocación pide confirmación con el documento enmascarado,
   maneja el foco como «Socios», borra el documento del campo al terminar y vuelve a pedir la decisión abierta (si
-  falla, avisa sin vaciar el detalle). Con el consentimiento revocado muestra solo una tabla de primas por plan y el
-  motivo en lugar de «Recalcular». Los campos tienen texto de ayuda y su error en `aria-describedby`.
+  falla, vacía el detalle y avisa «La revocación quedó registrada. Busque la decisión de nuevo.»). Con el
+  consentimiento revocado muestra solo una tabla de primas por plan y el motivo en lugar de «Recalcular»; en un
+  rechazo, solo la nota «Se omiten los datos personales y los montos derivados de ellos.», sin entradas, regla,
+  motivo ni montos. Los campos tienen texto de ayuda y su error en `aria-describedby`.
 
 ### Data flows
 
@@ -196,10 +202,10 @@ Analista → `/experience/consents/revoke` (documento en el cuerpo) → `consent
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| GET /experience/decisions/{id} | — | `{decision_id, kind, created_at, rules_version, consent_revoked, replayable, inputs, outcome: {status, degradation_reason, tiers: [{tier, monthly_premium, annual_premium, coverages, breakdown}], rule_id, reason, max_approvable_amount}}` (sin `breakdown` con `consent_revoked: true`); `inputs` de una cotización `{document_masked, birth_date, insured_amount, occupation_risk, score}` y de un rechazo solo `{document_masked, insured_amount}` (monto solicitado), con `replayable: false`; `no-store`; id `QUO-` o `UWR-` más 12 hexadecimales en mayúsculas o 422; 404; 403 |
+| GET /experience/decisions/{id} | — | `{decision_id, kind, created_at, rules_version, consent_revoked, replayable, inputs, outcome: {status, degradation_reason, tiers: [{tier, monthly_premium, annual_premium, coverages, breakdown}], rule_id, reason, max_approvable_amount}}` (sin `breakdown` con `consent_revoked: true`); `inputs` de una cotización `{document_masked, birth_date, insured_amount, occupation_risk, score}` y de un rechazo solo `{document_masked, insured_amount}` (monto solicitado), con `replayable: false`; `rule_id`, `reason` y `max_approvable_amount` solo van en un rechazo; un rechazo con `consent_revoked: true` lleva `inputs: {document_masked: null}` y `outcome` sin `rule_id`, `reason` ni `max_approvable_amount`; `no-store`, también en el 404; id `QUO-` o `UWR-` más 12 hexadecimales en mayúsculas o 422; 404; 403 |
 | POST /experience/decisions/{id}/replay | — | `{decision_id, matches, differences: [{field, then, now}], rules_version_then, rules_version_now}` para una cotización; 409 «Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.» para cualquier rechazo; 409 «Decisión anterior a la auditoría: no se puede recalcular.» para una cotización sin entradas; 409 «El consentimiento del titular fue revocado: no se recalcula con sus datos personales.»; `no-store`; 404; 403 |
 | POST /experience/consents/revoke | `{document_number}` (`^[A-Za-z0-9]{4,20}$`) | `{document_masked, revoked}`; idempotente (`revoked: 0`); `no-store`; 422; 403 |
-| POST /experience/quotes y /quote-edge/quotes (cambian) | — | 422 «El consentimiento informado del cliente fue revocado.» con un `consent_id` revocado; 422 «El consentimiento no corresponde al cliente.» con el de otro documento, antes de consultar el buró |
+| POST /experience/quotes y /quote-edge/quotes (cambian) | — | 422 «El consentimiento informado del cliente fue revocado.» con un `consent_id` revocado; 422 «El consentimiento no corresponde al cliente.» con el de otro documento; 422 «El consentimiento no existe.» con uno inexistente; todos antes de consultar el buró |
 
 ### Security design decisions
 
@@ -212,6 +218,7 @@ Analista → `/experience/consents/revoke` (documento en el cuerpo) → `consent
 | Un solo cálculo: el recálculo llama a `build_breakdown`, `age_on` y `evaluate` | CTL-03 | Fórmulas duplicadas en la auditoría: podrían coincidir aunque la tarifa cambiara |
 | La copia en memoria del consentimiento no vale si la base lo tiene y no está GRANTED | CTL-04 | Solo sacarla de la memoria al revocar: otras réplicas la seguirían usando |
 | Con el consentimiento revocado, el detalle quita el desglose y el recálculo responde 409 | CTL-04 | Dejar el desglose: sus etiquetas dicen la edad y el multiplicador de historial de pago delata la franja del puntaje |
+| Con el consentimiento revocado, el rechazo omite la regla, el motivo y los montos | CTL-04 | Dejar el monto máximo aprobable: sale de `SCORE_LIMITS` o `AGE_LIMITS` uno a uno con la franja |
 | El consentimiento se ata al documento antes de consultar el buró, y una decisión cuenta como revocada también por su documento | CTL-04 | Confiar en el `consent_id` del cuerpo: permitía perfilar a un titular con el consentimiento de otro |
 | Eventos `solventa.audit` con `operator_ref`, el id de la decisión y conteos, sin datos personales | CTL-05 | Registrar el documento revocado: es dato personal |
 | El rechazo no guarda el puntaje del buró ni la fecha de nacimiento, solo agrega la versión de reglas, y no se recalcula: se respeta CTL-03 de HU-WEB-07, decidido por el usuario el 2026-11-15 | CTL-08 | Guardar el puntaje y la fecha para recalcular el rechazo: contradice la minimización que decidió HU-WEB-07 y obligaba a reabrir ese paquete cerrado; sin el puntaje tampoco hace falta la fecha |
@@ -240,3 +247,5 @@ versionadas (ADR 0023) y los componentes con señales del portal (ADR 0008, 0009
 | T-08 | B-1: sin desglose con el consentimiento revocado, recálculo 409 y portal sin «Recalcular» ni desglose | AC-13, SR-04 | CTL-04 | DONE | backend/app/modules/underwriting/audit.py; web/src/app/features/auditoria/audit.component.ts |
 | T-09 | B-2: el consentimiento se ata al documento en los dos canales y la decisión cuenta como revocada por su documento | AC-12, SR-04 | CTL-04 | DONE | backend/app/modules/rating/service.py; backend/app/modules/profile/service.py |
 | T-07 | Respetar CTL-03 de HU-WEB-07 (decisión del usuario del 2026-11-15): el rechazo no guarda puntaje ni fecha de nacimiento, HU-WEB-07 queda sin cambios y su TC-03 sigue verificando que no se guarda el puntaje | AC-11, SR-07 | CTL-08 | DONE | backend/tests/integration/test_underwriting_api.py; backend/tests/integration/test_underwriting_audit_api.py |
+| T-10 | N-B1: un rechazo con el consentimiento revocado omite regla, motivo y montos en el backend y en el portal; la recarga fallida vacía el detalle; el 404 del detalle con `no-store` | AC-14, SR-02, SR-04 | CTL-02, CTL-04 | DONE | backend/app/modules/underwriting/audit.py; web/src/app/features/auditoria/audit.component.ts |
+| T-11 | Un `consent_id` inexistente da 422 «El consentimiento no existe.» en los dos canales antes de consultar el buró | AC-15, SR-04 | CTL-04 | DONE | backend/app/modules/rating/service.py; backend/tests/conftest.py |

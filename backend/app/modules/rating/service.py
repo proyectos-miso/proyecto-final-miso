@@ -90,6 +90,7 @@ TIER_MULTIPLIERS = {PlanTier.BASIC: 0.75, PlanTier.STANDARD: 1.0, PlanTier.PREMI
 # Tiers que se ofrecen hoy; el recálculo de la auditoría compara contra esta lista (FE-WEB-08).
 OFFERED_TIERS: List[PlanTier] = list(PlanTier)
 CONSENT_OF_ANOTHER_CLIENT = "El consentimiento no corresponde al cliente."
+CONSENT_NOT_FOUND = "El consentimiento no existe."
 
 ScoreProvider = Callable[[QuoteRequest, float], Awaitable[int]]
 
@@ -291,6 +292,11 @@ class RatingService:
         if partner_id is None or request.consent_id:
             if request.consent_id:
                 active_consent = await profile_service.get_consent_by_id_async(session, request.consent_id)
+                if active_consent is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=CONSENT_NOT_FOUND,
+                    )
             if not active_consent:
                 active_consent = await profile_service.get_consent_async(session, request.document_number)
 

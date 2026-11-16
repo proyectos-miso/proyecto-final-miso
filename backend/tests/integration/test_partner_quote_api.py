@@ -560,3 +560,27 @@ async def test_partner_quote_con_consentimiento_revocado_responde_422(
     assert resp.json()["detail"] == "El consentimiento informado del cliente fue revocado."
     assert calls == []
     assert test_db_session.quotes == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_un_consentimiento_inexistente_responde_422_sin_consultar_el_buro(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion: un consent_id que no existe no autoriza perfilar al titular."""
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-inexistente"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-no-existe-0001"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento no existe."
+    assert calls == []
+    assert test_db_session.quotes == {}
+    assert test_db_session.idempotency_records == {}

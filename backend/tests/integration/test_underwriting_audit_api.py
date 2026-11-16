@@ -154,6 +154,29 @@ async def test_el_detalle_de_un_rechazo_muestra_solo_lo_guardado_con_el_document
     assert DOCUMENT not in response.text and "1990-05-15" not in response.text
 
 
+async def test_con_el_consentimiento_revocado_un_rechazo_omite_la_regla_el_motivo_y_los_montos(
+    async_client: AsyncClient, seeded
+):
+    rejected = await quote(async_client, amount=900_000_000, consent_id=SEEDED_CONSENT)
+    await async_client.post(REVOKE, headers=headers(ANALISTA), json={"document_number": DOCUMENT})
+
+    response = await async_client.get(f"{DECISIONS}/{rejected['quote_id']}", headers=headers(ANALISTA))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "rejection"
+    assert body["consent_revoked"] is True
+    assert body["replayable"] is False
+    assert body["rules_version"] == "2026.11"
+    assert body["created_at"]
+    assert body["inputs"] == {"document_masked": None}
+    assert body["outcome"]["status"] == "review_required"
+    assert {"rule_id", "reason", "max_approvable_amount"}.isdisjoint(body["outcome"])
+    row = await seeded.get(UnderwritingRejectionDB, rejected["quote_id"])
+    for revealing in (row.rule_id, row.reason, str(int(row.max_approvable_amount)), "900000000", "4050"):
+        assert revealing not in response.text
+
+
 async def test_el_recalculo_coincide_en_cotizaciones_activas_y_degradadas(
     async_client: AsyncClient, seeded, monkeypatch
 ):
@@ -259,6 +282,13 @@ async def test_un_identificador_inexistente_da_404_y_uno_mal_formado_422(async_c
     for document in ("10.203", "1" * 21, "<script>"):
         response = await async_client.post(REVOKE, headers=headers(ANALISTA), json={"document_number": document})
         assert response.status_code == 422
+
+
+async def test_el_404_del_detalle_responde_sin_cache(async_client: AsyncClient, seeded):
+    response = await async_client.get(f"{DECISIONS}/UWR-FFFFFFFFFFFF", headers=headers(ANALISTA))
+
+    assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.parametrize(
@@ -405,6 +435,28 @@ async def test_el_asesor_con_el_consentimiento_de_otro_documento_recibe_422_sin_
 
     assert response.status_code == 422
     assert response.json()["detail"] == rating_module.CONSENT_OF_ANOTHER_CLIENT == "El consentimiento no corresponde al cliente."
+    assert calls == []
+    assert await seeded.scalar(select(func.count()).select_from(QuoteDB)) == 0
+    assert await seeded.scalar(select(func.count()).select_from(UnderwritingRejectionDB)) == 0
+
+
+async def test_el_asesor_con_un_consentimiento_inexistente_recibe_422_sin_consultar_el_buro_ni_guardar(
+    async_client: AsyncClient, seeded, monkeypatch
+):
+    calls = []
+
+    async def counted_score(request, delay=0.0):
+        calls.append(request.document_number)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", counted_score)
+    body = {"document_type": "CC", "document_number": DOCUMENT, "birth_date": "1990-05-15",
+            "insured_amount": 100_000_000, "occupation_risk": 2, "consent_id": "cst-no-existe-0001"}
+
+    response = await async_client.post("/api/v1/experience/quotes", headers=advisor(), json=body)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == rating_module.CONSENT_NOT_FOUND == "El consentimiento no existe."
     assert calls == []
     assert await seeded.scalar(select(func.count()).select_from(QuoteDB)) == 0
     assert await seeded.scalar(select(func.count()).select_from(UnderwritingRejectionDB)) == 0

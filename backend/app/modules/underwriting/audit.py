@@ -52,9 +52,17 @@ class DecisionInputs(BaseModel):
 
 
 class RejectionInputs(BaseModel):
-    """Lo que guarda un rechazo: sin puntaje del buró ni fecha de nacimiento (CTL-03 de HU-WEB-07)."""
+    """Lo que guarda un rechazo: sin puntaje del buró ni fecha de nacimiento (CTL-03 de HU-WEB-07).
+    Con el consentimiento revocado no lleva el monto solicitado."""
     document_masked: Optional[str]
-    insured_amount: float
+    insured_amount: Optional[float] = None
+
+    @model_serializer(mode="wrap")
+    def _without_omitted_amount(self, handler):
+        data = handler(self)
+        if self.insured_amount is None:
+            data.pop("insured_amount", None)
+        return data
 
 
 class TierOutcome(BaseModel):
@@ -74,13 +82,26 @@ class TierOutcome(BaseModel):
         return data
 
 
+REJECTION_FIELDS = ("rule_id", "reason", "max_approvable_amount")
+
+
 class DecisionOutcome(BaseModel):
+    """Los campos del rechazo solo van cuando tienen valor: con el consentimiento revocado se omiten porque
+    el cupo máximo sale de la franja del buró o de la edad."""
     status: str
     degradation_reason: Optional[str] = None
     tiers: List[TierOutcome] = []
     rule_id: Optional[str] = None
     reason: Optional[str] = None
     max_approvable_amount: Optional[float] = None
+
+    @model_serializer(mode="wrap")
+    def _without_empty_rejection(self, handler):
+        data = handler(self)
+        for name in REJECTION_FIELDS:
+            if getattr(self, name) is None:
+                data.pop(name, None)
+        return data
 
 
 class DecisionDetail(BaseModel):
@@ -188,16 +209,19 @@ async def detail(session: AsyncSession, decision_id: str, operator: str) -> Deci
         )
         replayable = _quote_replayable(row)
     else:
-        inputs = RejectionInputs(
-            document_masked=None if revoked else mask_document(row.document_number),
-            insured_amount=row.requested_amount,
-        )
-        outcome = DecisionOutcome(
-            status="review_required",
-            rule_id=row.rule_id,
-            reason=row.reason,
-            max_approvable_amount=row.max_approvable_amount,
-        )
+        if revoked:
+            inputs = RejectionInputs(document_masked=None)
+            outcome = DecisionOutcome(status="review_required")
+        else:
+            inputs = RejectionInputs(
+                document_masked=mask_document(row.document_number), insured_amount=row.requested_amount
+            )
+            outcome = DecisionOutcome(
+                status="review_required",
+                rule_id=row.rule_id,
+                reason=row.reason,
+                max_approvable_amount=row.max_approvable_amount,
+            )
         replayable = False
     return DecisionDetail(
         decision_id=decision_id,

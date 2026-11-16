@@ -16,8 +16,8 @@ export const REJECTION_NOT_REPLAYABLE =
   'Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.';
 export const CONSENT_REVOKED_NOT_REPLAYABLE =
   'El consentimiento del titular fue revocado: no se recalcula con sus datos personales.';
-export const RELOAD_FAILED =
-  'La revocación quedó registrada, pero no se pudo actualizar la decisión abierta: búsquela de nuevo antes de seguir.';
+export const RELOAD_FAILED = 'La revocación quedó registrada. Busque la decisión de nuevo.';
+export const REVOKED_REJECTION = 'Se omiten los datos personales y los montos derivados de ellos.';
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Cotización activa',
@@ -76,32 +76,34 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
               @if (decision.kind === 'quote') {
                 El titular revocó su consentimiento: se omiten el documento, la fecha de nacimiento, el puntaje y el desglose de la prima.
               } @else {
-                El titular revocó su consentimiento: se omite el documento.
+                {{ revokedRejection }}
               }
             </p>
           }
 
-          <div class="table-wrap">
-            <table>
-              <caption>Entradas de la decisión</caption>
-              <thead>
-                <tr><th scope="col">Entrada</th><th scope="col">Valor</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row">Documento</th><td data-testid="input-document">{{ personal(decision, decision.inputs.document_masked) }}</td></tr>
-                @if (decision.kind === 'quote') {
-                  <tr><th scope="row">Fecha de nacimiento</th><td data-testid="input-birth-date">{{ personal(decision, decision.inputs.birth_date) }}</td></tr>
-                  <tr><th scope="row">Suma asegurada</th><td>{{ money(decision.inputs.insured_amount) }}</td></tr>
-                  <tr><th scope="row">Riesgo de ocupación</th><td>{{ decision.inputs.occupation_risk ?? 'No registrado' }}</td></tr>
-                  <tr><th scope="row">Puntaje del buró</th><td data-testid="input-score">{{ personal(decision, decision.inputs.score) }}</td></tr>
-                } @else {
-                  <tr><th scope="row">Monto solicitado</th><td data-testid="input-requested">{{ money(decision.inputs.insured_amount) }}</td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
+          @if (decision.kind === 'quote' || !decision.consent_revoked) {
+            <div class="table-wrap">
+              <table>
+                <caption>Entradas de la decisión</caption>
+                <thead>
+                  <tr><th scope="col">Entrada</th><th scope="col">Valor</th></tr>
+                </thead>
+                <tbody>
+                  <tr><th scope="row">Documento</th><td data-testid="input-document">{{ personal(decision, decision.inputs.document_masked) }}</td></tr>
+                  @if (decision.kind === 'quote') {
+                    <tr><th scope="row">Fecha de nacimiento</th><td data-testid="input-birth-date">{{ personal(decision, decision.inputs.birth_date) }}</td></tr>
+                    <tr><th scope="row">Suma asegurada</th><td>{{ money(decision.inputs.insured_amount) }}</td></tr>
+                    <tr><th scope="row">Riesgo de ocupación</th><td>{{ decision.inputs.occupation_risk ?? 'No registrado' }}</td></tr>
+                    <tr><th scope="row">Puntaje del buró</th><td data-testid="input-score">{{ personal(decision, decision.inputs.score) }}</td></tr>
+                  } @else {
+                    <tr><th scope="row">Monto solicitado</th><td data-testid="input-requested">{{ money(decision.inputs.insured_amount) }}</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
 
-          @if (decision.kind === 'rejection') {
+          @if (decision.kind === 'rejection' && !decision.consent_revoked) {
             <dl class="rejection">
               <dt>Regla</dt>
               <dd data-testid="rejection-rule">{{ decision.outcome.rule_id }}</dd>
@@ -286,6 +288,7 @@ export class AuditComponent {
   readonly maskedDocument = computed(() => mask(this.documentNumber().trim()));
   readonly rejectionNotReplayable = REJECTION_NOT_REPLAYABLE;
   readonly consentRevokedNotReplayable = CONSENT_REVOKED_NOT_REPLAYABLE;
+  readonly revokedRejection = REVOKED_REJECTION;
 
   search(): void {
     const id = this.decisionId().trim().toUpperCase();
@@ -390,8 +393,8 @@ export class AuditComponent {
     return TIER_LABEL[tier] ?? tier;
   }
 
-  money(amount: number | null): string {
-    return amount === null ? 'No registrado' : COP.format(amount);
+  money(amount: number | null | undefined): string {
+    return amount === null || amount === undefined ? 'No registrado' : COP.format(amount);
   }
 
   multiplier(value: number): string {
@@ -414,7 +417,10 @@ export class AuditComponent {
     this.result.set(null);
     this.audit.detail(decisionId).subscribe({
       next: (decision) => this.detail.set(decision),
-      error: () => this.error.set(RELOAD_FAILED),
+      error: () => {
+        this.detail.set(null);
+        this.error.set(RELOAD_FAILED);
+      },
     });
   }
 

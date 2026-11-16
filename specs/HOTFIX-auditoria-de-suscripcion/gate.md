@@ -39,10 +39,10 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas de integración del detalle, el recálculo, el rechazo sin puntaje, la inmutabilidad, la revocación y los eventos | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-08, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-12, TC-13 | backend/tests/integration/test_underwriting_audit_api.py | AVAILABLE |
+| EV-01 | Pruebas de integración del detalle, el recálculo, el rechazo sin puntaje, la inmutabilidad, la revocación y los eventos | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-08, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-12, TC-13, TC-14, TC-15 | backend/tests/integration/test_underwriting_audit_api.py | AVAILABLE |
 | EV-02 | Pruebas de la migración `0005` | SR-03, SR-07, CTL-03, CTL-08, TC-06, TC-12 | backend/tests/integration/test_migrations.py | AVAILABLE |
-| EV-03 | Pruebas del portal: servicio, pantalla y pestaña | SR-01, SR-02, SR-06, SR-07, CTL-01, CTL-02, CTL-06, CTL-08, TC-09, TC-10, TC-12 | web/src/app/features/auditoria/audit.component.spec.ts; web/src/app/core/audit/audit.service.spec.ts; web/src/app/app.component.spec.ts | AVAILABLE |
-| EV-04 | Pruebas del canal de socios con un consentimiento revocado o de otro documento | SR-04, CTL-04, TC-07, TC-13 | backend/tests/integration/test_partner_quote_api.py | AVAILABLE |
+| EV-03 | Pruebas del portal: servicio, pantalla y pestaña | SR-01, SR-02, SR-06, SR-07, CTL-01, CTL-02, CTL-06, CTL-08, TC-09, TC-10, TC-12, TC-14 | web/src/app/features/auditoria/audit.component.spec.ts; web/src/app/core/audit/audit.service.spec.ts; web/src/app/app.component.spec.ts | AVAILABLE |
+| EV-04 | Pruebas del canal de socios con un consentimiento inexistente, revocado o de otro documento | SR-04, CTL-04, TC-07, TC-13, TC-15 | backend/tests/integration/test_partner_quote_api.py | AVAILABLE |
 
 ## Closeout
 

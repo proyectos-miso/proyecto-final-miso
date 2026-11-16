@@ -11,10 +11,11 @@ export interface PremiumFactor {
 /**
  * Con el consentimiento revocado, el documento, la fecha de nacimiento y el puntaje llegan en null.
  * Un rechazo solo trae el documento y el monto solicitado: no guarda el puntaje ni la fecha de nacimiento (HU-WEB-07).
+ * Un rechazo con el consentimiento revocado no trae el monto solicitado.
  */
 export interface DecisionInputs {
   document_masked: string | null;
-  insured_amount: number | null;
+  insured_amount?: number | null;
   birth_date?: string | null;
   occupation_risk?: number | null;
   score?: number | null;
@@ -36,13 +37,14 @@ export interface TierOutcome {
   breakdown?: PremiumFactor[];
 }
 
+/** La regla, el motivo y el cupo solo llegan en un rechazo con el consentimiento vigente: el cupo delata la franja del buró o la edad. */
 export interface DecisionOutcome {
   status: string;
   degradation_reason: string | null;
   tiers: TierOutcome[];
-  rule_id: string | null;
-  reason: string | null;
-  max_approvable_amount: number | null;
+  rule_id?: string | null;
+  reason?: string | null;
+  max_approvable_amount?: number | null;
 }
 
 export interface DecisionDetail {

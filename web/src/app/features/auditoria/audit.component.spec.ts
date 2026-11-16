@@ -2,7 +2,13 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { DecisionDetail } from '../../core/models/audit.model';
-import { AuditComponent, CONSENT_REVOKED_NOT_REPLAYABLE, RELOAD_FAILED, REJECTION_NOT_REPLAYABLE } from './audit.component';
+import {
+  AuditComponent,
+  CONSENT_REVOKED_NOT_REPLAYABLE,
+  RELOAD_FAILED,
+  REJECTION_NOT_REPLAYABLE,
+  REVOKED_REJECTION,
+} from './audit.component';
 
 // Auditoría de suscripción (HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
 describe('AuditComponent (FE-WEB-08)', () => {
@@ -153,15 +159,26 @@ describe('AuditComponent (FE-WEB-08)', () => {
     expect(button('Recalcular')).toBeUndefined();
   });
 
-  it('un rechazo anterior a la auditoría con el consentimiento revocado omite el documento', () => {
+  it('un rechazo anterior a la auditoría con el consentimiento revocado omite el documento, la regla, el motivo y los montos', () => {
     submitSearch('UWR-ABCDEF012345');
     http.expectOne((req) => req.url.endsWith('/decisions/UWR-ABCDEF012345')).flush({
-      ...REJECTION, rules_version: null, consent_revoked: true, inputs: { document_masked: null, insured_amount: 900000000 },
+      decision_id: REJECTION.decision_id, kind: 'rejection', created_at: REJECTION.created_at, rules_version: null,
+      consent_revoked: true, replayable: false, inputs: { document_masked: null },
+      outcome: { status: 'review_required', degradation_reason: null, tiers: [] },
     });
     fixture.detectChanges();
 
-    expect(page().querySelector('[data-testid="consent-revoked"]')?.textContent).toContain('se omite el documento');
-    expect(page().querySelector('[data-testid="input-document"]')?.textContent).toContain('consentimiento revocado');
+    const notice = page().querySelector('[data-testid="consent-revoked"]')?.textContent?.trim();
+    expect(notice).toBe(REVOKED_REJECTION);
+    expect(REVOKED_REJECTION).toBe('Se omiten los datos personales y los montos derivados de ellos.');
+    expect(page().querySelectorAll('[data-testid="consent-revoked"]').length).toBe(1);
+    for (const testid of ['input-document', 'input-requested', 'rejection-rule', 'rejection-reason', 'rejection-max']) {
+      expect(page().querySelector(`[data-testid="${testid}"]`)).toBeNull();
+    }
+    expect(page().textContent).not.toContain('Monto máximo aprobable');
+    expect(page().textContent).not.toContain('Monto solicitado');
+    expect(page().textContent).not.toContain('COP');
+    expect(page().querySelector('[data-testid="decision-status"]')?.textContent).toContain('Requiere revisión');
     expect(page().querySelector('[data-testid="rules-version"]')?.textContent).toContain('anterior a la auditoría');
     expect(page().querySelector('[data-testid="rejection-not-replayable"]')).toBeTruthy();
     expect(button('Recalcular')).toBeUndefined();
@@ -304,7 +321,7 @@ describe('AuditComponent (FE-WEB-08)', () => {
     expect(page().querySelector('[data-testid="input-document"]')?.textContent).toContain('consentimiento revocado');
   });
 
-  it('tras revocar limpia el recálculo anterior y, si la recarga falla, avisa sin vaciar el detalle', async () => {
+  it('tras revocar limpia el recálculo anterior y, si la recarga falla, vacía el detalle y avisa', async () => {
     submitSearch('QUO-1A2B3C4D5E6F');
     http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(QUOTE);
     fixture.detectChanges();
@@ -329,7 +346,10 @@ describe('AuditComponent (FE-WEB-08)', () => {
     fixture.detectChanges();
 
     expect(page().querySelector('[role="alert"]')?.textContent).toContain(RELOAD_FAILED);
-    expect(page().querySelector('section.detail')).toBeTruthy();
+    expect(RELOAD_FAILED).toBe('La revocación quedó registrada. Busque la decisión de nuevo.');
+    expect(page().querySelector('section.detail')).toBeNull();
+    expect(page().querySelector('[data-testid="input-document"]')).toBeNull();
+    expect(page().textContent).not.toContain('1990-05-15');
     expect(status().textContent).toContain('quedaron revocados');
   });
 });
