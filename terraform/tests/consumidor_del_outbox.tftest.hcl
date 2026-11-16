@@ -67,7 +67,8 @@ run "el_rol_de_la_tarea_consume_solo_la_cola_de_eventos" {
 }
 
 run "la_cola_de_eventos_tolera_reintentos_crecientes" {
-  command = plan
+  # apply con el proveedor simulado: no toca AWS y el ARN de la DLQ queda conocido sin override_during (Terraform 1.11+).
+  command = apply
 
   module {
     source = "./modules/storage_events"
@@ -79,8 +80,7 @@ run "la_cola_de_eventos_tolera_reintentos_crecientes" {
   }
 
   override_resource {
-    target          = aws_sqs_queue.dlq
-    override_during = plan
+    target = aws_sqs_queue.dlq
     values = {
       arn = "arn:aws:sqs:us-east-1:000000000000:solventa-events-dlq-test"
     }
