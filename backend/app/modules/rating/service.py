@@ -89,8 +89,8 @@ SCORE_BANDS: List[Tuple[int, float]] = [(800, 0.9), (650, 1.0), (500, 1.15), (0,
 TIER_MULTIPLIERS = {PlanTier.BASIC: 0.75, PlanTier.STANDARD: 1.0, PlanTier.PREMIUM: 1.35}
 # Tiers que se ofrecen hoy; el recálculo de la auditoría compara contra esta lista (FE-WEB-08).
 OFFERED_TIERS: List[PlanTier] = list(PlanTier)
-CONSENT_OF_ANOTHER_CLIENT = "El consentimiento no corresponde al cliente."
-CONSENT_NOT_FOUND = "El consentimiento no existe."
+# Un solo mensaje para «no existe» y «es de otro titular»: no revela si un consent_id existe.
+CONSENT_NOT_VALID_FOR_CLIENT = "El consentimiento no es válido para este cliente."
 
 ScoreProvider = Callable[[QuoteRequest, float], Awaitable[int]]
 
@@ -295,7 +295,7 @@ class RatingService:
                 if active_consent is None:
                     raise HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=CONSENT_NOT_FOUND,
+                        detail=CONSENT_NOT_VALID_FOR_CLIENT,
                     )
             if not active_consent:
                 active_consent = await profile_service.get_consent_async(session, request.document_number)
@@ -304,7 +304,7 @@ class RatingService:
             if active_consent and active_consent.document_number != request.document_number:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=CONSENT_OF_ANOTHER_CLIENT,
+                    detail=CONSENT_NOT_VALID_FOR_CLIENT,
                 )
             if request.consent_id and active_consent and active_consent.status == "REVOKED":
                 raise HTTPException(

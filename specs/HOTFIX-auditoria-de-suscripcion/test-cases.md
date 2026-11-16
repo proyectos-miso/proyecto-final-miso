@@ -20,11 +20,11 @@
 | SC-14 | AC-10 | Dada la pantalla, cuando se busca, se recalcula y se registra la revocación, entonces se valida el id, se ven las tablas, el resultado se anuncia y la revocación pide confirmación y devuelve el foco | TC-09, TC-10 |
 | SC-15 | AC-11 | Dado el rechazo de una cotización, cuando se registra, entonces guarda la versión de reglas y no guarda el puntaje ni la fecha de nacimiento | TC-12 |
 | SC-17 | AC-13 | Dada una cotización cuyo consentimiento se revocó, cuando se consulta y se pide recalcular, entonces llegan solo los planes con el id y el nombre de sus coberturas, sin entradas, primas, desglose ni montos (ni `monthly_premium`, `annual_premium`, `limit`, `insured_amount`, `occupation_risk` ni «años»), `replayable: false`, el recálculo da 409 con su motivo y `no-store`, y el portal muestra una sola nota, los planes y los nombres de las coberturas, sin «Primas por plan», y el motivo en lugar de «Recalcular» | TC-07, TC-09 |
-| SC-18 | AC-12 | Dado el `consent_id` vigente de otro documento, cuando el asesor o un socio cotizan, entonces 422 «El consentimiento no corresponde al cliente.» sin consultar el buró ni guardar la cotización; con un `consent_id` revocado el socio también recibe 422 | TC-13 |
+| SC-18 | AC-12 | Dado el `consent_id` vigente de otro documento, cuando el asesor o un socio cotizan, entonces 422 «El consentimiento no es válido para este cliente.» sin consultar el buró ni guardar la cotización; con un `consent_id` revocado el socio también recibe 422 | TC-13 |
 | SC-19 | AC-07 | Dada una cotización vieja con el consentimiento vigente de otro titular, cuando se revocan los del documento, entonces el detalle la trata como revocada | TC-13 |
 | SC-20 | AC-04 | Dado un tier que ya no se ofrece o uno nuevo, una prima anual o una cobertura distintas, o una diferencia de coma flotante de hasta 0,005, cuando se recalcula, entonces se reporta el tier, la prima o la cobertura y se ignora la diferencia menor | TC-03 |
 | SC-21 | AC-14 | Dado un rechazo cuyo consentimiento se revocó, cuando el analista lo consulta, entonces el detalle no trae el documento, la regla, el motivo, el monto solicitado ni el monto máximo, y el portal solo muestra la nota «Se omiten los datos personales y los montos derivados de ellos.» | TC-14 |
-| SC-22 | AC-15 | Dado un `consent_id` que no existe, cuando el asesor o un socio cotizan, entonces 422 «El consentimiento no existe.» sin consultar el buró ni guardar la cotización | TC-15 |
+| SC-22 | AC-15 | Dado un `consent_id` que no existe, cuando el asesor o un socio cotizan, entonces 422 «El consentimiento no es válido para este cliente.» sin consultar el buró ni guardar la cotización | TC-15 |
 | SC-23 | AC-10 | Dada una revocación con una decisión abierta, cuando la recarga falla, entonces el detalle se vacía y el aviso pide buscarla de nuevo | TC-09 |
 | SC-16 | AC-11 | Dado un rechazo nuevo o anterior a la auditoría, cuando se pide recalcularlo, entonces 409 «Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.» sin evento de recálculo, y el portal muestra ese texto en lugar de «Recalcular» | TC-12 |
 
@@ -256,7 +256,7 @@
 | Level | INTEGRATION |
 | Preconditions | Consentimiento vigente de otro titular ficticio; buró reemplazado por un doble que cuenta las llamadas |
 | Procedure | 1. Cotizar como asesor con el `consent_id` del otro titular. 2. Cotizar como socio con ese `consent_id`. 3. Guardar una cotización vieja con ese consentimiento ajeno, consultarla, revocar los consentimientos del documento y consultarla otra vez |
-| Expected result | 422 «El consentimiento no corresponde al cliente.» en los dos canales, cero llamadas al buró y ninguna cotización, rechazo ni registro de idempotencia guardados; la cotización vieja pasa de `consent_revoked: false` a `true`, sin fecha ni puntaje, y su recálculo da 409 |
+| Expected result | 422 «El consentimiento no es válido para este cliente.» en los dos canales, cero llamadas al buró y ninguna cotización, rechazo ni registro de idempotencia guardados; la cotización vieja pasa de `consent_revoked: false` a `true`, sin fecha ni puntaje, y su recálculo da 409 |
 | Tool or method | pytest con un doble del buró |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
@@ -277,7 +277,7 @@
 | Tool or method | pytest y Vitest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_underwriting_audit_api.py::test_con_el_consentimiento_revocado_un_rechazo_omite_la_regla_el_motivo_y_los_montos; web/src/app/features/auditoria/audit.component.spec.ts::"un rechazo anterior a la auditoría con el consentimiento revocado omite el documento, la regla, el motivo y los montos" |
+| Evidence | backend/tests/integration/test_underwriting_audit_api.py::test_con_el_consentimiento_revocado_un_rechazo_omite_la_regla_el_motivo_y_los_montos; web/src/app/features/auditoria/audit.component.spec.ts::"un rechazo anterior a la auditoría con el consentimiento revocado omite el documento, la regla, el motivo y los montos"; web/src/app/features/auditoria/audit.component.spec.ts::"un rechazo nuevo con el consentimiento revocado muestra su versión de reglas sin documento, regla, motivo ni montos" |
 | Status | PASS |
 
 ### TC-15 · Un consentimiento inexistente no autoriza cotizar
@@ -290,7 +290,7 @@
 | Level | INTEGRATION |
 | Preconditions | Buró reemplazado por un doble que cuenta las llamadas |
 | Procedure | 1. Cotizar como asesor con un `consent_id` que no existe. 2. Cotizar como socio con ese `consent_id` |
-| Expected result | 422 «El consentimiento no existe.» en los dos canales, cero llamadas al buró y ninguna cotización, rechazo ni registro de idempotencia guardados |
+| Expected result | 422 «El consentimiento no es válido para este cliente.» en los dos canales, cero llamadas al buró y ninguna cotización, rechazo ni registro de idempotencia guardados |
 | Tool or method | pytest con un doble del buró |
 | Automation | AUTOMATED |
 | Environment | LOCAL |

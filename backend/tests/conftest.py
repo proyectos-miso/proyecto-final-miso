@@ -165,6 +165,8 @@ class InMemorySessionTestDouble:
                     id_filter = v
             if id_filter:
                 found = self.consents_by_id.get(id_filter)
+                if found is not None and doc_filter and getattr(found, "document_number", None) != doc_filter:
+                    found = None
                 return Result([found] if found else [])
             if doc_filter:
                 items = [c for c in items if getattr(c, "document_number", None) == doc_filter]

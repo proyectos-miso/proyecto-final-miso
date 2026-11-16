@@ -445,7 +445,7 @@ async def test_el_asesor_con_el_consentimiento_de_otro_documento_recibe_422_sin_
     response = await async_client.post("/api/v1/experience/quotes", headers=advisor(), json=body)
 
     assert response.status_code == 422
-    assert response.json()["detail"] == rating_module.CONSENT_OF_ANOTHER_CLIENT == "El consentimiento no corresponde al cliente."
+    assert response.json()["detail"] == rating_module.CONSENT_NOT_VALID_FOR_CLIENT == "El consentimiento no es válido para este cliente."
     assert calls == []
     assert await seeded.scalar(select(func.count()).select_from(QuoteDB)) == 0
     assert await seeded.scalar(select(func.count()).select_from(UnderwritingRejectionDB)) == 0
@@ -467,7 +467,7 @@ async def test_el_asesor_con_un_consentimiento_inexistente_recibe_422_sin_consul
     response = await async_client.post("/api/v1/experience/quotes", headers=advisor(), json=body)
 
     assert response.status_code == 422
-    assert response.json()["detail"] == rating_module.CONSENT_NOT_FOUND == "El consentimiento no existe."
+    assert response.json()["detail"] == rating_module.CONSENT_NOT_VALID_FOR_CLIENT
     assert calls == []
     assert await seeded.scalar(select(func.count()).select_from(QuoteDB)) == 0
     assert await seeded.scalar(select(func.count()).select_from(UnderwritingRejectionDB)) == 0

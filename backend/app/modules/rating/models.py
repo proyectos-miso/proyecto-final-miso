@@ -38,7 +38,9 @@ class QuoteRequest(BaseModel):
     occupation_risk: int = Field(default=1, ge=1, le=5)
     financial_entity: Optional[str] = Field(None, json_schema_extra={"example": "BANCOLOMBIA"})
     term_months: Optional[int] = Field(None, ge=1, le=360, json_schema_extra={"example": 240})
-    consent_id: Optional[str] = Field(None, json_schema_extra={"example": "CNS-A1B2C3D4E5F6"})
+    consent_id: Optional[str] = Field(
+        None, description="Identificador de un consentimiento real y vigente del mismo cliente; si no, 422."
+    )
 
 
 class PremiumFactor(BaseModel):

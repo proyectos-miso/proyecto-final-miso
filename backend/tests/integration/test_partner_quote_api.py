@@ -532,7 +532,7 @@ async def test_partner_quote_con_consentimiento_de_otro_documento_responde_422_s
     )
 
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "El consentimiento no corresponde al cliente."
+    assert resp.json()["detail"] == "El consentimiento no es válido para este cliente."
     assert calls == []
     assert test_db_session.quotes == {}
     assert test_db_session.idempotency_records == {}
@@ -580,7 +580,7 @@ async def test_partner_quote_con_un_consentimiento_inexistente_responde_422_sin_
     )
 
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "El consentimiento no existe."
+    assert resp.json()["detail"] == "El consentimiento no es válido para este cliente."
     assert calls == []
     assert test_db_session.quotes == {}
     assert test_db_session.idempotency_records == {}

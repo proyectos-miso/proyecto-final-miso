@@ -184,6 +184,31 @@ describe('AuditComponent (FE-WEB-08)', () => {
     expect(button('Recalcular')).toBeUndefined();
   });
 
+  it('un rechazo nuevo con el consentimiento revocado muestra su versión de reglas sin documento, regla, motivo ni montos', () => {
+    submitSearch('UWR-ABCDEF012345');
+    http.expectOne((req) => req.url.endsWith('/decisions/UWR-ABCDEF012345')).flush({
+      decision_id: REJECTION.decision_id, kind: 'rejection', created_at: REJECTION.created_at, rules_version: '2026.11',
+      consent_revoked: true, replayable: false, inputs: { document_masked: null },
+      outcome: { status: 'review_required', degradation_reason: null, tiers: [] },
+    });
+    fixture.detectChanges();
+
+    expect(page().querySelectorAll('[data-testid="consent-revoked"]').length).toBe(1);
+    expect(page().querySelector('[data-testid="consent-revoked"]')?.textContent?.trim()).toBe(REVOKED_NOTICE);
+    for (const testid of ['input-document', 'input-requested', 'rejection-rule', 'rejection-reason', 'rejection-max']) {
+      expect(page().querySelector(`[data-testid="${testid}"]`)).toBeNull();
+    }
+    expect(page().textContent).not.toContain('Monto máximo aprobable');
+    expect(page().textContent).not.toContain('Monto solicitado');
+    expect(page().textContent).not.toContain('COP');
+    const version = page().querySelector('[data-testid="rules-version"]')?.textContent;
+    expect(version).toContain('2026.11');
+    expect(version).not.toContain('anterior a la auditoría');
+    expect(page().querySelector('[data-testid="decision-status"]')?.textContent).toContain('Requiere revisión');
+    expect(page().querySelector('[data-testid="rejection-not-replayable"]')).toBeTruthy();
+    expect(button('Recalcular')).toBeUndefined();
+  });
+
   it('informa el error del servidor al recalcular', () => {
     submitSearch('QUO-1A2B3C4D5E6F');
     http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(QUOTE);
