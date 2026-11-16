@@ -50,7 +50,7 @@ variable "db_password_secret_arn" {
 }
 
 variable "db_kms_key_arn" {
-  description = "ARN de la llave KMS utilizada para cifrar el secreto de RDS (RC-33)"
+  description = "ARN de la llave KMS que cifra el secreto de RDS y los secretos del backend en Secrets Manager (RC-33)"
   type        = string
 }
 
