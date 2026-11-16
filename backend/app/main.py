@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.metrics import LatencyMiddleware
 from app.core.middleware import TenantContextMiddleware
-from app.core.storage import ensure_emulator_bucket
+from app.core.storage import ensure_emulator_bucket, get_document_storage
 from app.bff.experience.router import router as experience_router
 from app.bff.experience.operations_router import router as operations_router
 from app.bff.quote_edge.router import router as quote_edge_router
@@ -35,6 +35,8 @@ from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
+from app.modules.identity.adapters import get_identity_verifier
+from app.modules.identity.service_registration import insured_registration_service
 from app.modules.policy.search import create_search_indexes
 
 
@@ -43,6 +45,12 @@ async def run_policy_lifecycle() -> None:
     async with AsyncSessionLocal() as session:
         await policy_operations.expire_due(session)
         await policy_operations.remind_renewals(session)
+
+
+async def run_identity_verifications() -> None:
+    """Pide la decisión de las verificaciones de identidad pendientes y borra sus imágenes (mejora FE-MOV-01)."""
+    async with AsyncSessionLocal() as session:
+        await insured_registration_service.decide_pending(session, get_document_storage(), get_identity_verifier())
 
 
 async def publish_outbox() -> None:
@@ -72,6 +80,10 @@ async def daily_policy_lifecycle() -> None:
             await run_policy_lifecycle()
         except Exception as exc:
             print(f"Aviso: no se pudo revisar el vencimiento de las pólizas: {exc}")
+        try:
+            await run_identity_verifications()
+        except Exception as exc:
+            print(f"Aviso: no se pudieron decidir las verificaciones de identidad: {type(exc).__name__}")
         await asyncio.sleep(24 * 3600)
 
 

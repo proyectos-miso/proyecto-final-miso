@@ -49,7 +49,7 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
@@ -73,7 +73,7 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
 
@@ -141,3 +141,32 @@ async def test_la_migracion_de_mensajes_procesados_crea_su_tabla_desde_0005_y_se
     assert (created, key) == ("processed_messages", 1)
     assert await scalar(empty_database, table) is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"
+
+
+async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_existentes_desde_0006(empty_database):
+    await upgrade(empty_database, "0006")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE identity_verifications"))
+        await conn.execute(text("ALTER TABLE insured_accounts DROP COLUMN document_type, "
+                                "DROP COLUMN verification_status, DROP COLUMN verified_at"))
+        await conn.execute(text(
+            "INSERT INTO insured_accounts (user_id, email, full_name, document_number, phone, password_hash, "
+            "token_version) VALUES ('ins-prueba', 'previa@example.com', 'Cuenta Previa', '52000999', "
+            "'+573000000000', 'hash', 0)"
+        ))
+    await engine.dispose()
+    columns = ("SELECT count(*) FROM information_schema.columns WHERE table_name = 'insured_accounts' "
+               "AND column_name IN ('document_type', 'verification_status', 'verified_at')")
+    table = "SELECT to_regclass('identity_verifications')::text"
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+    added, created = await scalar(empty_database, columns), await scalar(empty_database, table)
+    status = await scalar(empty_database, "SELECT verification_status || '/' || document_type FROM insured_accounts")
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0006")
+
+    assert (added, created, status) == (3, "identity_verifications", "APPROVED/CC")
+    assert await scalar(empty_database, columns) == 0
+    assert await scalar(empty_database, table) is None
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"

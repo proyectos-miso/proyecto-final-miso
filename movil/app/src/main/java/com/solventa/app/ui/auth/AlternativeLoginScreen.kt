@@ -46,6 +46,7 @@ fun AlternativeLoginScreen(
     onBack: () -> Unit,
     onForgotPassword: () -> Unit,
     modifier: Modifier = Modifier,
+    onCreateAccount: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     var email by rememberSaveable { mutableStateOf("") }
@@ -152,6 +153,7 @@ fun AlternativeLoginScreen(
         TextButton(onClick = onForgotPassword, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.auth_forgot_password))
         }
+        onCreateAccount?.let { CreateAccountButton(it) }
         SecondaryButton(stringResource(R.string.auth_back_to_biometrics), onBack)
     }
 }

@@ -29,14 +29,20 @@ interface EvidenceCamera {
     suspend fun capture(): ByteArray?
 }
 
+/** Cámara trasera para la evidencia y el documento; frontal para la selfie del registro (mejora FE-MOV-01). */
+enum class CameraLens { BACK, FRONT }
+
 /**
- * CameraX con la cámara trasera. `ImageCapture.takePicture` con callback entrega la imagen en memoria; se evita
+ * CameraX con la cámara elegida. `ImageCapture.takePicture` con callback entrega la imagen en memoria; se evita
  * `OutputFileOptions`, que escribiría un JPEG en claro al disco (CTL-05).
  */
 class CameraXEvidenceCamera(
     private val context: Context,
     private val encoder: EvidenceEncoder = EvidenceEncoder(),
+    lens: CameraLens = CameraLens.BACK,
 ) : EvidenceCamera {
+
+    internal val selector: CameraSelector = selectorFor(lens)
 
     private val imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
@@ -55,7 +61,7 @@ class CameraXEvidenceCamera(
                     provider = future.get().also { cameras ->
                         preview.setSurfaceProvider(previewView.surfaceProvider)
                         cameras.unbindAll()
-                        cameras.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                        cameras.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
                     }
                 } catch (e: Exception) {
                     onUnavailable()
@@ -89,4 +95,9 @@ class CameraXEvidenceCamera(
             },
         )
     }
+}
+
+internal fun selectorFor(lens: CameraLens): CameraSelector = when (lens) {
+    CameraLens.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
+    CameraLens.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
 }

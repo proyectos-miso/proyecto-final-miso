@@ -136,6 +136,13 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/siniestros/*"
       },
       {
+        # Imágenes de identidad del registro (mejora FE-MOV-01): solo mientras la verificación está pendiente; se borran al decidir.
+        Sid      = "ImagenesDeIdentidad"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+        Resource = "${var.s3_bucket_arn}/identidad/*"
+      },
+      {
         # Publicador del outbox (HU-MOV-10, RC-14): solo envía a la cola de eventos.
         Sid      = "PublicarEventos"
         Effect   = "Allow"

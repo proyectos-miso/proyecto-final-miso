@@ -43,6 +43,11 @@ PURPOSE_LOGIN = "login"
 PURPOSE_RESET = "password_reset"
 PURPOSE_CONSENT = "consent"
 PURPOSE_POLICY_SIGNATURE = "policy_signature"
+PURPOSE_REGISTRATION = "registration"
+
+VERIFICATION_APPROVED = "APPROVED"
+VERIFICATION_PENDING = "PENDING"
+VERIFICATION_REJECTED = "REJECTED"
 
 FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked")
 SUCCESS_CHANNELS = ("password", "biometric", "reset")
@@ -218,7 +223,8 @@ class InsuredAuthService:
         await self._reject_if_locked(session, email, None, ip, "password", now)
 
         account = await self._find(session, email, for_update=True)
-        if account is None:
+        # Una cuenta cuya identidad se rechazó después del registro responde como si no existiera (mejora FE-MOV-01).
+        if account is None or account.verification_status == VERIFICATION_REJECTED:
             await self._register_failure(session, email, None, ip, "password", "unknown_user", now)
             raise InvalidCredentialsError()
 
@@ -550,8 +556,9 @@ class InsuredAuthService:
         )
 
     @staticmethod
-    def _document_code_hash(document_number: str, purpose: str, code: str) -> str:
-        message = f"doc:{document_number}:{purpose}:{code}".encode()
+    def _document_code_hash(document_number: str, purpose: str, code: str, binding: str = "") -> str:
+        """`binding` ata el código a otros datos, como el teléfono del registro (mejora FE-MOV-01)."""
+        message = f"doc:{document_number}:{purpose}:{code}{':' + binding if binding else ''}".encode()
         return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
 
     async def request_document_otp(
@@ -561,6 +568,7 @@ class InsuredAuthService:
         purpose: str,
         phone: Optional[str] = None,
         document_type: str = "CC",
+        binding: str = "",
     ) -> str:
         """Genera un OTP de 6 dígitos asociado a un documento para consentimiento o firma de póliza (RC-02, RC-06)."""
         now = self._clock()
@@ -576,7 +584,7 @@ class InsuredAuthService:
                 document_type=document_type,
                 document_number=document_number,
                 purpose=purpose,
-                code_hash=self._document_code_hash(document_number, purpose, code),
+                code_hash=self._document_code_hash(document_number, purpose, code, binding),
                 expires_at=now + OTP_TTL,
                 attempts=0,
                 created_at=now,
@@ -595,6 +603,7 @@ class InsuredAuthService:
         code: str,
         document_type: str = "CC",
         commit: bool = True,
+        binding: str = "",
     ) -> bool:
         """Valida el código de un solo uso para un documento y, si es correcto, lo consume.
         Con commit=False el consumo queda en la transacción de quien llama (la emisión), y la fila
@@ -617,7 +626,7 @@ class InsuredAuthService:
             await session.commit()
             return False
 
-        expected_hash = self._document_code_hash(document_number, purpose, code)
+        expected_hash = self._document_code_hash(document_number, purpose, code, binding)
         if not hmac.compare_digest(otp.code_hash, expected_hash):
             otp.attempts += 1
             if otp.attempts >= policy.MAX_CODE_ATTEMPTS:

@@ -24,7 +24,9 @@ from app.modules.claims.intake import (
     claim_intake,
 )
 from app.modules.identity.db_models import InsuredAccountDB
-from app.modules.identity.service import InvalidTokenError, insured_auth_service
+from app.modules.identity.models import MessageResponse
+from app.modules.identity.service import VERIFICATION_APPROVED, InvalidTokenError, insured_auth_service
+from app.modules.identity.service_registration import insured_registration_service
 from app.modules.notifications.service import (
     PushPreferences, PushPreferencesRequest, PushTokenRequest, notification_service,
 )
@@ -41,7 +43,7 @@ POLICY_NUMBER = r"^POL-\d{4}-\d{5}$"
 NOT_FOUND = "No encontramos la póliza."
 
 
-async def insured_account(
+async def session_account(
     claims: Dict[str, Any] = Depends(require_insured), db: AsyncSession = Depends(get_db_session)
 ) -> InsuredAccountDB:
     """La cuenta del token; el documento nunca llega del cliente."""
@@ -53,6 +55,20 @@ async def insured_account(
             detail="Sesión revocada o vencida.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+IDENTITY_IN_REVIEW = HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Estamos verificando su identidad.")
+
+
+def require_verified(account: InsuredAccountDB) -> InsuredAccountDB:
+    """Con la identidad en verificación no se ven pólizas ni siniestros del documento (mejora FE-MOV-01)."""
+    if account.verification_status != VERIFICATION_APPROVED:
+        raise IDENTITY_IN_REVIEW
+    return account
+
+
+async def insured_account(account: InsuredAccountDB = Depends(session_account)) -> InsuredAccountDB:
+    return require_verified(account)
 
 
 async def own_policy(db: AsyncSession, policy_number: str, account: InsuredAccountDB) -> PolicyDB:
@@ -174,10 +190,12 @@ async def reporting_account(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permisos insuficientes para acceder a este recurso")
     try:
         if claims.get("type") == "access":
-            return await insured_auth_service.account_for_access(db, claims)
-        return await insured_auth_service.account_for_report(db, claims)
+            account = await insured_auth_service.account_for_access(db, claims)
+        else:
+            account = await insured_auth_service.account_for_report(db, claims)
     except InvalidTokenError:
         raise UNAUTHORIZED
+    return require_verified(account)
 
 
 async def read_photo(upload: Optional[UploadFile]) -> Optional[bytes]:
@@ -227,3 +245,21 @@ async def report_claim(
     if not created:
         response.status_code = status.HTTP_200_OK
     return result
+
+
+@router.post("/consents/biometric/revoke", response_model=MessageResponse)
+async def revoke_biometric_consent(
+    account: InsuredAccountDB = Depends(session_account),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+):
+    """Revoca la autorización de la selfie y el documento y borra las imágenes en verificación (mejora FE-MOV-01)."""
+    try:
+        await insured_registration_service.revoke_biometric_consent(db, storage, account)
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No pudimos completar la revocación. Intente en unos minutos.",
+            headers={"Retry-After": "30"},
+        )
+    return MessageResponse(message="Revocamos su autorización y borramos las imágenes de su verificación.")

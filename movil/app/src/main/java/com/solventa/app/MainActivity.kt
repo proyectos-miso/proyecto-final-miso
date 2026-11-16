@@ -51,6 +51,9 @@ import com.solventa.app.ui.auth.BiometricEnrollmentDialog
 import com.solventa.app.ui.auth.BiometricLoginScreen
 import com.solventa.app.ui.auth.LogoutConfirmationDialog
 import com.solventa.app.ui.auth.PasswordRecoveryScreen
+import com.solventa.app.ui.auth.RegistrationFlow
+import com.solventa.app.ui.auth.RegistrationViewModel
+import com.solventa.app.ui.claims.CameraLens
 import com.solventa.app.ui.claims.CameraXEvidenceCamera
 import com.solventa.app.ui.claims.ClaimFlow
 import com.solventa.app.ui.claims.ClaimReportViewModel
@@ -75,6 +78,12 @@ class MainActivity : FragmentActivity() {
                     app.notificationPreferences,
                 )
             }
+        }
+    }
+
+    private val registrationViewModel: RegistrationViewModel by viewModels {
+        viewModelFactory {
+            initializer { RegistrationViewModel((application as SolventaApplication).authApi) }
         }
     }
 
@@ -144,6 +153,7 @@ class MainActivity : FragmentActivity() {
         val biometricAuthenticator = AndroidBiometricAuthenticator(this)
         val themeStore = (application as SolventaApplication).themeStore
         val camera = CameraXEvidenceCamera(applicationContext)
+        val selfieCamera = CameraXEvidenceCamera(applicationContext, lens = CameraLens.FRONT)
         setContent {
             val systemDark = isSystemInDarkTheme()
             var darkTheme by rememberSaveable { mutableStateOf(themeStore.darkTheme() ?: systemDark) }
@@ -154,7 +164,8 @@ class MainActivity : FragmentActivity() {
             var selectedClaim by rememberSaveable { mutableStateOf<String?>(null) }
             // Preferencias de avisos abiertas (FE-MOV-04).
             var noticesOpen by rememberSaveable { mutableStateOf(false) }
-            val authenticated = authViewModel.uiState.collectAsState().value.isAuthenticated
+            val authState = authViewModel.uiState.collectAsState().value
+            val authenticated = authState.isAuthenticated
             LaunchedEffect(authenticated) {
                 if (authenticated) {
                     requestNotificationPermission()
@@ -174,7 +185,7 @@ class MainActivity : FragmentActivity() {
                     contentWindowInsets = WindowInsets.safeDrawing,
                     topBar = {
                         // El reporte de siniestro tiene su propia barra con «atrás» y el paso.
-                        if (!claimOpen && !claimsOpen && !noticesOpen) {
+                        if (!claimOpen && !claimsOpen && !noticesOpen && !(authState.showRegistration && !authenticated)) {
                             BrandTopBar(darkTheme = darkTheme, onToggleTheme = {
                                 darkTheme = !darkTheme
                                 themeStore.saveDarkTheme(darkTheme)
@@ -204,6 +215,8 @@ class MainActivity : FragmentActivity() {
                         preferencesViewModel = preferencesViewModel,
                         noticesOpen = noticesOpen,
                         onNoticesOpenChange = { noticesOpen = it },
+                        registrationViewModel = registrationViewModel,
+                        selfieCamera = selfieCamera,
                     )
                 }
             }
@@ -234,9 +247,19 @@ fun SolventaMobileRoot(
     preferencesViewModel: NotificationPreferencesViewModel? = null,
     noticesOpen: Boolean = false,
     onNoticesOpenChange: (Boolean) -> Unit = {},
+    registrationViewModel: RegistrationViewModel? = null,
+    selfieCamera: EvidenceCamera? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val openRegistration: (() -> Unit)? = if (registrationViewModel != null && camera != null && selfieCamera != null) {
+        {
+            registrationViewModel.open()
+            viewModel.openRegistration()
+        }
+    } else {
+        null
+    }
 
     // Sin sesión no hay reporte, siniestros ni preferencias abiertos (HU-MOV-08, HU-MOV-11, FE-MOV-04).
     LaunchedEffect(uiState.isAuthenticated) {
@@ -395,6 +418,20 @@ fun SolventaMobileRoot(
                 )
             }
         }
+        uiState.showRegistration && registrationViewModel != null && camera != null && selfieCamera != null -> {
+            // Datos personales, código y fotos de identidad: sin capturas ni vista en recientes (mejora FE-MOV-01).
+            SecureWindow(secureScreens)
+            RegistrationFlow(
+                viewModel = registrationViewModel,
+                documentCamera = camera,
+                selfieCamera = selfieCamera,
+                onClose = viewModel::closeRegistration,
+                onFinished = { session ->
+                    viewModel.completeRegistration(session.email, session.tokens, session.fullName, biometricAuthenticator)
+                },
+                modifier = modifier,
+            )
+        }
         uiState.showPasswordRecovery -> PasswordRecoveryScreen(
             uiState = uiState,
             onRequestCode = viewModel::requestRecoveryCode,
@@ -411,6 +448,7 @@ fun SolventaMobileRoot(
             onBack = viewModel::onBackToBiometrics,
             onForgotPassword = viewModel::openPasswordRecovery,
             modifier = modifier,
+            onCreateAccount = openRegistration,
         )
         else -> BiometricLoginScreen(
             uiState = uiState,
@@ -418,6 +456,7 @@ fun SolventaMobileRoot(
             onUseAlternative = viewModel::onAlternativeAccessSelected,
             onSelectAccount = viewModel::selectAccount,
             modifier = modifier,
+            onCreateAccount = openRegistration,
         )
     }
 }

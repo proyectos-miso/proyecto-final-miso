@@ -25,6 +25,8 @@ class DocumentStorage(Protocol):
 
     async def view_url(self, key: str, content_type: str, expires_in: int) -> str: ...
 
+    async def delete(self, key: str) -> None: ...
+
 
 class S3DocumentStorage:
     """El bucket cifra con su llave KMS por defecto; el rol del backend escribe en caratulas/ y lee siniestros/ (Terraform)."""
@@ -118,6 +120,13 @@ class S3DocumentStorage:
             )
         except (BotoCoreError, ClientError) as exc:
             raise StorageUnavailableError("No se pudo guardar el documento.") from exc
+
+    async def delete(self, key: str) -> None:
+        """Borra la clave; borrar una que no existe no falla. Lo usa el registro para las imágenes (mejora FE-MOV-01)."""
+        try:
+            await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket, Key=key)
+        except (BotoCoreError, ClientError) as exc:
+            raise StorageUnavailableError("No se pudo borrar el documento.") from exc
 
 
 @lru_cache

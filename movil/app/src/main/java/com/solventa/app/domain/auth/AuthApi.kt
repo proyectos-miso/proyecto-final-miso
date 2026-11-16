@@ -20,6 +20,13 @@ interface AuthApi {
 
     suspend fun forgotPassword(email: String): OtpResult
     suspend fun resetPassword(email: String, code: String, newPassword: String): ResetResult
+
+    /** Código por SMS al celular del registro (mejora FE-MOV-01). */
+    suspend fun requestRegistrationOtp(documentType: DocumentType, documentNumber: String, phone: String): OtpResult =
+        OtpResult.Failed
+
+    suspend fun register(form: RegistrationForm, photos: IdentityPhotos): RegistrationResult =
+        RegistrationResult.NetworkError
 }
 
 sealed interface OtpResult {

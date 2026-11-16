@@ -51,6 +51,7 @@ fun BiometricLoginScreen(
     onUseAlternative: () -> Unit,
     modifier: Modifier = Modifier,
     onSelectAccount: (String) -> Unit = {},
+    onCreateAccount: (() -> Unit)? = null,
 ) {
     val biometricBlocked = uiState.status in BLOCKING_STATUSES
 
@@ -114,6 +115,7 @@ fun BiometricLoginScreen(
         } else {
             SecondaryButton(stringResource(R.string.auth_use_alternative), onUseAlternative)
         }
+        onCreateAccount?.let { CreateAccountButton(it) }
         Spacer(Modifier.height(20.dp))
         SecureNote(stringResource(R.string.auth_device_protected))
     }

@@ -69,3 +69,14 @@ def client_ip(headers: Mapping[str, str], fallback: Optional[str]) -> Optional[s
     if forwarded:
         return forwarded.split(",")[0].strip()
     return fallback
+
+
+REGISTRATION_MAX_PER_HOUR = 5
+
+
+def registration_retry_after(previous_attempts: Iterable[datetime], now: datetime) -> Optional[int]:
+    """Intentos de registro por documento en la última hora (mejora FE-MOV-01)."""
+    recent = sorted(t for t in previous_attempts if now - t < timedelta(hours=1))
+    if len(recent) < REGISTRATION_MAX_PER_HOUR:
+        return None
+    return seconds_until(recent[-REGISTRATION_MAX_PER_HOUR] + timedelta(hours=1), now)

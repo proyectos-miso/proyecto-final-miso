@@ -2,18 +2,24 @@ package com.solventa.app.data.auth
 
 import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.auth.DeviceCredential
+import com.solventa.app.domain.auth.DocumentType
+import com.solventa.app.domain.auth.IdentityPhotos
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.RefreshResult
+import com.solventa.app.domain.auth.RegistrationForm
+import com.solventa.app.domain.auth.RegistrationResult
 import com.solventa.app.domain.auth.ResetResult
 import com.solventa.app.domain.auth.SessionTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 class HttpAuthApi(private val baseUrl: String) : AuthApi {
 
@@ -122,9 +128,100 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
             }
         }
 
-    private suspend fun sendCode(path: String, email: String): OtpResult = withContext(Dispatchers.IO) {
+    override suspend fun requestRegistrationOtp(documentType: DocumentType, documentNumber: String, phone: String): OtpResult =
+        sendCode(
+            "auth/register/otp",
+            JSONObject().put("document_type", documentType.name).put("document_number", documentNumber).put("phone", phone),
+        )
+
+    /** Un multipart con los datos y las dos fotos, armado en memoria: las fotos nunca pasan por un archivo. */
+    override suspend fun register(form: RegistrationForm, photos: IdentityPhotos): RegistrationResult =
+        withContext(Dispatchers.IO) {
+            val boundary = "solventa-" + UUID.randomUUID()
+            val body = registrationBody(boundary, form, photos)
+            val connection = URL(baseUrl + "auth/register").openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "POST"
+                connection.connectTimeout = TIMEOUT_MS
+                connection.readTimeout = UPLOAD_TIMEOUT_MS
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                connection.setFixedLengthStreamingMode(body.size)
+                connection.outputStream.use { it.write(body) }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                when (code) {
+                    HttpURLConnection.HTTP_CREATED, HttpURLConnection.HTTP_ACCEPTED -> {
+                        val json = JSONObject(text)
+                        RegistrationResult.Registered(
+                            tokens = SessionTokens(json.getString("access_token"), json.getString("refresh_token"), reportToken(json)),
+                            fullName = json.getString("full_name"),
+                            pending = code == HttpURLConnection.HTTP_ACCEPTED || json.optString("verification_status") == "PENDING",
+                        )
+                    }
+                    HttpURLConnection.HTTP_CONFLICT -> RegistrationResult.Duplicate
+                    HTTP_UNPROCESSABLE_ENTITY, HTTP_PAYLOAD_TOO_LARGE -> when (errorCode(text)) {
+                        "IDENTITY_REJECTED" -> RegistrationResult.Rejected
+                        "INVALID_CODE" -> RegistrationResult.InvalidCode
+                        "WEAK_PASSWORD" -> RegistrationResult.WeakPassword
+                        else -> RegistrationResult.InvalidData
+                    }
+                    HTTP_TOO_MANY_REQUESTS -> RegistrationResult.TooManyRequests(
+                        connection.getHeaderField("Retry-After")?.toIntOrNull() ?: DEFAULT_RETRY_AFTER
+                    )
+                    else -> RegistrationResult.NetworkError
+                }
+            } catch (e: IOException) {
+                RegistrationResult.NetworkError
+            } catch (e: JSONException) {
+                RegistrationResult.NetworkError
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+    private fun errorCode(text: String): String? = try {
+        JSONObject(text).optString("code").takeIf { it.isNotBlank() }
+    } catch (e: JSONException) {
+        null
+    }
+
+    private fun registrationBody(boundary: String, form: RegistrationForm, photos: IdentityPhotos): ByteArray {
+        val data = JSONObject()
+            .put("email", form.email.trim())
+            .put("full_name", form.fullName.trim())
+            .put("document_type", form.documentType.name)
+            .put("document_number", form.documentNumber)
+            .put("phone", form.phone)
+            .put("password", form.password)
+            .put("otp_code", form.otpCode)
+            .put("terms_accepted", true)
+            .put("biometric_consent_accepted", true)
+        val out = ByteArrayOutputStream()
+        fun line(text: String = "") = out.write((text + "\r\n").toByteArray(Charsets.UTF_8))
+        line("--$boundary")
+        line("Content-Disposition: form-data; name=\"data\"")
+        line("Content-Type: application/json; charset=utf-8")
+        line()
+        line(data.toString())
+        listOf("document_front" to photos.documentFront, "selfie" to photos.selfie).forEach { (name, jpeg) ->
+            line("--$boundary")
+            line("Content-Disposition: form-data; name=\"$name\"; filename=\"$name.jpg\"")
+            line("Content-Type: image/jpeg")
+            line()
+            out.write(jpeg)
+            line()
+        }
+        line("--$boundary--")
+        return out.toByteArray()
+    }
+
+    private suspend fun sendCode(path: String, email: String): OtpResult = sendCode(path, JSONObject().put("email", email))
+
+    private suspend fun sendCode(path: String, body: JSONObject): OtpResult = withContext(Dispatchers.IO) {
         try {
-            val response = request("POST", path, JSONObject().put("email", email))
+            val response = request("POST", path, body)
             when (response.code) {
                 HttpURLConnection.HTTP_OK -> {
                     val json = JSONObject(response.body)
@@ -195,6 +292,9 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
     private companion object {
         const val TIMEOUT_MS = 10_000
         const val DEFAULT_RETRY_AFTER = 60
+        // Dos fotos de hasta 2 MB y la verificación de identidad en el servidor.
+        const val UPLOAD_TIMEOUT_MS = 30_000
+        const val HTTP_PAYLOAD_TOO_LARGE = 413
         const val HTTP_UNPROCESSABLE_ENTITY = 422
         const val HTTP_LOCKED = 423
         const val HTTP_TOO_MANY_REQUESTS = 429

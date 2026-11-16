@@ -12,6 +12,7 @@ import com.solventa.app.domain.auth.BiometricResult
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
+import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.auth.DeviceCredential
 import com.solventa.app.domain.claims.ClaimReportStore
 import com.solventa.app.domain.policies.NotificationPreferences
@@ -94,6 +95,7 @@ data class AuthUiState(
     val alternativeLogin: AlternativeLoginState = AlternativeLoginState(),
     val showPasswordRecovery: Boolean = false,
     val recovery: PasswordRecoveryState = PasswordRecoveryState(),
+    val showRegistration: Boolean = false,
     val offerBiometricEnrollment: Boolean = false,
     val biometricAccounts: List<BoundAccount> = emptyList(),
     val selectedAccountEmail: String? = null,
@@ -487,6 +489,41 @@ class AuthViewModel(
         val ended = sessionId?.let(sessionRepository::endSession) ?: return
         policySync.cancel()
         ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken, keepReporting = true) } }
+    }
+
+    // Registro con documento y selfie (mejora FE-MOV-01).
+    fun openRegistration() {
+        resetOtpCooldown()
+        _uiState.update { it.copy(showRegistration = true, status = AuthStatus.IDLE) }
+    }
+
+    fun closeRegistration() {
+        _uiState.update { it.copy(showRegistration = false) }
+    }
+
+    // La cuenta nueva, aprobada o en verificación, abre su sesión como el ingreso con contraseña y se ofrece la huella.
+    fun completeRegistration(email: String, tokens: SessionTokens, fullName: String, authenticator: BiometricAuthenticator) {
+        val accountEmail = normalizeEmail(email)
+        val canEnrollBiometrics = !sessionRepository.isBound(accountEmail) &&
+            authenticator.checkAvailability() == BiometricAvailability.AVAILABLE
+        sessionId = sessionRepository.start(accountEmail, tokens).id
+        otpCooldownJob?.cancel()
+        _uiState.update { state ->
+            withAccounts(
+                state.copy(
+                    showRegistration = false,
+                    showAlternativeAccess = false,
+                    otpCooldownSeconds = 0,
+                    otpCooldownEmail = null,
+                    fullName = fullName,
+                    currentAccountEmail = accountEmail,
+                    selectedAccountEmail = accountEmail,
+                    offerBiometricEnrollment = canEnrollBiometrics,
+                    isAuthenticated = !canEnrollBiometrics,
+                    status = if (canEnrollBiometrics) state.status else AuthStatus.AUTHENTICATED,
+                )
+            )
+        }
     }
 
     fun openPasswordRecovery() {
