@@ -20,8 +20,8 @@
   delivery failure from a disabled category.
 - Terraform already gave the queue a dead-letter queue after three receives and encrypts both with the
   storage KMS key (`terraform/modules/storage_events`). The task role could only send.
-- `firebase-admin`'s `send_each_for_multicast` does not raise per-token failures (unavailable, internal,
-  quota, timeouts): they come back inside the `BatchResponse`.
+- `firebase-admin`'s `send_each` does not raise per-token failures (unavailable, internal, quota,
+  timeouts, credentials): they come back inside the `BatchResponse`.
 
 ## Options considered
 

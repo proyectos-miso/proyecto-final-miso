@@ -95,4 +95,9 @@ run "la_cola_de_eventos_tolera_reintentos_crecientes" {
     condition     = jsondecode(aws_sqs_queue.events.redrive_policy).maxReceiveCount == 8
     error_message = "Con la espera creciente del consumidor, ocho recepciones cubren cerca de una hora de caída."
   }
+
+  assert {
+    condition     = jsondecode(aws_sqs_queue.events.redrive_policy).deadLetterTargetArn == "arn:aws:sqs:us-east-1:000000000000:solventa-events-dlq-test"
+    error_message = "Tras las ocho recepciones, el mensaje debe ir a la DLQ de la cola de eventos."
+  }
 }

@@ -95,14 +95,14 @@ contenido de los push.
 | AC-10 | THE rol de la tarea SHALL poder recibir, borrar y aplazar solo en la cola `events`, además de publicar, y nada más de SQS | STATED |
 | AC-11 | IF al consumir `ClaimFiled` el siniestro ya no está en REPORTED o el evento tiene más de 24 h, THE consumidor SHALL borrarlo sin push | DERIVED: una cola acumulada no debe avisar «Recibimos» de algo que ya cambió |
 | AC-12 | IF al consumir `RenewalDue` la póliza no está activa o su versión no es la del evento, THE consumidor SHALL borrarlo sin push | DERIVED: un endoso o una renovación posteriores dejan el aviso sin objeto |
-| AC-13 | IF Firebase responde sin ningún token entregado y con al menos un error pasajero (no disponible, interno, cuota, desconocido, tiempo agotado o red), THE consumidor SHALL tratarlo como falla y reintentarlo; IF los errores son `UNREGISTERED` o `INVALID_ARGUMENT`, o hubo un éxito parcial, SHALL no reintentar y SHALL borrar de `push_tokens` los no registrados | DERIVED: firebase-admin devuelve los fallos por token dentro de la respuesta y no los lanza |
+| AC-13 | IF Firebase responde sin ningún token entregado, THE consumidor SHALL registrar las clases de error sin tokens ni datos personales; IF además hubo al menos un error pasajero (no disponible, interno, 429 `RESOURCE_EXHAUSTED`, desconocido, tiempo agotado o red) o todos los tokens fallaron por la configuración del servidor (`UNAUTHENTICATED`, `PERMISSION_DENIED`, `THIRD_PARTY_AUTH_ERROR`, `SENDER_ID_MISMATCH`), SHALL tratarlo como falla y reintentarlo hasta la DLQ sin borrar tokens; IF los errores son de token (`UNREGISTERED`, `INVALID_ARGUMENT`, o `SENDER_ID_MISMATCH` sin afectar a todos), o hubo un éxito parcial, SHALL no reintentar y SHALL borrar esos tokens de `push_tokens` en la misma transacción que marca el mensaje, sin que una falla del borrado impida confirmarlo | DERIVED: firebase-admin devuelve los fallos por token dentro de la respuesta y no los lanza |
 | AC-14 | IF procesar, confirmar o borrar un mensaje falla por la base o por SQS, THE consumidor SHALL seguir con el resto del lote y SHALL aplazar el que falló | DERIVED: un mensaje no debe frenar a los demás |
 
 ### Quality requirements
 
 | ID | Category | Requirement | Target and conditions |
 |---|---|---|---|
-| QR-01 | AVAILABILITY | Una caída de Firebase no pierde avisos | Esperas de 30, 60, 120, 240, 480, 900, 900 y 900 s entre las ocho recepciones: el mensaje se entrega si Firebase vuelve antes de unos 60 min (3630 s) desde el primer intento; después queda en la DLQ 14 días. Un tipo sin manejador llega a la DLQ en unas 2 h (8 × 900 s). Si el consumidor cae sin aplazar, el mensaje vuelve a los 120 s de visibilidad de la cola |
+| QR-01 | AVAILABILITY | Una caída de Firebase no pierde avisos | Esperas de 30, 60, 120, 240, 480, 900, 900 y 900 s entre las ocho recepciones: el mensaje se entrega si Firebase vuelve antes de unos 60 min (3630 s) desde el primer intento; después queda en la DLQ 14 días. Un tipo sin manejador llega a la DLQ en unas 2 h (8 × 900 s). Si el consumidor cae sin aplazar, el mensaje vuelve a los 120 s de visibilidad de la cola. Firebase se inicia con `httpTimeout` de 10 s, así que cada intento HTTP termina en 10 s y los tokens de un mensaje se envían en paralelo: un lote de 10 mensajes × 10 s = 100 s cabe en los 120 s de visibilidad. Si un reintento interno del SDK (una relectura o un 500/503) alarga un lote más allá, el mensaje vuelve a otra recepción, pero `processed_messages` bloquea la copia hasta el commit y no sale un push duplicado |
 | QR-02 | MAINTAINABILITY | `core` no importa módulos | `app/core/outbox.py` no importa de `app.modules`; los manejadores se registran en `app/main.py` |
 
 ### Security triggers
@@ -146,8 +146,11 @@ contenido de los push.
   lista los tipos que se borran sin manejador; cualquier otro se aplaza al máximo hasta la DLQ.
 - **`app/modules/notifications/service.py`:** `notify(..., strict=False)`; con `strict=True` un fallo de Firebase
   o de la lectura sale como `PushDeliveryError`. `FirebaseSender.send` revisa el `BatchResponse`: sin ningún
-  éxito y con un error pasajero lanza `PushDeliveryError`; devuelve los tokens `UNREGISTERED` y `notify` los
-  borra de `push_tokens`. `on_claim_filed` (solo con el siniestro en REPORTED y el evento de menos de 24 h),
+  éxito registra las clases de error y, con un error pasajero (incluido el 429 `ResourceExhaustedError`) o con un
+  error de configuración en todos los tokens, lanza `PushDeliveryError`; devuelve los tokens `UNREGISTERED`,
+  `INVALID_ARGUMENT` y `SENDER_ID_MISMATCH` y `notify` los borra de `push_tokens` en un savepoint. Envía un
+  `Message` por token con `send_each` (sin `MulticastMessage.tokens`) y Firebase se inicia con `httpTimeout` de
+  10 s. `on_claim_filed` (solo con el siniestro en REPORTED y el evento de menos de 24 h),
   `on_claim_status_changed` y `on_renewal_due` (solo con la póliza activa y la misma versión) buscan el titular con
   `policy_service.find` y llaman `notify` estricto; `event_handlers()` los entrega al composition root.
 - **`app/modules/claims/service.py`:** `ClaimService.event` agrega `ClaimStatusChanged` para ASSIGNED, REJECTED,
@@ -241,3 +244,4 @@ cuando haya novedades.» con `type: CLAIM_STATUS`, categoría claims; los demás
 | T-06 | Pruebas de integración y ajuste de las existentes | AC-01 a AC-10 | CTL-01 a CTL-06 | DONE | backend/tests/integration/test_outbox_consumer.py |
 | T-07 | Prueba manual: push real en el teléfono a través del consumidor | AC-03, QR-01 | — | TODO | — |
 | T-08 | Correcciones de la revisión independiente: respuesta de Firebase, tolerancia por mensaje, espera creciente, cola de 8 recepciones, tipos ignorados, frescura de `ClaimFiled`, versión de `RenewalDue`, IAM sin `GetQueueAttributes` y apagado ordenado | AC-05, AC-06, AC-08, AC-10, AC-11, AC-12, AC-13, AC-14, QR-01 | CTL-03, CTL-05, CTL-06 | DONE | backend/app/core/outbox.py; backend/app/modules/notifications/service.py; terraform/modules/storage_events/main.tf |
+| T-09 | Menores de la segunda revisión: errores de configuración y 429 reintentables con registro de las clases de error, `httpTimeout` de 10 s, borrado de tokens mal formados o de otro proyecto, `send_each` por token y DLQ en la prueba de Terraform | AC-13, QR-01 | CTL-06 | DONE | backend/app/modules/notifications/service.py; backend/tests/unit/test_notifications.py; backend/tests/integration/test_outbox_consumer.py; terraform/tests/consumidor_del_outbox.tftest.hcl |

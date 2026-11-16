@@ -41,7 +41,7 @@
 |---|---|---|---|---|
 | EV-01 | Pruebas de integración del consumidor con PostgreSQL y el emulador SQS, y unitarias de la respuesta de Firebase y la espera creciente | SR-01, SR-02, SR-03, SR-06, CTL-01, CTL-02, CTL-03, CTL-06, TC-02, TC-03, TC-04, TC-05, TC-07, TC-13, TC-14, TC-15, TC-16 | backend/tests/integration/test_outbox_consumer.py; backend/tests/unit/test_notifications.py | AVAILABLE |
 | EV-02 | Eventos sin datos personales y migración `0006` | SR-04, CTL-04, TC-01, TC-08 | backend/tests/integration/test_outbox_consumer.py; backend/tests/integration/test_migrations.py | AVAILABLE |
-| EV-03 | Prueba de Terraform de los permisos de SQS y de la visibilidad y las recepciones de la cola | SR-05, CTL-05, TC-09 | terraform/tests/consumidor_del_outbox.tftest.hcl | AVAILABLE |
+| EV-03 | Prueba de Terraform de los permisos de SQS y de la visibilidad, las recepciones y la DLQ de la cola | SR-05, CTL-05, TC-09 | terraform/tests/consumidor_del_outbox.tftest.hcl | AVAILABLE |
 | EV-04 | Push real en el teléfono a través del consumidor | TC-11 | DEV | PENDING |
 
 ## Closeout

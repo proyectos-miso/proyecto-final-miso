@@ -85,7 +85,7 @@
 | CTL-03 | Mal formados, ajenos al outbox y de la lista de ignorados se borran; un tipo sin manejador se aplaza 15 min hasta la DLQ; una falla de la base, del commit o del borrado con un mensaje no detiene el lote; los registros solo llevan el tipo de evento validado y la clase del error | BACKEND | EXISTING | THR-03, THR-04 | TC-05, TC-07, TC-14 | T-02, T-08 | CWE-20, CWE-532 | — |
 | CTL-04 | Eventos con solo identificadores; `processed_messages` sin datos personales | DATA | EXISTING | THR-04, DATA-01 | TC-01, TC-08 | T-01, T-02 | ASVS V8 | — |
 | CTL-05 | Rol de la tarea con `ReceiveMessage`, `DeleteMessage` y `ChangeMessageVisibility` solo sobre el ARN de `events` (sin `GetQueueAttributes`: el número de recepciones llega con el mensaje) | INFRA | EXISTING | THR-01, THR-05 | TC-09 | T-04, T-08 | CWE-250 | — |
-| CTL-06 | `notify(strict=True)` en el consumidor y `FirebaseSender.send` que revisa el `BatchResponse`: sin ningún token entregado y con un error pasajero lanza `PushDeliveryError`; el mensaje no se borra y se aplaza 30 s × 2^(n-1), hasta 15 min; tras ocho recepciones va a la DLQ | BACKEND | EXISTING | THR-06 | TC-04, TC-10, TC-14 | T-02, T-03, T-08 | — | — |
+| CTL-06 | `notify(strict=True)` en el consumidor y `FirebaseSender.send` que revisa el `BatchResponse`: sin ningún token entregado registra las clases de error y, con un error pasajero (incluido el 429) o de configuración en todos los tokens, lanza `PushDeliveryError`; borra los tokens no registrados, mal formados o de otro proyecto; `httpTimeout` de 10 s; el mensaje no se borra y se aplaza 30 s × 2^(n-1), hasta 15 min; tras ocho recepciones va a la DLQ | BACKEND | EXISTING | THR-06 | TC-04, TC-10, TC-14 | T-02, T-03, T-08, T-09 | — | — |
 
 ## 10. Cryptography
 

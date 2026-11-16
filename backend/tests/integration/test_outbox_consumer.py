@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -15,7 +15,9 @@ from app.core.outbox import (
     DONE, OutboxConsumer, OutboxMessageDB, OutboxPublisher, ProcessedMessageDB, SqsQueue, message_body,
 )
 from app.modules.claims.service import claim_service
-from app.modules.notifications.service import NotificationService, PushPreferences, notification_service
+from app.modules.notifications.service import (
+    NotificationService, PushPreferences, PushTokenDB, notification_service,
+)
 from app.modules.policy.models import PolicyDB
 from app.modules.policy.operations import policy_operations
 from tests.integration.claims_fixtures import FLOCI, report
@@ -376,3 +378,52 @@ async def test_un_borrado_que_falla_no_detiene_el_lote(postgres_session, session
     assert queue.deleted == ["r2"]
     assert queue.retried == []
     assert len(sender.sent) == 2
+
+
+class StaleTokenSender(FakeSender):
+    """Firebase entrega el aviso y responde que el token ya no sirve."""
+
+    def send(self, tokens, title, body, data):
+        super().send(tokens, title, body, data)
+        return list(tokens)
+
+
+async def test_el_token_rechazado_se_borra_en_la_misma_transaccion_que_marca_el_mensaje(
+    postgres_session, sessions, policy
+):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    filed = (await events(postgres_session, "ClaimFiled"))[0]
+    sender = StaleTokenSender()
+
+    outcome = await consumer_for(None, sender).process(sessions, message_body(filed))
+
+    async with sessions() as fresh:
+        assert await fresh.get(PushTokenDB, TOKEN) is None
+        assert await fresh.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 1
+    assert outcome == DONE
+    assert len(sender.sent) == 1
+
+
+async def test_si_el_borrado_del_token_falla_el_mensaje_igual_se_confirma(postgres_session, sessions, policy, caplog):
+    await report(postgres_session, "SIN-2026-00001", "POL-2026-00001")
+    filed = (await events(postgres_session, "ClaimFiled"))[0]
+    await postgres_session.execute(text(
+        "CREATE FUNCTION impedir_borrado() RETURNS trigger LANGUAGE plpgsql AS "
+        "$$ BEGIN RAISE EXCEPTION 'borrado bloqueado'; END $$"
+    ))
+    await postgres_session.execute(text(
+        "CREATE TRIGGER impedir_borrado BEFORE DELETE ON push_tokens FOR EACH ROW EXECUTE FUNCTION impedir_borrado()"
+    ))
+    await postgres_session.commit()
+    sender = StaleTokenSender()
+
+    with caplog.at_level("WARNING", logger="solventa.notifications"):
+        outcome = await consumer_for(None, sender).process(sessions, message_body(filed))
+
+    async with sessions() as fresh:
+        assert await fresh.get(PushTokenDB, TOKEN) is not None
+        assert await fresh.scalar(select(func.count()).select_from(ProcessedMessageDB)) == 1
+    assert outcome == DONE
+    assert len(sender.sent) == 1
+    assert "No se pudieron borrar los tokens que Firebase rechazó (DBAPIError)" in caplog.text
+    assert TOKEN not in caplog.text

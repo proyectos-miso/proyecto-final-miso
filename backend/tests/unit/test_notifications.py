@@ -70,34 +70,42 @@ def test_dos_hilos_a_la_vez_inician_firebase_una_sola_vez(monkeypatch):
     assert results[0] is not None and results[0] is results[1]
 
 
-def test_el_emisor_de_firebase_manda_el_texto_general_con_prioridad_alta(monkeypatch):
+def test_el_emisor_de_firebase_manda_el_texto_general_con_prioridad_alta_y_un_tiempo_corto(monkeypatch):
+    import warnings
+
     import firebase_admin
     from firebase_admin import credentials, messaging
 
     sent = []
     monkeypatch.setattr(credentials, "Certificate", lambda source: ("certificado", source))
-    monkeypatch.setattr(firebase_admin, "initialize_app", lambda cert, name: SimpleNamespace(cert=cert, name=name))
-    monkeypatch.setattr(messaging, "send_each_for_multicast",
-                        lambda message, app: sent.append((message, app)) or messaging.BatchResponse([]))
+    monkeypatch.setattr(firebase_admin, "initialize_app",
+                        lambda cert, options, name: SimpleNamespace(cert=cert, options=options, name=name))
+    monkeypatch.setattr(messaging, "send_each",
+                        lambda messages, app: sent.append((messages, app)) or messaging.BatchResponse([]))
 
     sender = service.FirebaseSender({"type": "service_account"})
-    sender.send(["token-a"], "Solventa", "Su siniestro fue aprobado.", {"type": "CLAIM_STATUS", "claim_number": "SIN-1"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        sender.send(["token-a", "token-b"], "Solventa", "Su siniestro fue aprobado.",
+                    {"type": "CLAIM_STATUS", "claim_number": "SIN-1"})
 
-    message, app = sent[0]
+    messages, app = sent[0]
     assert app.name == "solventa"
-    assert message.tokens == ["token-a"]
-    assert message.data == {"type": "CLAIM_STATUS", "claim_number": "SIN-1", "title": "Solventa", "body": "Su siniestro fue aprobado."}
-    assert message.android.priority == "high"
+    assert app.options == {"httpTimeout": 10}
+    assert [m.token for m in messages] == ["token-a", "token-b"]
+    assert all(m.data == {"type": "CLAIM_STATUS", "claim_number": "SIN-1", "title": "Solventa",
+                          "body": "Su siniestro fue aprobado."} for m in messages)
+    assert all(m.android.priority == "high" for m in messages)
 
 
 def firebase_sender_answering(monkeypatch, *exceptions):
-    """Emisor real con un send_each_for_multicast falso que responde un BatchResponse, un resultado por token."""
+    """Emisor real con un send_each falso que responde un BatchResponse, un resultado por token."""
     import firebase_admin
     from firebase_admin import credentials, messaging
 
     monkeypatch.setattr(credentials, "Certificate", lambda source: source)
-    monkeypatch.setattr(firebase_admin, "initialize_app", lambda cert, name: SimpleNamespace(name=name))
-    monkeypatch.setattr(messaging, "send_each_for_multicast", lambda message, app: messaging.BatchResponse([
+    monkeypatch.setattr(firebase_admin, "initialize_app", lambda cert, options, name: SimpleNamespace(name=name))
+    monkeypatch.setattr(messaging, "send_each", lambda messages, app: messaging.BatchResponse([
         messaging.SendResponse(None if exc else {"name": "projects/p/messages/1"}, exc) for exc in exceptions
     ]))
     sender = service.FirebaseSender({"type": "service_account"})
@@ -109,9 +117,20 @@ def test_si_todos_los_tokens_fallan_por_algo_pasajero_el_envio_lanza_para_reinte
     from firebase_admin import exceptions, messaging
 
     send = firebase_sender_answering(
-        monkeypatch, exceptions.UnavailableError("caído"), messaging.QuotaExceededError("cuota"),
-        exceptions.InternalError("interno"), messaging.UnregisteredError("no registrado"),
+        monkeypatch, exceptions.UnavailableError("caído"), exceptions.InternalError("interno"),
+        messaging.UnregisteredError("no registrado"),
     )
+
+    with pytest.raises(service.PushDeliveryError):
+        send()
+
+
+@pytest.mark.parametrize("error", ["QuotaExceededError", "ResourceExhaustedError"])
+def test_un_429_de_firebase_es_pasajero_y_se_reintenta(monkeypatch, error):
+    from firebase_admin import exceptions, messaging
+
+    exception_class = getattr(messaging, error, None) or getattr(exceptions, error)
+    send = firebase_sender_answering(monkeypatch, exception_class("demasiadas solicitudes"))
 
     with pytest.raises(service.PushDeliveryError):
         send()
@@ -124,14 +143,59 @@ def test_una_excepcion_de_red_sin_ningun_exito_tambien_se_reintenta(monkeypatch)
         send()
 
 
-def test_los_tokens_no_registrados_o_invalidos_no_se_reintentan_y_se_devuelven_los_no_registrados(monkeypatch):
+@pytest.mark.parametrize("errors", [
+    ("UnauthenticatedError", "UnauthenticatedError"),
+    ("PermissionDeniedError",),
+    ("ThirdPartyAuthError", "ThirdPartyAuthError"),
+    ("SenderIdMismatchError", "SenderIdMismatchError"),
+    ("UnauthenticatedError", "SenderIdMismatchError"),
+])
+def test_una_configuracion_rota_que_afecta_a_todos_los_tokens_se_reintenta_y_no_borra_tokens(monkeypatch, errors):
+    from firebase_admin import exceptions, messaging
+
+    send = firebase_sender_answering(
+        monkeypatch, *[(getattr(messaging, e, None) or getattr(exceptions, e))("configuración") for e in errors]
+    )
+
+    with pytest.raises(service.PushDeliveryError):
+        send()
+
+
+def test_si_ningun_token_recibe_el_aviso_se_registra_la_clase_del_error_sin_tokens(monkeypatch, caplog):
     from firebase_admin import exceptions, messaging
 
     send = firebase_sender_answering(
         monkeypatch, messaging.UnregisteredError("no registrado"), exceptions.InvalidArgumentError("inválido"),
     )
 
-    assert send() == ["token-0"]
+    with caplog.at_level("WARNING", logger="solventa.notifications"):
+        send()
+
+    assert [r.getMessage() for r in caplog.records] == [
+        "Ningún teléfono recibió el push (InvalidArgumentError, UnregisteredError)"]
+    assert "token-" not in caplog.text
+
+
+def test_un_envio_con_algun_exito_no_registra_advertencia(monkeypatch, caplog):
+    from firebase_admin import messaging
+
+    send = firebase_sender_answering(monkeypatch, None, messaging.UnregisteredError("no registrado"))
+
+    with caplog.at_level("WARNING", logger="solventa.notifications"):
+        send()
+
+    assert caplog.records == []
+
+
+def test_los_tokens_no_registrados_mal_formados_o_de_otro_proyecto_no_se_reintentan_y_se_devuelven(monkeypatch):
+    from firebase_admin import exceptions, messaging
+
+    send = firebase_sender_answering(
+        monkeypatch, messaging.UnregisteredError("no registrado"), exceptions.InvalidArgumentError("inválido"),
+        messaging.SenderIdMismatchError("otro proyecto"), None, exceptions.NotFoundError("otro"),
+    )
+
+    assert send() == ["token-0", "token-1", "token-2"]
 
 
 def test_un_exito_parcial_no_se_reintenta_para_no_duplicar(monkeypatch):

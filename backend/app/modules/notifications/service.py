@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+import warnings
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Callable, Dict, List, Literal, Optional, Protocol
@@ -84,21 +85,33 @@ class PushSender(Protocol):
     def send(self, tokens: List[str], title: str, body: str, data: Dict[str, str]) -> Optional[List[str]]: ...
 
 
+FIREBASE_HTTP_TIMEOUT_SECONDS = 10
+
+
 def unregistered_tokens(tokens: List[str], responses: list) -> List[str]:
-    """Revisa la respuesta de Firebase, que no lanza los fallos por token. Si ningún token recibió el aviso y alguno
-    falló por algo pasajero, lanza PushDeliveryError para que el consumidor lo reintente; un éxito parcial no se
-    reintenta, para no duplicar. Devuelve los tokens que Firebase ya no reconoce."""
+    """Revisa la respuesta de Firebase, que no lanza los fallos por token. Si ningún token recibió el aviso, registra
+    las clases de error y lanza PushDeliveryError para que el consumidor lo reintente cuando alguno falló por algo
+    pasajero o todos por la configuración del servidor (credencial o proyecto): así terminan en la DLQ y no se
+    pierden. Un éxito parcial no se reintenta, para no duplicar. Devuelve los tokens que ya no sirven: no registrados,
+    mal formados o de otro proyecto."""
     from firebase_admin import exceptions, messaging
 
     transient = (exceptions.UnavailableError, exceptions.InternalError, exceptions.UnknownError,
-                 exceptions.DeadlineExceededError, messaging.QuotaExceededError)
+                 exceptions.DeadlineExceededError, exceptions.ResourceExhaustedError)
+    # Incluye ThirdPartyAuthError y SenderIdMismatchError, que heredan de ellas.
+    configuration = (exceptions.UnauthenticatedError, exceptions.PermissionDeniedError)
+    stale = (messaging.UnregisteredError, exceptions.InvalidArgumentError, messaging.SenderIdMismatchError)
 
     def transient_failure(exc) -> bool:
         return isinstance(exc, transient) or (exc is not None and not isinstance(exc, exceptions.FirebaseError))
 
-    if not any(r.success for r in responses) and any(transient_failure(r.exception) for r in responses):
-        raise PushDeliveryError()
-    return [token for token, r in zip(tokens, responses) if isinstance(r.exception, messaging.UnregisteredError)]
+    if responses and not any(r.success for r in responses):
+        logger.warning("Ningún teléfono recibió el push (%s)",
+                       ", ".join(sorted({type(r.exception).__name__ for r in responses})))
+        if (any(transient_failure(r.exception) for r in responses)
+                or all(isinstance(r.exception, configuration) for r in responses)):
+            raise PushDeliveryError()
+    return [token for token, r in zip(tokens, responses) if isinstance(r.exception, stale)]
 
 
 class FirebaseSender:
@@ -106,17 +119,25 @@ class FirebaseSender:
         import firebase_admin
         from firebase_admin import credentials
 
-        self.app = firebase_admin.initialize_app(credentials.Certificate(credentials_source), name="solventa")
+        # Un tiempo corto por petición: un lote de la cola termina antes de que venza su visibilidad (QR-01).
+        self.app = firebase_admin.initialize_app(
+            credentials.Certificate(credentials_source), options={"httpTimeout": FIREBASE_HTTP_TIMEOUT_SECONDS},
+            name="solventa",
+        )
 
     def send(self, tokens: List[str], title: str, body: str, data: Dict[str, str]) -> List[str]:
         from firebase_admin import messaging
 
-        message = messaging.MulticastMessage(
-            tokens=tokens, data={**data, "title": title, "body": body},
-            notification=messaging.Notification(title=title, body=body),
-            android=messaging.AndroidConfig(priority="high"),
-        )
-        return unregistered_tokens(tokens, messaging.send_each_for_multicast(message, app=self.app).responses)
+        payload = {**data, "title": title, "body": body}
+        notification = messaging.Notification(title=title, body=body)
+        android = messaging.AndroidConfig(priority="high")
+        # La alternativa sin aviso de obsolescencia es `fid`, que exige que la app registre su ID de instalación en
+        # lugar del token de FCM; mientras tanto se silencia solo ese aviso, como hace el SDK por dentro.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Message.token is deprecated", category=DeprecationWarning)
+            messages = [messaging.Message(token=token, data=payload, notification=notification, android=android)
+                        for token in tokens]
+        return unregistered_tokens(tokens, messaging.send_each(messages, app=self.app).responses)
 
 
 _sender_lock = threading.Lock()
@@ -207,13 +228,13 @@ class NotificationService:
             return False
 
     async def forget_tokens(self, session: AsyncSession, tokens: List[str]) -> None:
-        """Tokens que Firebase ya no reconoce (app desinstalada): no se vuelven a intentar. El aviso ya salió, así
-        que una falla aquí solo se registra."""
+        """Tokens que Firebase ya no acepta (app desinstalada, mal formados o de otro proyecto): no se vuelven a
+        intentar. El aviso ya salió, así que una falla aquí solo se registra."""
         try:
             async with session.begin_nested():
                 await session.execute(delete(PushTokenDB).where(PushTokenDB.token.in_(tokens)))
         except Exception as exc:
-            logger.warning("No se pudieron borrar los tokens no registrados (%s)", type(exc).__name__)
+            logger.warning("No se pudieron borrar los tokens que Firebase rechazó (%s)", type(exc).__name__)
 
     async def claim_changed(
         self, session: AsyncSession, document_number: str, claim_number: str, kind: str, strict: bool = False
