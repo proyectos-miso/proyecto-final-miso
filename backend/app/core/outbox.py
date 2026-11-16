@@ -1,6 +1,6 @@
 """Transactional outbox: eventos de dominio guardados en la misma transacción que su agregado (ASR-05), un publicador
-que los envía a SQS al menos una vez (HU-MOV-10, RC-14) y un consumidor que los entrega a sus manejadores una sola vez
-por mensaje (ADR 0030)."""
+que los envía a SQS al menos una vez (HU-MOV-10, RC-14) y un consumidor que los entrega a sus manejadores en efecto una
+vez por mensaje (ADR 0030)."""
 import asyncio
 import json
 import logging
@@ -24,7 +24,12 @@ PUBLISH_EVERY_SECONDS = 5
 BATCH = 50
 RECEIVE_WAIT_SECONDS = 10
 RECEIVE_MAX_MESSAGES = 10
-RETRY_AFTER_SECONDS = 60
+RETRY_AFTER_SECONDS = 30
+MAX_RETRY_SECONDS = 15 * 60
+# Eventos que hoy no necesitan consumidor: se borran. Un tipo que no está aquí ni tiene manejador se reintenta y, si
+# ninguna réplica lo maneja, termina en la DLQ (por ejemplo, durante un despliegue escalonado).
+IGNORED_EVENT_TYPES = frozenset({"PolicyIssued", "PaymentApproved"})
+DONE, RETRY, UNHANDLED = "DONE", "RETRY", "UNHANDLED"
 EVENT_TYPE = re.compile(r"^[A-Za-z]{1,64}$")
 
 
@@ -91,6 +96,7 @@ class SqsQueue:
     def receive(self, max_messages: int, wait_seconds: int) -> List[dict]:
         response = self.client.receive_message(
             QueueUrl=self.url(), MaxNumberOfMessages=max_messages, WaitTimeSeconds=wait_seconds,
+            MessageSystemAttributeNames=["ApproximateReceiveCount"],
         )
         return response.get("Messages", [])
 
@@ -158,44 +164,72 @@ class OutboxEvent:
     event_type: str
     aggregate_id: str
     payload: Dict[str, Any]
+    occurred_at: Optional[datetime] = None
 
 
 EventHandler = Callable[[AsyncSession, OutboxEvent], Awaitable[None]]
 
 
+def receive_count(message: dict) -> int:
+    try:
+        return max(int(message.get("Attributes", {}).get("ApproximateReceiveCount", 1)), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 class OutboxConsumer:
-    """Lee la cola de eventos y entrega cada mensaje a su manejador. Solo borra lo procesado: si el manejador falla, SQS
-    lo vuelve a entregar y, al tercer intento, lo manda a la cola de mensajes fallidos."""
+    """Lee la cola de eventos y entrega cada mensaje a su manejador. Solo borra lo procesado: si algo falla, el mensaje
+    vuelve tras una espera que crece con cada recepción y, tras ocho, SQS lo manda a la cola de mensajes fallidos."""
 
     def __init__(self, queue_factory: Callable[[], ConsumerQueue] = get_message_queue,
                  now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 retry_after_seconds: int = RETRY_AFTER_SECONDS):
+                 retry_after_seconds: int = RETRY_AFTER_SECONDS, max_retry_seconds: int = MAX_RETRY_SECONDS,
+                 ignored: frozenset = IGNORED_EVENT_TYPES):
         self.queue_factory = queue_factory
         self.now = now
         self.retry_after_seconds = retry_after_seconds
+        self.max_retry_seconds = max_retry_seconds
+        self.ignored = ignored
         self.handlers: Dict[str, EventHandler] = {}
 
     def register(self, event_type: str, handler: EventHandler) -> None:
         self.handlers[event_type] = handler
 
+    def retry_delay(self, receives: int) -> int:
+        """30 s, 60 s, 120 s… hasta 15 min: una caída larga no agota los intentos en minutos."""
+        return min(self.retry_after_seconds * 2 ** (receives - 1), self.max_retry_seconds)
+
     async def consume(self, sessions: async_sessionmaker, wait_seconds: int = RECEIVE_WAIT_SECONDS) -> int:
-        """Una vuelta de long polling; devuelve cuántos mensajes se borraron de la cola."""
+        """Una vuelta de long polling; devuelve cuántos mensajes se borraron de la cola. Una falla con un mensaje
+        no detiene el resto del lote."""
         queue = self.queue_factory()
         messages = await asyncio.to_thread(queue.receive, RECEIVE_MAX_MESSAGES, wait_seconds)
         done = 0
         for message in messages:
-            if await self.process(sessions, message.get("Body", "")):
-                await asyncio.to_thread(queue.delete, message["ReceiptHandle"])
-                done += 1
-                continue
+            receipt = message.get("ReceiptHandle", "")
             try:
-                await asyncio.to_thread(queue.retry_later, message["ReceiptHandle"], self.retry_after_seconds)
+                outcome = await self.process(sessions, message.get("Body", ""))
+            except Exception as exc:
+                logger.warning("No se pudo procesar un mensaje de la cola (%s); se reintentará", type(exc).__name__)
+                outcome = RETRY
+            if outcome == DONE:
+                try:
+                    await asyncio.to_thread(queue.delete, receipt)
+                    done += 1
+                except Exception as exc:
+                    logger.warning("No se pudo borrar el evento procesado (%s); volverá y se omitirá",
+                                   type(exc).__name__)
+                continue
+            seconds = self.max_retry_seconds if outcome == UNHANDLED else self.retry_delay(receive_count(message))
+            try:
+                await asyncio.to_thread(queue.retry_later, receipt, seconds)
             except Exception as exc:
                 logger.warning("No se pudo aplazar el reintento del evento (%s)", type(exc).__name__)
         return done
 
-    async def process(self, sessions: async_sessionmaker, body: str) -> bool:
-        """True si el mensaje ya no debe volver: procesado, repetido, desconocido o mal formado."""
+    async def process(self, sessions: async_sessionmaker, body: str) -> str:
+        """DONE si el mensaje ya no debe volver (procesado, repetido, ignorado o mal formado); RETRY si el manejador
+        falló; UNHANDLED si nadie maneja su tipo. Una falla de la base o del commit sale como excepción."""
         try:
             data = json.loads(body)
             message_id, event_type = str(data["message_id"]), str(data["event_type"])
@@ -204,17 +238,20 @@ class OutboxConsumer:
                 raise ValueError
         except (ValueError, TypeError, KeyError):
             logger.warning("Mensaje mal formado en la cola de eventos: se descarta")
-            return True
+            return DONE
         handler = self.handlers.get(event_type)
         if handler is None:
-            logger.info("Evento %s sin manejador: se descarta", event_type)
-            return True
+            if event_type in self.ignored:
+                return DONE
+            logger.warning("Evento %s sin manejador: se reintentará hasta la DLQ", event_type)
+            return UNHANDLED
         async with sessions() as session:
             stored = await session.get(OutboxMessageDB, message_id)
             if stored is None or stored.event_type != event_type:
                 logger.warning("Evento %s que no está en el outbox: se descarta", event_type)
-                return True
-            event = OutboxEvent(message_id, event_type, stored.aggregate_id, dict(stored.payload or {}))
+                return DONE
+            event = OutboxEvent(message_id, event_type, stored.aggregate_id, dict(stored.payload or {}),
+                                stored.created_at)
             # La fila bloquea a otra réplica con el mismo mensaje hasta el commit; si ya existía, el mensaje es repetido.
             claimed = await session.scalar(
                 insert(ProcessedMessageDB).values(message_id=message_id, processed_at=self.now())
@@ -223,15 +260,15 @@ class OutboxConsumer:
             )
             if claimed is None:
                 await session.rollback()
-                return True
+                return DONE
             try:
                 await handler(session, event)
             except Exception as exc:
                 await session.rollback()
                 logger.warning("No se pudo procesar el evento %s (%s); se reintentará", event_type, type(exc).__name__)
-                return False
+                return RETRY
             await session.commit()
-        return True
+        return DONE
 
 
 outbox_consumer = OutboxConsumer()

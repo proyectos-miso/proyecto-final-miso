@@ -125,6 +125,9 @@ class ClaimService:
             raise ClaimNotFoundError()
         return row
 
+    async def status_of(self, session: AsyncSession, claim_number: str) -> Optional[str]:
+        return await session.scalar(select(ClaimDB.status).where(ClaimDB.claim_number == claim_number))
+
     async def detail(
         self, session: AsyncSession, storage: DocumentStorage, claim_number: str, partner_id: Optional[str]
     ) -> ClaimDetail:

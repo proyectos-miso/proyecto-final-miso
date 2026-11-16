@@ -33,7 +33,7 @@
 |---|---|---|---|
 | Backend (petición) | Productor | Interno | Escribe eventos en el outbox en la transacción del cambio |
 | Publicador | Productor | Interno | Envía a la cola `events` |
-| Consumidor | Lector | Interno | Recibe, aplaza y borra mensajes de `events`; lee el outbox y las pólizas |
+| Consumidor | Lector | Interno | Recibe, aplaza y borra mensajes de `events`; lee el outbox, las pólizas y el estado del siniestro; borra tokens que Firebase ya no reconoce |
 | Quien tenga acceso a la cola | Externo al backend | No confiable | Podría poner mensajes en la cola |
 
 ## 4. Trust boundaries
@@ -71,21 +71,21 @@
 |---|---|---|---|---|---|---|---|---|
 | THR-01 | S | Push del asegurado | Un mensaje forjado en la cola elige destinatario o texto | Quien tenga acceso a la cola | LOW | MEDIUM | LOW | CTL-01, CTL-05 |
 | THR-02 | T | Push del asegurado | Entrega repetida de SQS o dos réplicas envían el mismo aviso dos veces | SQS | MEDIUM | LOW | LOW | CTL-02 |
-| THR-03 | D | Cola de eventos | Un mensaje mal formado o sin manejador vuelve sin fin y llena la DLQ | Productor con error | MEDIUM | LOW | LOW | CTL-03 |
+| THR-03 | D | Cola de eventos | Un mensaje mal formado vuelve sin fin y llena la DLQ, o uno que falla con la base frena al resto del lote | Productor con error | MEDIUM | LOW | LOW | CTL-03 |
 | THR-04 | I | DATA-01 | Datos personales en la cola, en la tabla nueva o en los registros | Quien lee logs o la cola | LOW | MEDIUM | LOW | CTL-04, CTL-03 |
 | THR-05 | E | Cola de eventos | El rol de la tarea recibe permisos de más (purgar, otras colas) | Error de configuración | LOW | MEDIUM | LOW | CTL-05 |
-| THR-06 | D | Aviso al asegurado | Una caída de Firebase pierde el aviso | Firebase | MEDIUM | MEDIUM | MEDIUM | CTL-06 |
+| THR-06 | D | Aviso al asegurado | Una caída de Firebase pierde el aviso, también cuando el SDK devuelve los fallos por token dentro de la respuesta en lugar de lanzarlos | Firebase | MEDIUM | MEDIUM | MEDIUM | CTL-06 |
 
 ## 9. Controls
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
 | CTL-01 | El consumidor lee el evento del outbox por `message_id`, exige el mismo tipo y resuelve el destinatario desde la póliza | BACKEND | EXISTING | THR-01 | TC-05, TC-02 | T-02, T-03 | CWE-345 | — |
-| CTL-02 | `processed_messages` con `message_id` como llave primaria, insertado antes del manejador en la misma transacción | DATA | EXISTING | THR-02 | TC-03, TC-08 | T-02 | CWE-362 | — |
-| CTL-03 | Mal formados, desconocidos y ajenos al outbox se borran; los registros solo llevan el tipo de evento validado y la clase del error | BACKEND | EXISTING | THR-03, THR-04 | TC-05, TC-07 | T-02 | CWE-20, CWE-532 | — |
+| CTL-02 | `processed_messages` con `message_id` como llave primaria, insertado antes del manejador en la misma transacción | DATA | EXISTING | THR-02 | TC-03, TC-08, TC-13 | T-02 | CWE-362 | — |
+| CTL-03 | Mal formados, ajenos al outbox y de la lista de ignorados se borran; un tipo sin manejador se aplaza 15 min hasta la DLQ; una falla de la base, del commit o del borrado con un mensaje no detiene el lote; los registros solo llevan el tipo de evento validado y la clase del error | BACKEND | EXISTING | THR-03, THR-04 | TC-05, TC-07, TC-14 | T-02, T-08 | CWE-20, CWE-532 | — |
 | CTL-04 | Eventos con solo identificadores; `processed_messages` sin datos personales | DATA | EXISTING | THR-04, DATA-01 | TC-01, TC-08 | T-01, T-02 | ASVS V8 | — |
-| CTL-05 | Rol de la tarea con `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` y `GetQueueAttributes` solo sobre el ARN de `events` | INFRA | EXISTING | THR-01, THR-05 | TC-09 | T-04 | CWE-250 | — |
-| CTL-06 | `notify(strict=True)` en el consumidor: una falla de Firebase no borra el mensaje; SQS reintenta y manda a la DLQ al tercer intento | BACKEND | EXISTING | THR-06 | TC-04, TC-10 | T-02, T-03 | — | — |
+| CTL-05 | Rol de la tarea con `ReceiveMessage`, `DeleteMessage` y `ChangeMessageVisibility` solo sobre el ARN de `events` (sin `GetQueueAttributes`: el número de recepciones llega con el mensaje) | INFRA | EXISTING | THR-01, THR-05 | TC-09 | T-04, T-08 | CWE-250 | — |
+| CTL-06 | `notify(strict=True)` en el consumidor y `FirebaseSender.send` que revisa el `BatchResponse`: sin ningún token entregado registra las clases de error y, con un error pasajero (incluido el 429) o de configuración en todos los tokens, lanza `PushDeliveryError`; borra los tokens no registrados, mal formados o de otro proyecto; `httpTimeout` de 10 s; el mensaje no se borra y se aplaza 30 s × 2^(n-1), hasta 15 min; tras ocho recepciones va a la DLQ | BACKEND | EXISTING | THR-06 | TC-04, TC-10, TC-14 | T-02, T-03, T-08, T-09 | — | — |
 
 ## 10. Cryptography
 
@@ -123,7 +123,7 @@
 
 | Secret | Location | Access | Environments | Rotation | Revocation | Leak detection |
 |---|---|---|---|---|---|---|
-| `FIREBASE_CREDENTIALS_JSON` (sin cambio) | Variable de la tarea de ECS desde los secretos del despliegue | Backend | DEV | Según HU-MOV-11 | Consola de Google Cloud | El gate de secretos |
+| `FIREBASE_CREDENTIALS_JSON` (sin cambio) | Hoy llega a la tarea de ECS como variable de entorno en texto, desde los secretos del despliegue; el PR #279 la pasa a Secrets Manager | Backend | DEV | Según HU-MOV-11 | Consola de Google Cloud | El gate de secretos |
 
 ## 12. Authentication, authorization and sessions
 
@@ -158,10 +158,12 @@ N/A: los avisos son del asegurado, que no es un socio; el destinatario lo fija C
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | Si Firebase envía y el commit de `processed_messages` falla, el reintento envía el aviso otra vez | THR-02 | LOW | LOW | LOW | ACCEPT | Bajo: un aviso duplicado sin datos sensibles | OPEN |
-| RISK-02 | Los mensajes en la DLQ no se reprocesan solos; nadie la vigila todavía | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio hasta tener una alarma sobre la DLQ y un procedimiento para devolverlos | OPEN |
+| RISK-01 | Si Firebase envía y el commit de `processed_messages` falla, o la tarea se apaga entre el envío y el commit, el reintento envía el aviso otra vez (en efecto una vez, no exactamente una) | THR-02 | LOW | LOW | LOW | ACCEPT | Bajo: un aviso duplicado sin datos sensibles | OPEN |
+| RISK-02 | Una caída de Firebase de más de unos 60 min (esperas de 30 s a 15 min en ocho recepciones, 3630 s en total) manda los avisos a la DLQ, que no se reprocesa sola ni tiene alarma todavía | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio hasta tener una alarma sobre la DLQ y un procedimiento para devolverlos; para tolerar más, subir el máximo de espera o `maxReceiveCount` | OPEN |
 | RISK-03 | `processed_messages` crece sin límite | THR-03 | MEDIUM | LOW | LOW | MITIGATE | Bajo: una fila pequeña por evento; falta una limpieza de lo más viejo que la retención de la cola | OPEN |
 | RISK-04 | Los avisos de una misma transacción pueden llegar en otro orden (por ejemplo «pagado» antes de «aprobado») | THR-02 | MEDIUM | LOW | LOW | ACCEPT | Bajo: la app muestra el estado actual al sincronizar | OPEN |
+| RISK-05 | La cola `events` de DEV acumula hasta cuatro días de eventos que nadie leía; al primer despliegue el consumidor los enviaría como avisos tardíos | THR-03 | MEDIUM | LOW | LOW | MITIGATE | Bajo: `ClaimFiled` de más de 24 h o con el siniestro ya decidido y `RenewalDue` de otra versión se borran sin push; purgar la cola de DEV antes del primer despliegue | OPEN |
+| RISK-06 | En un despliegue escalonado, una réplica sin el manejador de un tipo nuevo lo aplaza en vez de borrarlo; si el despliegue tarda más de unas 2 h (8 × 15 min), el evento termina en la DLQ | THR-03 | LOW | LOW | LOW | ACCEPT | Bajo: el evento queda en la DLQ 14 días para devolverlo; los tipos sin consumidor previsto van en la lista de ignorados | OPEN |
 
 ## 16. Pending decisions
 
