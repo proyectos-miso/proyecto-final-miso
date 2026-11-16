@@ -443,3 +443,9 @@ async def test_un_tipo_ignorado_se_borra_y_uno_sin_manejador_se_aplaza_al_maximo
     assert done == 2
     assert queue.deleted == ["r1", "r2"]
     assert queue.retried == [("r3", outbox.MAX_RETRY_SECONDS)]
+
+
+def test_los_documentos_agregados_a_un_siniestro_no_tienen_aviso_y_se_ignoran():
+    from app.core.outbox import IGNORED_EVENT_TYPES
+
+    assert "ClaimDocumentsAdded" in IGNORED_EVENT_TYPES
