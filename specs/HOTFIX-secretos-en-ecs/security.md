@@ -22,7 +22,7 @@
 | Where it is captured | Una persona los genera y los guarda en GitHub sin mostrarlos; DB_PASSWORD puede generarla Terraform |
 | How it is transmitted | De GitHub al runner como variables enmascaradas; del runner a Secrets Manager y del agente de ECS a Secrets Manager por las API de AWS sobre TLS |
 | Where it is stored | Secretos de GitHub, Secrets Manager cifrado con la llave KMS de RDS, estado de Terraform en S3 y memoria del contenedor |
-| Copies, caches and backups | Versiones anteriores del estado en el bucket versionado; versiones anteriores del secreto en Secrets Manager (AWSPREVIOUS); revisiones anteriores de la definición de tarea con los valores en claro hasta que se borren (T-05) |
+| Copies, caches and backups | Versiones anteriores del estado en el bucket versionado; versiones anteriores del secreto en Secrets Manager (AWSPREVIOUS); revisiones anteriores de la definición de tarea con los valores en claro hasta que se borren (T-05), incluidas las INACTIVE, que `DescribeTaskDefinition` sigue mostrando; posible copia en claro en CloudTrail, no verificada: los eventos `RegisterTaskDefinition` anteriores al hotfix pueden traer `containerDefinitions` con el bloque `environment` en sus parámetros, en el historial de eventos (90 días) y en cualquier trail que los guarde en S3. Borrar las revisiones no borra esa copia, así que es un argumento más para rotar (T-06) |
 | How long it is kept | Hasta que se cambien en GitHub; las revisiones y versiones viejas conservan los valores anteriores |
 | How access is audited | Historial de ejecuciones de GitHub Actions; CloudTrail registra GetSecretValue y kms:Decrypt |
 | How it is deleted or anonymized | Se cambia el secreto en GitHub y se despliega; las revisiones viejas de la tarea se desregistran y borran; el apagado borra los secretos sin ventana de recuperación |
@@ -71,7 +71,8 @@
 | Surface | Exposure | Inputs the attacker controls |
 |---|---|---|
 | ecs:DescribeTaskDefinition y la consola de ECS | Interna, identidades de la cuenta | Ninguno; leen la definición |
-| Revisiones anteriores de la definición de tarea | Interna, identidades de la cuenta | Ninguno; conservan valores en claro hasta T-05 |
+| Revisiones anteriores de la definición de tarea, ACTIVE e INACTIVE | Interna, identidades de la cuenta | Ninguno; conservan valores en claro hasta borrarlas (T-05) |
+| Eventos RegisterTaskDefinition en CloudTrail (no verificado) | Interna, lectores de CloudTrail y del bucket del trail | Ninguno; pueden conservar valores en claro anteriores al hotfix |
 | secretsmanager:GetSecretValue | Interna, solo el rol de ejecución | Ninguno |
 | Estado de Terraform en S3 | Interna, usuario de despliegue y administradores | Ninguno |
 | POST /oracle/events | Pública | Cuerpo, marca de tiempo y firma |
@@ -93,10 +94,10 @@
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
 | CTL-01 | Secretos inyectados con secrets y valueFrom al ARN de Secrets Manager; ninguno en environment | INFRA, SECRETS | EXISTING | THR-01, DATA-01, DATA-02, DATA-03, DATA-04 | TC-01, TC-05 | T-01, T-03 | CWE-312, CWE-522, ASVS 5.0 V13 | — |
-| CTL-02 | Rol de ejecución con GetSecretValue solo sobre los ARN de la tarea y kms:Decrypt solo sobre su llave; rol de la tarea sin Secrets Manager | INFRA | EXISTING | THR-01, THR-04 | TC-02 | T-02, T-03 | CWE-250, CWE-269 | — |
-| CTL-03 | Secretos opcionales vacíos sin secreto ni variable en la tarea | INFRA, SECRETS | EXISTING | THR-05 | TC-03 | T-01, T-03 | CWE-1188, CWE-321 | — |
+| CTL-02 | Rol de ejecución con GetSecretValue solo sobre los ARN de la tarea y kms:Decrypt solo sobre su llave y solo a través de Secrets Manager (kms:ViaService); rol de la tarea sin Secrets Manager | INFRA | EXISTING | THR-01, THR-04 | TC-02 | T-02, T-03 | CWE-250, CWE-269 | — |
+| CTL-03 | Secretos opcionales vacíos sin secreto ni variable en la tarea; oracle_secret vacía o de 32 caracteres o más en Terraform; el backend trata ORACLE_SECRET vacío como ausente | INFRA, SECRETS | EXISTING | THR-05 | TC-03, TC-09 | T-01, T-03, T-09 | CWE-1188, CWE-321 | — |
 | CTL-04 | Secretos cifrados en reposo con la llave KMS administrada por el cliente, con rotación | CRYPTO, SECRETS | EXISTING | THR-01, DATA-01, DATA-02, DATA-03, DATA-04 | TC-01 | T-01, T-03 | CWE-311 | — |
-| CTL-05 | Desregistrar y borrar las revisiones anteriores de la definición de tarea y rotar los valores expuestos | PROCESS | MISSING | THR-02 | TC-06 | T-05, T-06 | CWE-312, CWE-324 | — |
+| CTL-05 | Después de un despliegue estable, desregistrar las revisiones ACTIVE anteriores, borrar todas las INACTIVE con delete-task-definitions (máximo 10 ARN por llamada), verificar que ya no se pueden describir y rotar los valores expuestos | PROCESS | MISSING | THR-02 | TC-06 | T-05, T-06 | CWE-312, CWE-324 | — |
 | CTL-06 | Variables de Terraform sensibles, llaves sin valor por defecto, valores solo desde los secretos de GitHub | INFRA, SECRETS | EXISTING | THR-07 | TC-04, TC-07 | T-04 | CWE-798, CWE-532 | — |
 | CTL-07 | Definición de tarea registrada después de las versiones de los secretos y circuit breaker con reversión | INFRA | EXISTING | THR-06 | TC-05 | T-01, T-07 | CWE-754 | — |
 | CTL-08 | Valores fuera del estado de Terraform con argumentos write-only | INFRA, SECRETS | MISSING | THR-03 | TC-08 | T-08 | CWE-312 | — |
@@ -124,7 +125,7 @@
 |---|---|---|---|---|---|---|
 | JWT_SECRET_KEY | Secreto de GitHub, variable de Terraform, Secrets Manager (solventa-jwt-secret-key-ENV), estado de Terraform; backend/.env en local | Administradores del repositorio, job de despliegue, lectores del estado, rol de ejecución | AWS y cada ambiente local, con valores distintos | Manual: secreto nuevo y despliegue; cierra todas las sesiones | Cambiarla invalida todos los tokens | sdd scan secrets en cada pull request; CloudTrail de GetSecretValue |
 | OTP_SECRET_KEY | Igual que JWT_SECRET_KEY (solventa-otp-secret-key-ENV) | Igual que JWT_SECRET_KEY | AWS y cada ambiente local, con valores distintos | Manual: secreto nuevo y despliegue | Cambiarla invalida los códigos pendientes | Igual que JWT_SECRET_KEY |
-| FIREBASE_CREDENTIALS_JSON | Secreto de GitHub, variable de Terraform, Secrets Manager (solventa-firebase-credentials-json-ENV) si tiene valor, estado de Terraform | Igual que JWT_SECRET_KEY | AWS | Manual: llave nueva de la cuenta de servicio en Firebase, secreto nuevo y despliegue | Borrar la llave de la cuenta de servicio en la consola de Firebase | Igual que JWT_SECRET_KEY |
+| FIREBASE_CREDENTIALS_JSON | Secreto de GitHub, variable de Terraform, Secrets Manager (solventa-firebase-credentials-json-ENV) si tiene valor, estado de Terraform | Igual que JWT_SECRET_KEY | AWS | Manual: llave nueva de la cuenta de servicio en Firebase, secreto nuevo, despliegue y borrado de la llave anterior de la cuenta de servicio, que mientras exista sigue sirviendo | Borrar la llave de la cuenta de servicio en la consola de Firebase | Igual que JWT_SECRET_KEY |
 | ORACLE_SECRET | Secreto de GitHub, variable de Terraform, Secrets Manager (solventa-oracle-secret-ENV) si tiene valor, estado de Terraform | Igual que JWT_SECRET_KEY, y el oráculo | AWS | Manual y coordinada con el oráculo | Cambiarla en los dos lados | Igual que JWT_SECRET_KEY |
 | DB_PASSWORD | Sin cambios: Secrets Manager (solventa-rds-password-ENV) | Rol de ejecución, ahora en la misma política | AWS | Sin cambios | Sin cambios | Sin cambios |
 
@@ -162,9 +163,16 @@ N/A: no hay inquilinos; los secretos son del único ambiente desplegado.
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-01 | Los valores siguen en el estado de Terraform (aws_secretsmanager_secret_version) y en sus versiones anteriores en el bucket | THR-03 | LOW | CRITICAL | HIGH | MITIGATE | Alto hasta usar argumentos write-only (T-08) y endurecer el bucket de estado (ADR 0019) | OPEN |
-| RISK-02 | Las revisiones anteriores de la definición de tarea conservan los valores en claro, y quien los haya leído los conoce | THR-02 | MEDIUM | CRITICAL | CRITICAL | MITIGATE | Crítico hasta borrar las revisiones (T-05) y rotar los valores (T-06) | OPEN |
+| RISK-02 | Las revisiones anteriores de la definición de tarea conservan los valores en claro, también las INACTIVE (desregistrar no basta: DescribeTaskDefinition las sigue mostrando); CloudTrail puede tener otra copia (no verificado), y quien los haya leído los conoce | THR-02 | MEDIUM | CRITICAL | CRITICAL | MITIGATE | Crítico hasta borrar ACTIVE anteriores e INACTIVE y verificar que no se pueden describir (T-05, docs/ci-cd.md), y rotar los valores (T-06), que es lo único que cubre la posible copia en CloudTrail | OPEN |
 | RISK-03 | Una sola llave KMS cifra la base, su contraseña y los secretos del backend: quien pueda descifrar con ella para un uso puede hacerlo para todos | THR-04 | LOW | HIGH | MEDIUM | MITIGATE | Medio; desaparece con una llave dedicada a secretos (DEC-03) | OPEN |
-| RISK-04 | Si la tarea no logra leer los secretos, el despliegue falla y el circuit breaker revierte a la revisión anterior, que vuelve a tener los valores en claro | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio hasta verificar el despliegue (T-07) | OPEN |
+| RISK-04 | Si la tarea no logra leer los secretos, el despliegue falla y el circuit breaker revierte a la revisión anterior, que vuelve a tener los valores en claro; y después de borrar las revisiones anteriores (T-05) el circuit breaker ya no tiene a dónde volver | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio: la definición depende de las versiones de los secretos y de la política del rol de ejecución; T-05 se hace solo con el despliegue estable (rolloutState COMPLETED y /health en 200, T-07), y una falla posterior se corrige con un despliegue nuevo, no con reversión | OPEN |
+
+Observación fuera de alcance: si `DB_PASSWORD` llega vacía al contenedor, `assemble_db_connection`
+(`backend/app/core/config.py`) no arma la URL de RDS y el backend se queda con el `DATABASE_URL` por
+defecto, que apunta a `localhost` con las credenciales de desarrollo. En AWS no conecta, pero arranca con
+una configuración engañosa en vez de fallar. Se propone un hotfix futuro: con `ENVIRONMENT` distinto de
+local, exigir `DB_HOST`, `DB_USER`, `DB_PASSWORD` y `DB_NAME` o un `DATABASE_URL` explícito, y fallar el
+arranque sin mostrar valores, como ya hace `load_settings` con las llaves.
 
 ## 16. Pending decisions
 
@@ -173,4 +181,4 @@ N/A: no hay inquilinos; los secretos son del único ambiente desplegado.
 | DEC-01 | Generar JWT_SECRET_KEY y OTP_SECRET_KEY en Terraform con random_password, como DB_PASSWORD | Generarlas en Terraform; seguir con los secretos de GitHub | No por ahora: cambiar la llave al desplegar cierra todas las sesiones e invalida los códigos. Hacerlo en una ventana planificada, junto con la rotación de T-06, y retirar después los secretos de GitHub | Responsable del despliegue | NO | PENDING |
 | DEC-02 | Sacar los valores del estado | secret_string_wo con Terraform 1.11 o superior; cargar los valores con la CLI fuera de Terraform; aceptar el riesgo | secret_string_wo: los workflows fijan Terraform 1.10.5, así que requiere subir la versión y llevar un número de versión por secreto | Responsable del despliegue | NO | PENDING |
 | DEC-03 | Llave KMS dedicada a los secretos | Reusar la de RDS; llave nueva con política limitada al rol de ejecución | Llave nueva cuando se escriba el ADR de DEC-04 | Responsable del despliegue | NO | PENDING |
-| DEC-04 | ADR que reemplaza la regla 5 del ADR 0018 (secretos como variables de entorno) | Nuevo ADR de gestión de secretos; enmendar el 0018 | Nuevo ADR: los secretos viven en Secrets Manager y llegan por secrets | Equipo | NO | PENDING |
+| DEC-04 | ADR que reemplaza la regla 5 del ADR 0018 (secretos como variables de entorno) | Nuevo ADR de gestión de secretos; enmendar el 0018 | Resuelto con un ADR nuevo: docs/adr/0029-terraform-backend-secrets.md, en estado Proposed (los secretos viven en Secrets Manager con KMS y llegan por secrets); la regla 5 del 0018 queda marcada como reemplazada. Aceptarlo es del equipo | Equipo | NO | PENDING |

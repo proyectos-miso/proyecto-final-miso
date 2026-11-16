@@ -43,6 +43,8 @@
 | EV-02 | Módulo ECS con Secrets Manager y política del rol de ejecución | SR-01, SR-02, CTL-01, CTL-02, CTL-07, TC-02 | terraform/modules/ecs/main.tf | AVAILABLE |
 | EV-03 | Origen de los valores y pasos posteriores al despliegue | SR-04, SR-05, CTL-05, CTL-06, TC-04 | docs/ci-cd.md | AVAILABLE |
 | EV-04 | Despliegue verificado, revisiones anteriores borradas y valores rotados | SR-04, SR-06, CTL-05, CTL-07, TC-05 | Workflow de despliegue y AWS CLI | PENDING |
+| EV-05 | ORACLE_SECRET vacío o en blanco queda en None y el canal responde 503 sin verificar firmas (T-09); pendiente de correr pytest | AC-09, SR-03, CTL-03, TC-09 | backend/tests/integration/test_oracle_events_api.py::test_una_llave_vacia_cierra_el_canal_y_no_valida_firmas; backend/tests/unit/test_config.py::test_oraculo_con_llave_vacia_o_en_blanco_queda_sin_configurar | PENDING |
+| EV-06 | ADR 0029 propuesto que reemplaza la regla 5 del ADR 0018 | SR-01, CTL-01 | docs/adr/0029-terraform-backend-secrets.md | AVAILABLE |
 
 ## Closeout
 

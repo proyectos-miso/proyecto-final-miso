@@ -50,7 +50,9 @@ Option A.
 
 ## Security and privacy impact
 
-- The secret lives only in GitHub secrets and the task environment (`ORACLE_SECRET`); it is never logged.
+- The secret lives in GitHub secrets and in AWS Secrets Manager, and reaches the container as
+  `ORACLE_SECRET` through the ECS `secrets` block (ADR 0029); the task definition only holds its ARN. It is
+  never logged.
 - Parametric claims carry the event payload, not personal data; the insured is reached through the policy.
 - A leaked key would allow fabricated payouts: the risk is recorded as RISK-01 of HU-MOV-10 and mitigated
   by the payout cap of the rule and the immutable claim history.

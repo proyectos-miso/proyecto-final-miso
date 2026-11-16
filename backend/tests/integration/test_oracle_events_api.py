@@ -139,12 +139,6 @@ async def test_sin_llave_configurada_el_canal_esta_cerrado(async_client, monkeyp
 
 
 async def test_una_llave_vacia_cierra_el_canal_y_no_valida_firmas(async_client, monkeypatch):
-    from pydantic import SecretStr
-
-    from app.core.config import Settings
-
-    assert Settings(ORACLE_SECRET="").ORACLE_SECRET is None
-    assert Settings(ORACLE_SECRET="   ").ORACLE_SECRET is None
     monkeypatch.setattr(settings, "ORACLE_SECRET", SecretStr(""))
 
     body = event()

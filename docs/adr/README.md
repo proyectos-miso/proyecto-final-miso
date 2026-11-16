@@ -57,6 +57,7 @@ team accepts or changes them.
 | [0018](0018-terraform-root-and-modules.md) | One Terraform root composing a local module per AWS component |
 | [0019](0019-terraform-environments-and-state.md) | Environments and Terraform state |
 | [0020](0020-private-load-balancer-behind-cloudfront.md) | A private load balancer that only CloudFront reaches |
+| [0029](0029-terraform-backend-secrets.md) | Backend secrets in Secrets Manager, injected through ECS `secrets` (supersedes rule 5 of 0018) |
 
 ## How we write them
 

@@ -4,6 +4,12 @@ mock_provider "aws" {
       arn = "arn:aws:iam::000000000000:role/rol-de-prueba"
     }
   }
+
+  mock_data "aws_region" {
+    defaults = {
+      name = "us-east-1"
+    }
+  }
 }
 
 variables {
@@ -72,6 +78,16 @@ run "llaves_obligatorias_como_secretos" {
   }
 
   assert {
+    condition     = jsondecode(aws_iam_role_policy.execution_secrets.policy).Statement[1].Condition.StringEquals["kms:ViaService"] == "secretsmanager.us-east-1.amazonaws.com"
+    error_message = "El rol de ejecución solo descifra a través de Secrets Manager, incluido el secreto de RDS."
+  }
+
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.execution_secrets.policy).Statement[0].Resource, var.db_password_secret_arn) && startswith(var.db_password_secret_arn, "arn:aws:secretsmanager:")
+    error_message = "DB_PASSWORD sigue llegando por Secrets Manager, así que la condición kms:ViaService no le impide descifrarse."
+  }
+
+  assert {
     condition     = !strcontains(aws_iam_role_policy.task_documents.policy, "secretsmanager")
     error_message = "El rol de la tarea no lee Secrets Manager."
   }
@@ -111,4 +127,18 @@ run "secretos_opcionales_cuando_existen" {
     condition     = aws_secretsmanager_secret.backend["ORACLE_SECRET"].name == "solventa-oracle-secret-production"
     error_message = "El secreto del oráculo lleva el nombre del proyecto y del ambiente."
   }
+}
+
+run "llave_del_oraculo_corta_se_rechaza" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  variables {
+    oracle_secret = "llave-corta-de-prueba"
+  }
+
+  expect_failures = [var.oracle_secret]
 }

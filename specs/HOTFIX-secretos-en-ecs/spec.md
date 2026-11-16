@@ -23,7 +23,7 @@ Hallazgo de la revisión del tablero operativo del 2026-11-15:
 Restricciones del encargo:
 
 - Mantener la entrada actual (`TF_VAR_*` desde los secretos de GitHub) para que el equipo no tenga que cambiar los secretos.
-- El backend no cambia: sigue leyendo variables de entorno.
+- El backend no cambia la forma de leer los secretos: sigue leyendo variables de entorno, sin código para consultar Secrets Manager. El único cambio de backend es el tratamiento de `ORACLE_SECRET` vacío (T-09, AC-09).
 - No generar `JWT_SECRET_KEY` ni `OTP_SECRET_KEY` con `random_password`: cambiar la llave al desplegar cerraría todas las sesiones e invalidaría los códigos pendientes. Queda como recomendación (DEC-01).
 
 ### Problem and outcome
@@ -34,19 +34,26 @@ Las llaves de firma de tokens, del MAC de los códigos, la cuenta de servicio de
 
 Objetivos: sacar los cuatro secretos del bloque `environment`; guardarlos en Secrets Manager cifrados con KMS; inyectarlos con `secrets`; limitar el rol de ejecución a esos ARN y a esa llave; no crear secretos vacíos.
 
-Fuera de alcance: sacar los valores del estado de Terraform (requiere argumentos write-only y Terraform 1.11 o superior, DEC-02); rotar los valores ya expuestos y borrar las revisiones viejas de la definición de tarea (acción del equipo, T-05 y T-06); generar las llaves dentro de AWS (DEC-01); una llave KMS dedicada a secretos (DEC-03); el ADR que reemplaza la regla 5 del ADR 0018 (DEC-04); credenciales OIDC en CI.
+Fuera de alcance: sacar los valores del estado de Terraform (requiere argumentos write-only y Terraform 1.11 o superior, DEC-02); rotar los valores ya expuestos y borrar las revisiones viejas de la definición de tarea (acción del equipo, T-05 y T-06); generar las llaves dentro de AWS (DEC-01); una llave KMS dedicada a secretos (DEC-03); aceptar el ADR 0029 propuesto, que decide el equipo; credenciales OIDC en CI.
 
 ### Affected paths
 
 | Path | Change |
 |---|---|
 | terraform/modules/ecs/main.tf | Secretos del backend en Secrets Manager, inyección con secrets, política del rol de ejecución limitada a sus ARN |
-| terraform/modules/ecs/variables.tf | Descripción de db_kms_key_arn, que ahora cifra también los secretos del backend |
+| terraform/modules/ecs/variables.tf | Descripción de db_kms_key_arn, que ahora cifra también los secretos del backend; validación de oracle_secret |
+| terraform/variables.tf | Validación de oracle_secret: vacía o de 32 caracteres o más |
 | terraform/tests/secretos_en_ecs.tftest.hcl | Pruebas del módulo ECS con proveedor simulado |
 | docs/ci-cd.md | Sección de secretos: dónde terminan los valores y pasos posteriores al despliegue |
 | backend/app/core/config.py | ORACLE_SECRET vacío o en blanco se trata como ausente |
 | backend/app/modules/claims/oracle.py | Nunca verifica firmas con una llave vacía |
-| backend/tests/integration/test_oracle_events_api.py | Prueba de la llave vacía |
+| backend/tests/integration/test_oracle_events_api.py | Prueba de la llave vacía: el canal responde 503 |
+| backend/tests/unit/test_config.py | Settings deja ORACLE_SECRET vacío o en blanco en None |
+| docs/adr/0029-terraform-backend-secrets.md | ADR propuesto que reemplaza la regla 5 del ADR 0018 |
+| docs/adr/0018-terraform-root-and-modules.md | Regla 5 marcada como reemplazada por el ADR 0029 e impacto en seguridad corregido |
+| docs/adr/0027-backend-parametric-oracle.md | ORACLE_SECRET llega por Secrets Manager, no por el entorno de la tarea |
+| docs/adr/README.md | ADR 0029 en el índice |
+| AGENTS.md | Rango de ADR de Terraform con el 0029 |
 | CHANGELOG.md | Entrada del hotfix |
 | specs/HOTFIX-secretos-en-ecs/** | Paquete del hotfix |
 
@@ -78,7 +85,7 @@ Fuera de alcance: sacar los valores del estado de Terraform (requiere argumentos
 | AC-05 | THE valores SHALL seguir llegando como TF_VAR_* desde los mismos secretos de GitHub, a variables de Terraform con sensitive = true | STATED |
 | AC-06 | IF FIREBASE_CREDENTIALS_JSON u ORACLE_SECRET llegan vacíos, THE despliegue SHALL NOT crear su secreto ni la variable en la tarea | DERIVED: Secrets Manager no acepta un valor vacío, y con ORACLE_SECRET vacío el backend verifica firmas con una llave vacía en vez de cerrar el canal |
 | AC-07 | WHEN se despliega, THE tarea SHALL registrarse después de que exista la versión de cada secreto | DERIVED: sin la versión, la tarea no arranca |
-| AC-08 | WHEN la tarea arranca en AWS, THE backend SHALL leer las mismas variables de entorno sin cambios de código | STATED |
+| AC-08 | WHEN la tarea arranca en AWS, THE backend SHALL leer los secretos de las mismas variables de entorno, sin código para consultar Secrets Manager (el único cambio de backend es el de AC-09) | STATED |
 | AC-09 | IF ORACLE_SECRET llega vacío o en blanco, THE backend SHALL tratarlo como ausente y responder 503 en /oracle/events, sin verificar firmas con una llave vacía | DERIVED: defensa en profundidad del AC-06 en el backend |
 
 ### Quality requirements
@@ -123,10 +130,11 @@ N/A: cambio de configuración de infraestructura; no altera latencia, disponibil
   - `local.backend_secret_names` deja solo las que no están vacías; `nonsensitive` se aplica solo a la comparación con `""`, que revela si el valor existe, nunca el valor.
   - `aws_secretsmanager_secret.backend` (uno por nombre, `${project}-<nombre>-${environment}`, cifrado con `var.db_kms_key_arn`, `recovery_window_in_days = 0` como el de RDS para que el apagado y la recreación no choquen con nombres en borrado).
   - `aws_secretsmanager_secret_version.backend` con el valor.
-  - `aws_iam_role_policy.execution_secrets`: `GetSecretValue` sobre el ARN del secreto de RDS y los de `aws_secretsmanager_secret.backend`; `kms:Decrypt` sobre la llave.
-  - La definición de tarea pierde las cuatro entradas de `environment`, agrega una entrada en `secrets` por secreto y depende de las versiones.
+  - `aws_iam_role_policy.execution_secrets`: `GetSecretValue` sobre el ARN del secreto de RDS y los de `aws_secretsmanager_secret.backend`; `kms:Decrypt` sobre la llave solo con `kms:ViaService = secretsmanager.<región>.amazonaws.com`, con la región de `data.aws_region.current`. El secreto de RDS (`DB_PASSWORD`) también se descifra a través de Secrets Manager, así que la condición no lo afecta.
+  - La definición de tarea pierde las cuatro entradas de `environment`, agrega una entrada en `secrets` por secreto y depende de las versiones y de la política del rol de ejecución.
 - `aws_iam_role_policy.task_documents` (rol de la tarea) no cambia: S3, SQS y la llave del bucket, sin Secrets Manager.
-- `backend/app/core/config.py` no cambia: `Settings` lee `JWT_SECRET_KEY`, `OTP_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` del entorno, que ECS llena desde `secrets` igual que desde `environment`.
+- `backend/app/core/config.py` sigue leyendo `JWT_SECRET_KEY`, `OTP_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` del entorno, que ECS llena desde `secrets` igual que desde `environment`. Sí cambia por T-09: un `ORACLE_SECRET` vacío o en blanco queda en `None`, y `oracle.py` nunca verifica con una llave vacía.
+- La longitud mínima de `ORACLE_SECRET` se valida en Terraform (`oracle_secret` vacía o de 32 caracteres o más, en la raíz y en el módulo), no en el backend: una validación en `Settings` tumbaría el arranque de toda la API por una función opcional; en Terraform falla el plan antes de cambiar nada.
 
 ### Data flows
 
@@ -143,32 +151,36 @@ N/A: la API no cambia. El contenedor recibe las mismas variables de entorno; `FI
 | Secretos en Secrets Manager inyectados con secrets y valueFrom | CTL-01 | Seguir en environment: es el hallazgo. Parameter Store SecureString: el proyecto ya usa Secrets Manager para RDS |
 | Reusar la llave KMS de RDS, con rotación activa | CTL-04, CRY-01 | Una llave nueva solo para secretos: mejor separación, pero agrega una llave y su política; queda como DEC-03 |
 | Política del rol de ejecución con la lista exacta de ARN y la llave | CTL-02 | Un comodín sobre `secret:solventa-*`: abarcaría secretos futuros que la tarea no usa |
+| kms:Decrypt condicionado a kms:ViaService de Secrets Manager | CTL-02 | Decrypt sin condición: el rol podría descifrar con la llave de RDS fuera de Secrets Manager |
+| Longitud de ORACLE_SECRET validada en Terraform | CTL-03 | Validarla en Settings: un valor corto tumbaría el arranque de toda la API por una función opcional |
 | Crear los opcionales solo si traen valor | CTL-03 | Crearlos siempre: Secrets Manager no acepta un valor vacío y el backend trataría un valor vacío como llave del oráculo |
 | Mantener la entrada TF_VAR_* desde los secretos de GitHub | CTL-06 | Cargar los valores con la CLI en deploy.yml para sacarlos del estado: cambia el pipeline y expone argumentos del proceso; la vía correcta es write-only (DEC-02) |
 | No generar JWT_SECRET_KEY ni OTP_SECRET_KEY con random_password | — | Generarlas en Terraform: cambiaría la llave en el primer despliegue y cerraría todas las sesiones (DEC-01) |
 
 ### Architecture decisions
 
-La regla 5 de docs/adr/0018-terraform-root-and-modules.md dice que los secretos llegan al contenedor como variables de entorno y que pasarlos a un gestor de secretos necesita un ADR nuevo. Este hotfix no crea ese ADR: queda pendiente para el equipo (DEC-04), con su contexto en este paquete.
+- docs/adr/0029-terraform-backend-secrets.md (Proposed): los secretos del backend viven en Secrets Manager con una llave KMS y llegan por `secrets` de ECS. Reemplaza la regla 5 de docs/adr/0018-terraform-root-and-modules.md, que los dejaba como variables de entorno (DEC-04). El equipo lo acepta o lo cambia.
 
 ### Configuration and deployment
 
 - No cambia ningún secreto de GitHub: siguen `JWT_SECRET_KEY`, `OTP_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET`, que deploy.yml y destroy.yml pasan como `TF_VAR_*`.
 - El primer despliegue crea los secretos `solventa-jwt-secret-key-production`, `solventa-otp-secret-key-production` y, si tienen valor, `solventa-firebase-credentials-json-production` y `solventa-oracle-secret-production`. Si ya existe en la cuenta un secreto con ese nombre creado a mano, el apply falla: hay que borrarlo o importarlo antes.
 - Registra una revisión nueva de la definición de tarea; el servicio reemplaza las tareas y deploy.yml fuerza otro despliegue después. Los valores no cambian, así que no se cierran sesiones.
-- Después del despliegue, el equipo desregistra y borra las revisiones anteriores (T-05) y decide si rota los valores que estuvieron expuestos (T-06).
+- Después de un despliegue estable, el equipo desregistra las revisiones ACTIVE que no son la vigente, borra todas las INACTIVE con `delete-task-definitions` (máximo 10 ARN por llamada) y verifica que una revisión vieja ya no se puede describir (T-05, procedimiento en docs/ci-cd.md). Desde ahí el circuit breaker ya no puede volver a esas revisiones. Luego rota los valores expuestos (T-06).
+- `recovery_window_in_days = 0`: vaciar `FIREBASE_CREDENTIALS_JSON` u `ORACLE_SECRET` en GitHub y desplegar borra su secreto de inmediato; se recupera volviendo a cargar el valor desde su origen (docs/ci-cd.md).
 - Si `ORACLE_SECRET` no existe en GitHub, el canal del oráculo pasa de aceptar firmas con llave vacía a responder 503, que es el comportamiento documentado.
 
 ## 3. Tasks
 
 | ID | Task | Traces to | Controls | Status | Evidence |
 |---|---|---|---|---|---|
-| T-01 | Secretos del backend en Secrets Manager cifrados con KMS e inyectados con secrets; opcionales vacíos sin secreto | AC-01, AC-02, AC-03, AC-06, AC-07, SR-01, SR-03 | CTL-01, CTL-03, CTL-04 | DONE | terraform/modules/ecs/main.tf |
-| T-02 | Política del rol de ejecución limitada a los ARN de la tarea y a la llave; rol de la tarea sin Secrets Manager | AC-04, SR-02 | CTL-02 | DONE | terraform/modules/ecs/main.tf |
+| T-01 | Secretos del backend en Secrets Manager cifrados con KMS e inyectados con secrets; opcionales vacíos sin secreto; oracle_secret vacía o de 32 caracteres o más | AC-01, AC-02, AC-03, AC-06, AC-07, SR-01, SR-03 | CTL-01, CTL-03, CTL-04 | DONE | terraform/modules/ecs/main.tf |
+| T-02 | Política del rol de ejecución limitada a los ARN de la tarea y a la llave, con kms:ViaService de Secrets Manager; rol de la tarea sin Secrets Manager | AC-04, SR-02 | CTL-02 | DONE | terraform/modules/ecs/main.tf |
 | T-03 | Pruebas del módulo ECS con proveedor simulado | AC-01, AC-02, AC-03, AC-04, AC-06, SR-01, SR-02, SR-03 | CTL-01, CTL-02, CTL-03, CTL-04 | DONE | terraform/tests/secretos_en_ecs.tftest.hcl |
 | T-04 | Documentar el origen de los valores y los pasos posteriores en docs/ci-cd.md y CHANGELOG.md | AC-05, AC-08, SR-05 | CTL-06 | DONE | docs/ci-cd.md |
-| T-05 | Después del despliegue, desregistrar y borrar las revisiones anteriores de la definición de tarea | SR-04 | CTL-05 | TODO | — |
-| T-06 | Decidir y ejecutar la rotación de los valores expuestos (JWT_SECRET_KEY, OTP_SECRET_KEY, cuenta de servicio de Firebase, ORACLE_SECRET) | SR-04 | CTL-05 | TODO | — |
+| T-05 | Después de un despliegue estable: desregistrar las revisiones ACTIVE que no son la vigente, listar las INACTIVE, borrarlas con delete-task-definitions en lotes de máximo 10 ARN y verificar que describe-task-definition de una revisión vieja falla (docs/ci-cd.md) | SR-04 | CTL-05 | TODO | — |
+| T-06 | Decidir y ejecutar la rotación de los valores expuestos (JWT_SECRET_KEY, OTP_SECRET_KEY, cuenta de servicio de Firebase con borrado de la llave anterior, ORACLE_SECRET); borrar las revisiones no alcanza, porque CloudTrail puede guardar otra copia en claro (no verificado) | SR-04 | CTL-05 | TODO | — |
 | T-07 | Desplegar y verificar que la tarea arranca con los secretos y que la definición no tiene valores | AC-02, AC-07, AC-08, SR-06 | CTL-07 | TODO | — |
 | T-09 | ORACLE_SECRET vacío cierra el canal también en el backend | AC-09, SR-03 | CTL-03 | DONE | backend/app/core/config.py |
+| T-10 | ADR 0029 propuesto que reemplaza la regla 5 del ADR 0018 | AC-02, SR-01 | CTL-01 | DONE | docs/adr/0029-terraform-backend-secrets.md |
 | T-08 | Sacar los valores del estado con argumentos write-only (Terraform 1.11 o superior en los workflows) | SR-07 | CTL-08 | TODO | — |

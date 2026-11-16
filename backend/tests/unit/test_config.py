@@ -68,3 +68,13 @@ def test_tc_05_cors_y_documentacion_segun_configuracion(monkeypatch):
     assert load_settings(_env_file=None, **llaves()).debug_enabled is True
     assert docs_urls(False) == {"docs_url": None, "redoc_url": None, "openapi_url": None}
     assert docs_urls(True)["openapi_url"] == "/openapi.json"
+
+
+@pytest.mark.parametrize("valor", ["", "   "])
+def test_oraculo_con_llave_vacia_o_en_blanco_queda_sin_configurar(valor):
+    assert load_settings(_env_file=None, **llaves(ORACLE_SECRET=valor)).ORACLE_SECRET is None
+
+
+def test_oraculo_con_llave_conserva_su_valor():
+    llave = secrets.token_urlsafe(48)
+    assert load_settings(_env_file=None, **llaves(ORACLE_SECRET=llave)).ORACLE_SECRET.get_secret_value() == llave

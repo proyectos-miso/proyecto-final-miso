@@ -104,6 +104,8 @@ resource "aws_secretsmanager_secret_version" "backend" {
   secret_string = local.backend_secret_values[each.key]
 }
 
+data "aws_region" "current" {}
+
 # El rol de ejecución solo lee estos secretos y solo descifra con su llave (RC-33, HOTFIX-secretos-en-ecs)
 resource "aws_iam_role_policy" "execution_secrets" {
   name = "${var.project_name}-ecs-execution-secrets-${var.environment}"
@@ -123,6 +125,11 @@ resource "aws_iam_role_policy" "execution_secrets" {
         Effect   = "Allow"
         Action   = ["kms:Decrypt"]
         Resource = [var.db_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
       }
     ]
   })
@@ -260,7 +267,7 @@ resource "aws_ecs_task_definition" "backend" {
     }
   ])
 
-  depends_on = [aws_secretsmanager_secret_version.backend]
+  depends_on = [aws_secretsmanager_secret_version.backend, aws_iam_role_policy.execution_secrets]
 
   tags = {
     Name = "${var.project_name}-task-def-${var.environment}"
