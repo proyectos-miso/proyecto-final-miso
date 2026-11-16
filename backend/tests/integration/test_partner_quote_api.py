@@ -1,5 +1,6 @@
 """Pruebas de integración de los endpoints B2B de Quote Edge (HU-WEB-10)."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
 import pytest
@@ -10,7 +11,9 @@ from app.core.security import (
     create_partner_access_token,
     get_password_hash,
 )
+from app.modules.profile.models import ConsentDB
 from app.modules.rating.models import PartnerDB, PartnerStatus
+from app.modules.rating.service import rating_service
 
 
 QUOTE_PAYLOAD = {
@@ -487,3 +490,97 @@ async def test_partner_quote_openapi_spec_documents_429(
     assert "X-RateLimit-Reset" in resp_429["headers"]
     assert "X-RateLimit-Reset-Time" in resp_429["headers"]
 
+
+
+
+def _add_consent(session, consent_id: str, document_number: str, status: str = "GRANTED") -> None:
+    """Consentimiento ficticio guardado en el doble de la base."""
+    now = datetime.now(timezone.utc)
+    session.add(ConsentDB(id=consent_id, document_type="CC", document_number=document_number, channel="partner",
+                          purpose="Perfilamiento actuarial", scope="Scoring", validity_days=30, status=status,
+                          consent_hash=hashlib.sha256(consent_id.encode()).hexdigest(), granted_at=now,
+                          expires_at=now + timedelta(days=30), created_at=now))
+
+
+def _count_bureau_calls(monkeypatch) -> list:
+    calls = []
+
+    async def counted_score(request, delay=0.0):
+        calls.append(request.document_number)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", counted_score)
+    return calls
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_consentimiento_de_otro_documento_responde_422_sin_consultar_el_buro(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion (B-2): el consent_id de otro titular no autoriza perfilar este documento."""
+    _add_consent(test_db_session, "cst-partner-other-01", "52194832")
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-otro-documento"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-partner-other-01"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento no corresponde al cliente."
+    assert calls == []
+    assert test_db_session.quotes == {}
+    assert test_db_session.idempotency_records == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_consentimiento_revocado_responde_422(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion: un socio no cotiza con un consent_id revocado del titular."""
+    _add_consent(test_db_session, "cst-partner-revoked-1", QUOTE_PAYLOAD["document_number"], status="REVOKED")
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-revocado"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-partner-revoked-1"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento informado del cliente fue revocado."
+    assert calls == []
+    assert test_db_session.quotes == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_un_consentimiento_inexistente_responde_422_sin_consultar_el_buro(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion: un consent_id que no existe no autoriza perfilar al titular."""
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-inexistente"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-no-existe-0001"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento no existe."
+    assert calls == []
+    assert test_db_session.quotes == {}
+    assert test_db_session.idempotency_records == {}

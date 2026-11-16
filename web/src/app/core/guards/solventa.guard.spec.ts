@@ -9,7 +9,7 @@ import { OperatorService } from '../operator/operator.service';
 import { API_BASE_URL } from '../quotes/quote.service';
 import { solventaGuard } from './solventa.guard';
 
-// Pestaña «Socios», solo del equipo de Solventa (HOTFIX-gestion-de-socios, FE-WEB-05).
+// Pestañas de Solventa, solo de su equipo (HOTFIX-gestion-de-socios, FE-WEB-05; HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
 describe('solventaGuard y OperatorService (FE-WEB-05)', () => {
   const session = signal<{ role: string; accessToken: string } | null>(null);
   let http: HttpTestingController;

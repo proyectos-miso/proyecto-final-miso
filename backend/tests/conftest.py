@@ -163,8 +163,9 @@ class InMemorySessionTestDouble:
                     doc_filter = v
                 elif "id" in k or k == "id_1":
                     id_filter = v
-            if id_filter and id_filter in self.consents_by_id:
-                return Result([self.consents_by_id[id_filter]])
+            if id_filter:
+                found = self.consents_by_id.get(id_filter)
+                return Result([found] if found else [])
             if doc_filter:
                 items = [c for c in items if getattr(c, "document_number", None) == doc_filter]
 

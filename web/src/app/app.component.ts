@@ -19,7 +19,7 @@ export class AppComponent {
   readonly solventa = this.operator.solventa;
 
   constructor() {
-    // La pestaña «Socios» solo se muestra al analista que no es de un socio (FE-WEB-05).
+    // Las pestañas de Solventa («Socios», «Auditoría») solo se muestran al analista que no es de un socio (FE-WEB-05, FE-WEB-08).
     effect(() => {
       this.currentSession();
       untracked(() => this.operator.isSolventa().subscribe());

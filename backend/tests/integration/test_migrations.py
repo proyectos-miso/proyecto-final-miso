@@ -49,11 +49,12 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_trigger WHERE tgname = 'policy_signatures_no_change'") == 1
+    assert await scalar(empty_database, "SELECT count(*) FROM pg_trigger WHERE tgname = 'quotes_no_change'") == 1
 
 
 async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty_database):
@@ -72,7 +73,7 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
 
@@ -92,3 +93,31 @@ async def test_la_migracion_de_preferencias_crea_su_tabla_desde_0003_y_se_revier
     assert created == "true"
     assert await scalar(empty_database, "SELECT to_regclass('push_preferences')") is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"
+
+
+async def test_la_migracion_de_auditoria_agrega_las_entradas_y_hace_inmutables_las_cotizaciones_desde_0004(empty_database):
+    await upgrade(empty_database, "0004")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TRIGGER quotes_no_change ON quotes"))
+        await conn.execute(text("DROP FUNCTION quotes_immutable()"))
+        await conn.execute(text("ALTER TABLE quotes DROP COLUMN rules_version, DROP COLUMN insured_amount, "
+                                "DROP COLUMN occupation_risk"))
+        await conn.execute(text("ALTER TABLE underwriting_rejections DROP COLUMN rules_version"))
+    await engine.dispose()
+    columns = ("SELECT count(*) FROM information_schema.columns WHERE (table_name = 'quotes' AND column_name IN "
+               "('rules_version', 'insured_amount', 'occupation_risk')) OR (table_name = 'underwriting_rejections' "
+               "AND column_name = 'rules_version')")
+    trigger = "SELECT count(*) FROM pg_trigger WHERE tgname = 'quotes_no_change'"
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+    added, triggers = await scalar(empty_database, columns), await scalar(empty_database, trigger)
+    personal_columns = await scalar(empty_database, "SELECT count(*) FROM information_schema.columns WHERE table_name = "
+                                                 "'underwriting_rejections' AND column_name IN ('score', 'birth_date')")
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0004")
+
+    assert (added, triggers, personal_columns) == (4, 1, 0)
+    assert await scalar(empty_database, columns) == 0
+    assert await scalar(empty_database, trigger) == 0
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"

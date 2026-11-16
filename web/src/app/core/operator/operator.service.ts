@@ -22,8 +22,8 @@ function sessionKey(session: UserSession): string {
 }
 
 /**
- * Si el analista es del equipo de Solventa y no de un socio (FE-WEB-05). Decide si se ve la pestaña
- * «Socios»; el servidor vuelve a validarlo en cada ruta.
+ * Si el analista es del equipo de Solventa y no de un socio (FE-WEB-05, FE-WEB-08). Decide si se ven las
+ * pestañas de Solventa («Socios», «Auditoría»); el servidor vuelve a validarlo en cada ruta.
  */
 @Injectable({ providedIn: 'root' })
 export class OperatorService {

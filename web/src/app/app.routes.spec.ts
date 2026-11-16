@@ -3,8 +3,10 @@ import { ActivatedRouteSnapshot, CanActivateFn, Route, Router, RouterStateSnapsh
 import { Observable, firstValueFrom, isObservable, of } from 'rxjs';
 import { routes } from './app.routes';
 import { AuthService } from './core/auth/auth.service';
+import { authGuard } from './core/guards/auth.guard';
 import { solventaGuard } from './core/guards/solventa.guard';
 import { OperatorService } from './core/operator/operator.service';
+import { AuditComponent } from './features/auditoria/audit.component';
 import { OperationsComponent } from './features/operacion/operations.component';
 
 // Ruta del tablero operativo (HOTFIX-tablero-operativo, FE-WEB-07).
@@ -51,5 +53,17 @@ describe('Ruta /operacion (FE-WEB-07)', () => {
   it('deja pasar al analista de Solventa', async () => {
     solventa = true;
     expect(await guards()).toEqual([true, true, true]);
+  });
+});
+
+// Ruta de la auditoría de suscripción (HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
+describe('Rutas del portal (FE-WEB-08)', () => {
+  it('la ruta /auditoria exige sesión, rol analista y ser de Solventa y carga la pantalla bajo demanda', async () => {
+    const audit = routes.find((route) => route.path === 'auditoria');
+
+    expect(audit?.canActivate?.length).toBe(3);
+    expect(audit?.canActivate?.[0]).toBe(authGuard);
+    expect(audit?.canActivate?.[2]).toBe(solventaGuard);
+    expect(await audit?.loadComponent?.()).toBe(AuditComponent);
   });
 });

@@ -7,7 +7,7 @@ import { UserSession } from '../models/auth.model';
 import { API_BASE_URL } from '../quotes/quote.service';
 import { OperatorService } from './operator.service';
 
-// Visibilidad de la pestaña «Socios» (HOTFIX-gestion-de-socios, FE-WEB-05).
+// Visibilidad de las pestañas de Solventa (HOTFIX-gestion-de-socios, FE-WEB-05; HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
 describe('OperatorService (FE-WEB-05)', () => {
   let http: HttpTestingController;
   let operator: OperatorService;

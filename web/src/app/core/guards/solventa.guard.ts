@@ -3,7 +3,7 @@ import { CanActivateFn, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { OperatorService } from '../operator/operator.service';
 
-/** Pestaña «Socios», solo del equipo de Solventa (FE-WEB-05); el analista de un socio vuelve a «Pólizas». Solo oculta: el servidor decide. */
+/** Pestañas de Solventa («Socios», «Auditoría»), solo de su equipo (FE-WEB-05, FE-WEB-08); el analista de un socio vuelve a «Pólizas». Solo oculta: el servidor decide. */
 export const solventaGuard: CanActivateFn = () => {
   const router = inject(Router);
   return inject(OperatorService)
