@@ -261,7 +261,7 @@ class ProfileService:
         return "REVOKED" in statuses and "GRANTED" not in statuses
 
     def add_biometric_consent(
-        self, session: AsyncSession, document_type: str, document_number: str, now: datetime
+        self, session: AsyncSession, user_id: str, document_type: str, document_number: str, now: datetime
     ) -> ConsentDB:
         """Deja la autorización en la transacción de quien registra la cuenta; no hace commit (mejora FE-MOV-01)."""
         granted_at = now.isoformat()
@@ -270,6 +270,7 @@ class ProfileService:
             id=f"CNS-{uuid.uuid4().hex[:12].upper()}",
             document_type=document_type,
             document_number=document_number,
+            user_id=user_id,
             channel="app",
             purpose=BIOMETRIC_PURPOSE,
             scope=BIOMETRIC_SCOPE,
@@ -283,13 +284,14 @@ class ProfileService:
         session.add(consent)
         return consent
 
-    async def revoke_biometric_consent(self, session: AsyncSession, document_number: str) -> int:
-        """Marca REVOKED la autorización biométrica del documento; no hace commit (mejora FE-MOV-01)."""
+    async def revoke_biometric_consent(self, session: AsyncSession, user_id: str) -> int:
+        """Marca REVOKED la autorización biométrica de la cuenta, no la de otras cuentas con el mismo documento; no hace
+        commit (mejora FE-MOV-01)."""
         rows = (
             await session.execute(
                 select(ConsentDB)
                 .where(
-                    ConsentDB.document_number == document_number,
+                    ConsentDB.user_id == user_id,
                     ConsentDB.status == "GRANTED",
                     ConsentDB.purpose == BIOMETRIC_PURPOSE,
                 )

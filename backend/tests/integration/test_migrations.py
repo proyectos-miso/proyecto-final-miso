@@ -151,6 +151,7 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
         await conn.execute(text("ALTER TABLE insured_accounts DROP COLUMN document_type, "
                                 "DROP COLUMN verification_status, DROP COLUMN verified_at"))
         await conn.execute(text("ALTER TABLE document_otps DROP COLUMN binding_hash"))
+        await conn.execute(text("ALTER TABLE consents DROP COLUMN IF EXISTS user_id"))
         await conn.execute(text(
             "INSERT INTO insured_accounts (user_id, email, full_name, document_number, phone, password_hash, "
             "token_version) VALUES ('ins-prueba', 'previa@example.com', 'Cuenta Previa', '52000999', "
@@ -159,7 +160,8 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
     await engine.dispose()
     columns = ("SELECT count(*) FROM information_schema.columns WHERE (table_name = 'insured_accounts' "
                "AND column_name IN ('document_type', 'verification_status', 'verified_at')) OR "
-               "(table_name = 'document_otps' AND column_name = 'binding_hash')")
+               "(table_name = 'document_otps' AND column_name = 'binding_hash') OR "
+               "(table_name = 'consents' AND column_name = 'user_id')")
     table = "SELECT to_regclass('identity_verifications')::text"
 
     await upgrade(empty_database)
@@ -168,7 +170,7 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
     status = await scalar(empty_database, "SELECT verification_status || '/' || document_type FROM insured_accounts")
     await asyncio.to_thread(command.downgrade, config_for(empty_database), "0006")
 
-    assert (added, created, status) == (4, "identity_verifications", "APPROVED/CC")
+    assert (added, created, status) == (5, "identity_verifications", "APPROVED/CC")
     assert await scalar(empty_database, columns) == 0
     assert await scalar(empty_database, table) is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"

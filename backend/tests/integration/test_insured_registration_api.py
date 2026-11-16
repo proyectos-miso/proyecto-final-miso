@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -267,6 +268,69 @@ async def test_revocar_el_consentimiento_borra_las_imagenes_pendientes(async_cli
     assert consent.status == "REVOKED"
 
 
+async def test_revocar_con_la_cuenta_pendiente_la_cierra_y_libera_el_documento(
+    async_client, postgres_session, storage, verifier
+):
+    code = await code_for(async_client, "1098700148")
+    registered = await register(async_client, body("1098700148", code))
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    device = (await async_client.post("/api/v1/auth/devices", headers=headers)).json()
+
+    revoked = await async_client.post("/api/v1/insured/consents/biometric/revoke", headers=headers)
+    refresh = await async_client.post("/api/v1/auth/refresh", json={"refresh_token": registered.json()["refresh_token"]})
+    login = await async_client.post("/api/v1/auth/login", json={
+        "email": "registro.1098700148@example.com", "password": PASSWORD, "otp_code": "123456",
+    })
+    biometric = await async_client.post("/api/v1/auth/biometric", json=device)
+    again = await register_again(async_client, postgres_session, "1098700148", "0148")
+
+    assert revoked.status_code == 200
+    assert (refresh.status_code, login.status_code, biometric.status_code) == (401, 401, 401)
+    postgres_session.expire_all()
+    old = (await postgres_session.execute(
+        select(InsuredAccountDB).where(InsuredAccountDB.email == "registro.1098700148@example.com")
+    )).scalars().one()
+    assert (old.verification_status, old.token_version) == ("REVOKED", 1)
+    assert again.status_code == 202
+
+
+async def test_revocar_con_la_cuenta_aprobada_no_la_cierra(async_client, postgres_session, storage, verifier):
+    code = await code_for(async_client, APPROVED_DOC)
+    registered = await register(async_client, body(APPROVED_DOC, code))
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+
+    revoked = await async_client.post("/api/v1/insured/consents/biometric/revoke", headers=headers)
+    policies = await async_client.get("/api/v1/insured/policies", headers=headers)
+
+    assert (revoked.status_code, policies.status_code) == (200, 200)
+    account = await account_of(postgres_session, APPROVED_DOC)
+    assert (account.verification_status, account.token_version) == ("APPROVED", 0)
+    consent = (await postgres_session.execute(
+        select(ConsentDB).where(ConsentDB.document_number == APPROVED_DOC)
+    )).scalars().one()
+    assert consent.status == "REVOKED"
+
+
+async def test_cerrar_nunca_toca_una_cuenta_aprobada(async_client, postgres_session, storage, verifier):
+    code = await code_for(async_client, "1098700168")
+    await register(async_client, body("1098700168", code))
+    account = await account_of(postgres_session, "1098700168")
+    verification = await verification_of(postgres_session, "1098700168")
+    account.verification_status = "APPROVED"
+
+    await insured_registration_service._close(
+        postgres_session, verification, account, "EXPIRED", datetime.now(timezone.utc)
+    )
+    await postgres_session.commit()
+
+    account = await account_of(postgres_session, "1098700168")
+    assert (account.verification_status, account.token_version) == ("APPROVED", 0)
+    consent = (await postgres_session.execute(
+        select(ConsentDB).where(ConsentDB.document_number == "1098700168")
+    )).scalars().one()
+    assert consent.status == "GRANTED"
+
+
 class RejectingVerifier(SimulatedIdentityVerifier):
     async def decide(self, reference: str) -> VerificationResult:
         return VerificationResult(REJECTED, reference)
@@ -391,19 +455,36 @@ async def test_ningun_registro_lleva_datos_personales(async_client, postgres_ses
 
 # Correcciones de la revisión independiente (mejora FE-MOV-01).
 
+USER, FIRST, SECOND = (str(uuid.uuid4()) for _ in range(3))
+
+
 async def test_borrar_las_imagenes_quita_todas_las_versiones_y_marcadores_del_prefijo(storage):
-    await storage.put_bytes("identidad/u1/v1/selfie.jpg", JPEG, "image/jpeg")
-    await storage.put_bytes("identidad/u1/v1/selfie.jpg", JPEG + b"otra", "image/jpeg")
-    await asyncio.to_thread(storage.client.delete_object, Bucket=storage.bucket, Key="identidad/u1/v1/selfie.jpg")
-    await storage.put_bytes("identidad/u1/v2/selfie.jpg", JPEG, "image/jpeg")
+    selfie = f"identidad/{USER}/{FIRST}/selfie.jpg"
+    await storage.put_bytes(selfie, JPEG, "image/jpeg")
+    await storage.put_bytes(selfie, JPEG + b"otra", "image/jpeg")
+    await asyncio.to_thread(storage.client.delete_object, Bucket=storage.bucket, Key=selfie)
+    await storage.put_bytes(f"identidad/{USER}/{SECOND}/selfie.jpg", JPEG, "image/jpeg")
     assert len(await identity_versions(storage)) == 4
 
-    deleted = await storage.purge("identidad/u1/v1/")
+    deleted = await storage.purge(f"identidad/{USER}/{FIRST}/")
 
     assert deleted == 3
-    assert await identity_versions(storage) == ["identidad/u1/v2/selfie.jpg"]
+    assert await identity_versions(storage) == [f"identidad/{USER}/{SECOND}/selfie.jpg"]
+
+
+@pytest.mark.parametrize("prefix", [
+    "identidad/", "identidad", "", f"identidad/{USER}/", f"identidad/{USER}/{SECOND}", f"siniestros/{USER}/{SECOND}/",
+    f"identidad/{USER}/{SECOND}/selfie.jpg", "identidad/u1/v1/", f"identidad/{USER}/../{SECOND}/",
+    f"identidad/{USER}/{SECOND}/{FIRST}/",
+], ids=["raiz", "sin-barra", "vacio", "solo-usuario", "sin-barra-final", "otro-prefijo", "una-clave", "sin-uuid",
+        "con-puntos", "un-nivel-mas"])
+async def test_borrar_solo_acepta_el_prefijo_de_una_verificacion(storage, prefix):
+    await storage.put_bytes(f"identidad/{USER}/{SECOND}/selfie.jpg", JPEG, "image/jpeg")
+
     with pytest.raises(ValueError):
-        await storage.purge("identidad/u1/v2")
+        await storage.purge(prefix)
+
+    assert await identity_versions(storage) == [f"identidad/{USER}/{SECOND}/selfie.jpg"]
 
 
 async def test_con_el_registro_apagado_las_dos_rutas_responden_404(
@@ -470,6 +551,30 @@ async def test_una_pendiente_vencida_sin_procesar_tampoco_ocupa_el_documento(
     again = await register_again(async_client, postgres_session, "1098700078", "0078")
 
     assert again.status_code == 202
+
+
+async def test_al_vencer_una_cuenta_solo_se_revoca_su_autorizacion_y_no_la_de_otra_con_el_mismo_documento(
+    async_client, postgres_session, storage, verifier
+):
+    code = await code_for(async_client, "1098700158")
+    await register(async_client, body("1098700158", code))
+    await backdate(postgres_session, "1098700158", 31)
+    again = await register_again(async_client, postgres_session, "1098700158", "0158")
+    assert again.status_code == 202
+
+    expired = await insured_registration_service.expire_pending(postgres_session, storage)
+
+    assert expired == 1
+    postgres_session.expire_all()
+    rows = (await postgres_session.execute(
+        select(InsuredAccountDB.email, InsuredAccountDB.verification_status, ConsentDB.status)
+        .join(ConsentDB, ConsentDB.user_id == InsuredAccountDB.user_id)
+        .where(InsuredAccountDB.document_number == "1098700158")
+    )).all()
+    assert sorted(rows) == [
+        ("otra.1098700158@example.com", "PENDING", "GRANTED"),
+        ("registro.1098700158@example.com", "EXPIRED", "REVOKED"),
+    ]
 
 
 async def test_una_cuenta_rechazada_no_ocupa_el_documento(async_client, postgres_session, storage, verifier):
@@ -644,7 +749,7 @@ async def test_la_decision_diferida_procesa_lotes_de_20_cada_uno_con_su_transacc
 ):
     created = datetime.now(timezone.utc)
     for index in range(25):
-        user_id = f"ins-lote-{index:02d}"
+        user_id = str(uuid.uuid4())
         postgres_session.add(InsuredAccountDB(
             user_id=user_id, email=f"lote.{index}@example.com", full_name="Cuenta Lote", document_type="CC",
             document_number=f"10987002{index:02d}", phone="+573000000000", password_hash="hash", token_version=0,
@@ -652,7 +757,7 @@ async def test_la_decision_diferida_procesa_lotes_de_20_cada_uno_con_su_transacc
         ))
         await postgres_session.flush()
         postgres_session.add(IdentityVerificationDB(
-            verification_id=f"ver-lote-{index:02d}", user_id=user_id, status="PENDING", provider_ref=f"sim-{index}",
+            verification_id=str(uuid.uuid4()), user_id=user_id, status="PENDING", provider_ref=f"sim-{index}",
             created_at=created,
         ))
     await postgres_session.commit()

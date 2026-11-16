@@ -38,31 +38,33 @@ pólizas ni siniestros.
 
 Fuera de alcance: contratar un proveedor real de verificación; aviso push cuando la verificación diferida decide
 (la app no lo promete); prueba de vida (*liveness*); reverso del documento desde la app (el backend lo acepta
-opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-06) y el tope del cuerpo de
-`POST /insured/claims` (RISK-09).
+opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-06). La deuda del tope del cuerpo de
+`POST /insured/claims` (RISK-09) quedó cerrada en este hotfix con el mismo middleware del registro.
 
 ### Affected paths
 
 | Path | Change |
 |---|---|
-| backend/app/migrations/versions/0007_verificacion_de_identidad.py | Columnas `document_type`, `verification_status` y `verified_at` en `insured_accounts`; `binding_hash` en `document_otps`; tabla `identity_verifications`; el downgrade borra primero las cuentas no aprobadas y las autorizaciones biométricas |
+| backend/app/migrations/versions/0007_verificacion_de_identidad.py | Columnas `document_type`, `verification_status` y `verified_at` en `insured_accounts`; `binding_hash` en `document_otps`; tabla `identity_verifications`; `user_id` en `consents` para revocar la autorización biométrica por cuenta; el downgrade borra primero las cuentas no aprobadas y las autorizaciones biométricas |
 | backend/app/core/config.py | `REGISTRATION_ENABLED` y la lista de ambientes del simulado |
-| backend/app/core/middleware.py | `BodySizeLimitMiddleware`: 413 antes de leer el multipart |
+| backend/app/core/middleware.py | `BodyLimit` (método, patrón con parámetros y tope) y `BodySizeLimitMiddleware` genérico: 413 antes de leer el multipart |
 | backend/app/modules/identity/ports.py | Puerto `IdentityVerifier` y `VerificationResult` |
 | backend/app/modules/identity/adapters.py | `SimulatedIdentityVerifier` y `get_identity_verifier` con la lista de ambientes |
 | backend/app/modules/identity/service_registration.py | Código de registro, registro, verificación diferida en lotes, vencimiento y revocación |
-| backend/app/modules/identity/service.py | Propósito `registration`, estados de verificación, código atado al teléfono sin borrar el de otro, cuentas REJECTED y EXPIRED como inexistentes, `duplicate` y `rejected` en el límite por IP |
+| backend/app/modules/identity/service.py | Propósito `registration`, estados de verificación, código atado al teléfono sin borrar el de otro, cuentas REJECTED, EXPIRED y REVOKED como inexistentes, `duplicate` y `rejected` en el límite por IP |
 | backend/app/modules/identity/db_models.py | Columnas nuevas, `binding_hash` e `IdentityVerificationDB` |
 | backend/app/modules/identity/models.py | `RegistrationOtpRequest`, `RegistrationData`, `RegistrationResult` |
 | backend/app/modules/identity/policy.py | Cinco registros por hora por documento y tres códigos por hora por teléfono |
-| backend/app/modules/profile/service.py | Autorización biométrica en `consents`, excluida de Open Finance y de la consulta por `consent_id` |
-| backend/app/core/storage.py | `purge`: borra todas las versiones y marcadores de un prefijo |
+| backend/app/modules/profile/service.py | Autorización biométrica en `consents`, excluida de Open Finance y de la consulta por `consent_id`; se revoca por `user_id` |
+| backend/app/modules/profile/models.py | `ConsentDB.user_id`, solo para la autorización biométrica |
+| backend/app/modules/claims/intake.py | `REPORT_MAX_BODY_BYTES`: tope del cuerpo del reporte de siniestro |
+| backend/app/core/storage.py | `purge`: borra todas las versiones y marcadores de un prefijo `identidad/<uuid>/<uuid>/` y rechaza cualquier otro |
 | backend/app/bff/auth/router.py | `POST /auth/register/otp` y `POST /auth/register` |
 | backend/app/bff/insured/router.py | Las rutas de datos exigen identidad aprobada; `POST /insured/consents/biometric/revoke` |
-| backend/app/main.py | La tarea diaria vence y decide las verificaciones pendientes; tope del cuerpo del registro |
+| backend/app/main.py | La tarea diaria vence y decide las verificaciones pendientes; topes del cuerpo del registro y del reporte de siniestro |
 | backend/tests/** | Pruebas de integración, unitarias y de la migración |
 | terraform/modules/ecs/main.tf | El rol de la tarea escribe, lee y borra versiones solo bajo `identidad/` y lista versiones solo con `s3:prefix` en `identidad/` |
-| terraform/modules/storage_events/main.tf | Ciclo de vida de `identidad/`: versiones no actuales a 1 día, actuales a 30 días y marcadores vencidos |
+| terraform/modules/storage_events/main.tf | Ciclo de vida de `identidad/` en una sola regla: versiones no actuales a 1 día y actuales a 30 días |
 | terraform/tests/imagenes_de_identidad.tftest.hcl | Pruebas del permiso y del ciclo de vida |
 | movil/app/src/main/java/com/solventa/app/domain/auth/Registration.kt | Contrato del registro y reglas de formato |
 | movil/app/src/main/java/com/solventa/app/domain/auth/AuthApi.kt | `requestRegistrationOtp` y `register` |
@@ -72,7 +74,7 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | movil/app/src/main/java/com/solventa/app/ui/auth/AuthViewModel.kt | Abrir el registro y abrir la sesión de la cuenta nueva |
 | movil/app/src/main/java/com/solventa/app/ui/auth/BiometricLoginScreen.kt | Enlace «Crear cuenta» |
 | movil/app/src/main/java/com/solventa/app/ui/auth/AlternativeLoginScreen.kt | Enlace «Crear cuenta» |
-| movil/app/src/main/java/com/solventa/app/ui/claims/EvidenceCamera.kt | Selector de cámara trasera o frontal; vista previa por cámara; aviso sin la cámara pedida |
+| movil/app/src/main/java/com/solventa/app/ui/claims/EvidenceCamera.kt | Selector de cámara trasera o frontal; vista previa por cámara; aviso sin la cámara pedida; `CameraBinding` libera la cámara si CameraX responde después de `onDispose` |
 | movil/app/src/main/java/com/solventa/app/ui/theme/Theme.kt | Colores del visor de la cámara |
 | movil/app/src/main/java/com/solventa/app/ui/settings/NotificationPreferencesScreen.kt | Revocar la autorización biométrica desde «Avisos» |
 | movil/app/src/main/java/com/solventa/app/ui/settings/NotificationPreferencesViewModel.kt | Confirmación y llamada de la revocación |
@@ -103,7 +105,7 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | AB-04 | Subir un archivo que no es foto o muy grande | Persona maliciosa | THR-04 | 422 sin firma JPEG, 413 sobre 2 MB, sin guardar nada | TC-06 |
 | AB-05 | Obtener las imágenes de identidad de otra persona | Persona maliciosa o interna | THR-05 | Sin endpoint que las devuelva; solo existen en S3 mientras están pendientes | TC-03, TC-09 |
 | AB-06 | Usar una cuenta rechazada después del registro | Persona maliciosa | THR-01 | Sesiones y huellas revocadas; el ingreso, el código, la recuperación y la huella responden como si no existiera | TC-10, TC-22 |
-| AB-07 | Ocupar el documento de otra persona con un registro que nunca se aprueba | Persona maliciosa | THR-08 | Una cuenta rechazada, vencida o revocada no ocupa el documento; una pendiente lo ocupa a lo sumo 30 días | TC-20 |
+| AB-07 | Ocupar el documento de otra persona con un registro que nunca se aprueba | Persona maliciosa | THR-08 | Una cuenta rechazada, vencida o revocada (REVOKED: el titular revocó la autorización con la cuenta en verificación) no ocupa el documento; una pendiente lo ocupa a lo sumo 30 días | TC-20 |
 | AB-08 | Pedir códigos de registro sin fin a un teléfono, o con el documento de otra persona para borrar su código | Persona maliciosa | THR-09 | Tres códigos por hora por teléfono; el código de un teléfono no borra el de otro | TC-23 |
 | AB-09 | Usar la autorización biométrica como consentimiento para cotizar | Asesor | THR-07 | El `consent_id` biométrico responde 422 | TC-26 |
 
@@ -167,7 +169,7 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | SR-08 | La app no escribe las fotos ni los datos en disco, registros ni estado guardado, y usa la ventana segura | DATA-02 | CTL-10 | HIGH |
 | SR-09 | Fuera de development, local y test el registro está apagado salvo decisión explícita, y el simulado nunca decide | DATA-02, THR-01 | CTL-01, CTL-11 | HIGH |
 | SR-10 | Un registro abandonado o rechazado no ocupa el documento; los códigos tienen límite por teléfono y no se borran entre teléfonos; un registro fallido no deja el código reutilizable | THR-08, THR-09 | CTL-03, CTL-13, CTL-14 | MEDIUM |
-| SR-11 | El cuerpo del registro tiene un tope antes de leer el multipart | THR-04 | CTL-12 | MEDIUM |
+| SR-11 | El cuerpo del registro y el del reporte de siniestro tienen un tope antes de leer el multipart | THR-04 | CTL-12 | MEDIUM |
 
 ## 2. Design
 
@@ -183,7 +185,13 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
   autorización biométrica (`ProfileService.add_biometric_consent`) entra en la misma transacción que la cuenta.
   `S3DocumentStorage.purge(prefijo)` lista y borra cada versión y marcador. `insured_account` exige APPROVED;
   `session_account` no, y lo usa la revocación. `registration_open` responde 404 con `REGISTRATION_ENABLED`
-  apagado. `BodySizeLimitMiddleware` corta `POST /auth/register` en 7 MB.
+  apagado. `BodySizeLimitMiddleware` recibe reglas `BodyLimit` (método, patrón con parámetros entre llaves y tope):
+  `POST /auth/register` en 7 MB, `POST /insured/claims` en unos 11 MB y, lista para la otra rama,
+  `POST /insured/claims/{n}/documents` en 51 MB. Revocar la autorización con la cuenta en verificación borra las
+  imágenes y cierra la cuenta con `_close` en un estado propio, REVOKED (no EXPIRED: el titular la cerró, no el
+  plazo); así sus datos siguen la misma regla que una vencida y el documento queda libre. Con la cuenta aprobada
+  solo se revoca la autorización. `_close` nunca cierra una cuenta que no esté PENDING. La autorización
+  biométrica se revoca por `consents.user_id`, no por documento.
 - **App:** `RegistrationViewModel` (pasos, errores, fotos y clave en memoria, `takeSession`, `cameraUnavailable`);
   `RegistrationFlow` y sus pantallas, con `key(state.step)` en la cámara, `CameraUnavailableScreen` y
   autocompletar del código (`AutofillType.SmsOtpCode`); `CameraXEvidenceCamera(lens = FRONT)` con
@@ -241,8 +249,10 @@ App («Avisos») → `POST /insured/consents/biometric/revoke` → borrado en S3
   local o test. El adaptador simulado decide solo en esa misma lista.
 - Terraform: `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` y `s3:DeleteObjectVersion` sobre `identidad/*` y
   `s3:ListBucketVersions` sobre el bucket con `s3:prefix` en `identidad/` o `identidad/*` para el rol de la tarea;
-  `aws_s3_bucket_lifecycle_configuration` del bucket de documentos con dos reglas bajo `identidad/`: versiones no
-  actuales a 1 día y actuales a 30 días, y limpieza de marcadores de borrado vencidos.
+  `aws_s3_bucket_lifecycle_configuration` del bucket de documentos con una sola regla bajo `identidad/`: versiones no
+  actuales a 1 día y actuales a 30 días. S3 rechaza dos reglas con prefijos solapados y la misma acción
+  `Expiration` y no admite `expired_object_delete_marker` junto a `days`; con `days`, S3 quita el marcador que queda
+  solo. Hay que comprobar en el primer `apply` de DEV que S3 acepta la configuración.
 
 ## 3. Tasks
 
@@ -258,3 +268,4 @@ App («Avisos») → `POST /insured/consents/biometric/revoke` → borrado en S3
 | T-08 | Pruebas de todas las rutas de datos con una cuenta PENDING y del ingreso de una REJECTED | AC-10, AC-14 | CTL-01, CTL-09 | DONE | backend/tests/integration/test_insured_registration_api.py::test_una_cuenta_pendiente_no_alcanza_ninguna_ruta_de_datos |
 | T-09 | Documento ocupado, límite por teléfono, código por teléfono, código consumido tras un rollback, tope del cuerpo, consentimiento biométrico fuera de la cotización, lotes y downgrade | SR-10, SR-11, AC-13 | CTL-03, CTL-07, CTL-12, CTL-13, CTL-14 | DONE | backend/tests/integration/test_insured_registration_api.py; backend/tests/integration/test_migrations.py |
 | T-10 | App: vista previa por paso, aviso sin cámara frontal, «Atrás» en el resultado, autocompletar del código, colores del tema, textos y revocación en «Avisos» | AC-01, AC-08, AC-11, QR-01 | CTL-06, CTL-10 | DONE | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt; movil/app/src/test/java/com/solventa/app/ui/settings/NotificationPreferencesScreenTest.kt |
+| T-11 | Correcciones de la segunda revisión: revocar cierra la cuenta en verificación (REVOKED), autorización por cuenta, `purge` solo con `identidad/<uuid>/<uuid>/`, una regla de ciclo de vida, guarda de la cámara, guarda de `_close` y tope genérico del cuerpo con el reporte de siniestro (RISK-09) | SR-05, SR-10, SR-11 | CTL-05, CTL-06, CTL-12, CTL-14 | DONE | backend/tests/integration/test_insured_registration_api.py::test_revocar_con_la_cuenta_pendiente_la_cierra_y_libera_el_documento; backend/tests/integration/test_insured_registration_api.py::test_al_vencer_una_cuenta_solo_se_revoca_su_autorizacion_y_no_la_de_otra_con_el_mismo_documento; backend/tests/integration/test_insured_registration_api.py::test_borrar_solo_acepta_el_prefijo_de_una_verificacion; backend/tests/integration/test_claim_report_api.py::test_un_reporte_de_mas_de_11_mb_responde_413_antes_de_leer_el_multipart; backend/tests/unit/test_body_size_limit.py; movil/app/src/test/java/com/solventa/app/ui/claims/EvidenceCameraBindingTest.kt |

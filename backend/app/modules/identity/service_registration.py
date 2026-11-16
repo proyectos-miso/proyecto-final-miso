@@ -27,6 +27,7 @@ from app.modules.identity.ports import APPROVED, PENDING, REJECTED, IdentityVeri
 from app.modules.identity.service import (
     PURPOSE_REGISTRATION,
     VERIFICATION_EXPIRED,
+    VERIFICATION_REVOKED,
     InsuredAuthService,
     RateLimitedError,
     SmsUnavailableError,
@@ -38,7 +39,7 @@ from app.modules.profile.service import profile_service
 
 VERIFY_TIMEOUT_SECONDS = 0.4
 IDENTITY_PREFIX = "identidad"
-REVOKED = "REVOKED"
+REVOKED = VERIFICATION_REVOKED
 EXPIRED = VERIFICATION_EXPIRED
 # Tope de una verificación pendiente: después se vence, se borran sus imágenes y el documento queda libre.
 PENDING_TTL = timedelta(days=30)
@@ -201,7 +202,7 @@ class InsuredRegistrationService:
             decided_at=now if result.status == APPROVED else None,
         )
         session.add(verification)
-        profile_service.add_biometric_consent(session, data.document_type, data.document_number, now)
+        profile_service.add_biometric_consent(session, account.user_id, data.document_type, data.document_number, now)
 
         prefix = self._prefix(account.user_id, verification.verification_id)
         if result.status == PENDING:
@@ -282,7 +283,9 @@ class InsuredRegistrationService:
     async def revoke_biometric_consent(
         self, session: AsyncSession, storage: DocumentStorage, account: InsuredAccountDB
     ) -> int:
-        """Revoca la autorización: borra las imágenes pendientes y detiene su verificación. Devuelve cuántas borró."""
+        """Revoca la autorización y borra las imágenes pendientes. Sin las imágenes la identidad ya no se puede verificar:
+        una cuenta en verificación se cierra como REVOKED, igual que una vencida, y su documento queda libre. Una cuenta
+        aprobada sigue abierta. Devuelve cuántas versiones borró."""
         rows = (
             await session.execute(
                 select(IdentityVerificationDB)
@@ -294,11 +297,13 @@ class InsuredRegistrationService:
         try:
             for row in rows:
                 deleted += await self._purge(storage, row)
-                row.status, row.s3_keys, row.decided_at = REVOKED, None, self._auth._clock()
         except StorageUnavailableError:
             await session.rollback()
             raise
-        await profile_service.revoke_biometric_consent(session, account.document_number)
+        now = self._auth._clock()
+        for row in rows:
+            await self._close(session, row, account, REVOKED, now)
+        await profile_service.revoke_biometric_consent(session, account.user_id)
         await session.commit()
         return deleted
 
@@ -318,8 +323,12 @@ class InsuredRegistrationService:
     async def _close(
         self, session: AsyncSession, row: IdentityVerificationDB, account: InsuredAccountDB, status: str, now: datetime
     ) -> None:
-        """Rechazada o vencida: cierra sus sesiones y huellas y revoca la autorización biométrica, que ya no tiene uso."""
+        """Rechazada, vencida o revocada: cierra sus sesiones y huellas y revoca la autorización biométrica, que ya no
+        tiene uso. Solo cierra una cuenta en verificación: una aprobada nunca se cierra por aquí."""
         row.status, row.decided_at, row.s3_keys = status, now, None
+        if account.verification_status != PENDING:
+            logger.warning("Se omitió cerrar una cuenta que no está en verificación")
+            return
         account.verification_status = status
         account.token_version += 1
         await session.execute(
@@ -327,7 +336,7 @@ class InsuredRegistrationService:
             .where(InsuredDeviceDB.user_id == account.user_id, InsuredDeviceDB.revoked_at.is_(None))
             .values(revoked_at=now)
         )
-        await profile_service.revoke_biometric_consent(session, account.document_number)
+        await profile_service.revoke_biometric_consent(session, account.user_id)
 
     @staticmethod
     async def _taken(session: AsyncSession, email: str, document_number: str, now: datetime) -> bool:

@@ -29,7 +29,7 @@
 | SC-24 | AC-14 | Dada una cuenta rechazada, cuando pide código, recupera la clave o entra con huella, entonces responde igual que una inexistente o 401 | TC-22 |
 | SC-25 | UC-01 | Dados tres códigos a un teléfono en una hora, cuando se pide un cuarto, entonces 429; el código de un teléfono no borra el de otro | TC-23 |
 | SC-26 | AC-06 | Dada una falla de S3 o de la base al registrar, cuando se reintenta con el mismo código, entonces el código ya no vale | TC-24 |
-| SC-27 | AC-06 | Dado un cuerpo de más de 7 MB, con o sin `Content-Length`, cuando se registra, entonces 413 antes de leer el multipart | TC-25 |
+| SC-27 | AC-06 | Dado un cuerpo de más de 7 MB en el registro o de más de 11 MB en el reporte de siniestro, con o sin `Content-Length`, entonces 413 antes de leer el multipart | TC-25 |
 | SC-28 | AC-13 | Dado el `consent_id` de la autorización biométrica, cuando un asesor cotiza con él, entonces 422 | TC-26 |
 | SC-29 | UC-02 | Dadas 25 pendientes, cuando corre la decisión diferida, entonces las decide en dos lotes, cada uno con su transacción | TC-27 |
 | SC-30 | AC-02 | Dada la migración `0007` con cuentas aprobadas, pendientes y rechazadas, cuando se revierte, entonces solo quedan las aprobadas y ninguna autorización biométrica | TC-28 |
@@ -196,12 +196,12 @@
 | Risk covered | THR-05 |
 | Level | INTEGRATION |
 | Preconditions | Registro pendiente con dos imágenes |
-| Procedure | 1. Revocar con la sesión de la cuenta. 2. Revocar sin sesión |
-| Expected result | 200, nada bajo `identidad/`, verificación REVOKED sin claves, autorización REVOKED; sin sesión 401 |
+| Procedure | 1. Revocar con la sesión de la cuenta. 2. Revocar sin sesión. 3. Revocar con una cuenta aprobada. 4. Llamar `_close` con una cuenta aprobada |
+| Expected result | 200, nada bajo `identidad/`, verificación REVOKED sin claves, autorización REVOKED; sin sesión 401; la cuenta aprobada sigue APPROVED con `token_version` 0 y ve sus pólizas, y su autorización queda REVOKED; `_close` no toca la cuenta aprobada ni su autorización |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_insured_registration_api.py::test_revocar_el_consentimiento_borra_las_imagenes_pendientes |
+| Evidence | backend/tests/integration/test_insured_registration_api.py::test_revocar_el_consentimiento_borra_las_imagenes_pendientes; backend/tests/integration/test_insured_registration_api.py::test_revocar_con_la_cuenta_aprobada_no_la_cierra; backend/tests/integration/test_insured_registration_api.py::test_cerrar_nunca_toca_una_cuenta_aprobada |
 | Status | PASS |
 
 ### TC-10 · Verificación diferida
@@ -349,12 +349,12 @@
 | Risk covered | THR-05 |
 | Level | INTEGRATION |
 | Preconditions | S3 emulado (Floci) con versionado activo, como el bucket de AWS; proveedor de AWS simulado para Terraform |
-| Procedure | 1. Guardar dos versiones de una imagen, borrarla sin versión (marcador) y guardar otra bajo otro prefijo. 2. `purge` del primer prefijo. 3. Correr los registros pendientes, la decisión, la revocación y el rechazo y listar versiones. 4. `terraform test` del ciclo de vida |
-| Expected result | `purge` borra 3 (dos versiones y el marcador) y deja la del otro prefijo; un prefijo sin «/» se rechaza; después de decidir, revocar o rechazar no queda ninguna versión ni marcador bajo `identidad/`; reglas con filtro `identidad/`: versiones no actuales a 1 día, actuales a 30 días y marcadores vencidos |
+| Procedure | 1. Guardar dos versiones de una imagen, borrarla sin versión (marcador) y guardar otra bajo otro prefijo. 2. `purge` del primer prefijo y de prefijos que no son `identidad/<uuid>/<uuid>/`. 3. Correr los registros pendientes, la decisión, la revocación y el rechazo y listar versiones. 4. `terraform test` del ciclo de vida |
+| Expected result | `purge` borra 3 (dos versiones y el marcador) y deja la del otro prefijo; cualquier prefijo que no sea `identidad/<uuid>/<uuid>/`, incluido `identidad/`, se rechaza sin borrar nada; después de decidir, revocar o rechazar no queda ninguna versión ni marcador bajo `identidad/`; una sola regla con filtro `identidad/`: versiones no actuales a 1 día y actuales a 30 días |
 | Tool or method | pytest con Floci; terraform test |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_insured_registration_api.py::test_borrar_las_imagenes_quita_todas_las_versiones_y_marcadores_del_prefijo; backend/tests/integration/test_insured_registration_api.py::test_revocar_el_consentimiento_borra_las_imagenes_pendientes; backend/tests/integration/test_insured_registration_api.py::test_la_verificacion_diferida_aprueba_y_borra_las_imagenes; terraform/tests/imagenes_de_identidad.tftest.hcl::el_bucket_vence_las_imagenes_de_identidad_y_sus_versiones |
+| Evidence | backend/tests/integration/test_insured_registration_api.py::test_borrar_las_imagenes_quita_todas_las_versiones_y_marcadores_del_prefijo; backend/tests/integration/test_insured_registration_api.py::test_borrar_solo_acepta_el_prefijo_de_una_verificacion; backend/tests/integration/test_insured_registration_api.py::test_revocar_el_consentimiento_borra_las_imagenes_pendientes; backend/tests/integration/test_insured_registration_api.py::test_la_verificacion_diferida_aprueba_y_borra_las_imagenes; terraform/tests/imagenes_de_identidad.tftest.hcl::el_bucket_vence_las_imagenes_de_identidad_y_sus_versiones |
 | Status | PASS |
 
 ### TC-19 · Registro apagado por ambiente
@@ -383,12 +383,12 @@
 | Risk covered | THR-08 |
 | Level | INTEGRATION |
 | Preconditions | Registros pendientes con imágenes en S3 versionado |
-| Procedure | 1. Llevar una pendiente a 31 días y correr la decisión y el vencimiento. 2. Registrar el mismo documento con otro correo y celular. 3. Repetir sin correr el vencimiento. 4. Repetir con una cuenta rechazada |
-| Expected result | La decisión no la toca y el vencimiento la vence: sin versiones, cuenta EXPIRED con `token_version` 1 y renovación 401; el nuevo registro del documento responde 202 en los tres casos |
+| Procedure | 1. Llevar una pendiente a 31 días y correr la decisión y el vencimiento. 2. Registrar el mismo documento con otro correo y celular. 3. Repetir sin correr el vencimiento. 4. Repetir con una cuenta rechazada. 5. Repetir con una pendiente cuyo titular revocó la autorización. 6. Con una pendiente vencida sin procesar (A), registrar otra cuenta con el mismo documento (B) y correr el vencimiento |
+| Expected result | La decisión no la toca y el vencimiento la vence: sin versiones, cuenta EXPIRED con `token_version` 1 y renovación 401; la revocada queda REVOKED con `token_version` 1 y renovación, ingreso e ingreso con huella 401; el nuevo registro del documento responde 202 en los cuatro casos; A queda EXPIRED con su autorización REVOKED y B sigue PENDING con la suya GRANTED |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_insured_registration_api.py::test_una_pendiente_de_mas_de_30_dias_vence_borra_sus_imagenes_y_libera_el_documento; backend/tests/integration/test_insured_registration_api.py::test_una_pendiente_vencida_sin_procesar_tampoco_ocupa_el_documento; backend/tests/integration/test_insured_registration_api.py::test_una_cuenta_rechazada_no_ocupa_el_documento |
+| Evidence | backend/tests/integration/test_insured_registration_api.py::test_una_pendiente_de_mas_de_30_dias_vence_borra_sus_imagenes_y_libera_el_documento; backend/tests/integration/test_insured_registration_api.py::test_una_pendiente_vencida_sin_procesar_tampoco_ocupa_el_documento; backend/tests/integration/test_insured_registration_api.py::test_una_cuenta_rechazada_no_ocupa_el_documento; backend/tests/integration/test_insured_registration_api.py::test_revocar_con_la_cuenta_pendiente_la_cierra_y_libera_el_documento; backend/tests/integration/test_insured_registration_api.py::test_al_vencer_una_cuenta_solo_se_revoca_su_autorizacion_y_no_la_de_otra_con_el_mismo_documento |
 | Status | PASS |
 
 ### TC-21 · Ninguna ruta de datos con una cuenta pendiente
@@ -459,7 +459,7 @@
 | Evidence | backend/tests/integration/test_insured_registration_api.py::test_si_s3_falla_el_codigo_queda_consumido_y_el_intento_auditado; backend/tests/integration/test_insured_registration_api.py::test_si_la_base_rechaza_el_correo_el_codigo_queda_consumido; backend/tests/integration/test_insured_registration_api.py::test_los_duplicados_y_rechazos_cuentan_en_el_limite_por_ip |
 | Status | PASS |
 
-### TC-25 · Tope del cuerpo del registro
+### TC-25 · Tope del cuerpo del registro y del reporte de siniestro
 
 | Field | Value |
 |---|---|
@@ -468,12 +468,12 @@
 | Risk covered | THR-04 |
 | Level | INTEGRATION |
 | Preconditions | Ninguna |
-| Procedure | 1. Registrar con una selfie de más de 7 MB (con `Content-Length`). 2. Enviar 8 MB en partes, sin `Content-Length` |
-| Expected result | 413 `INVALID_PHOTO` en los dos casos |
+| Procedure | 1. Registrar con una selfie de más de 7 MB (con `Content-Length`). 2. Enviar 8 MB en partes, sin `Content-Length`. 3. Reportar un siniestro con cinco fotos de 2,3 MB (con `Content-Length`). 4. Enviar 12 MB en partes al reporte, sin `Content-Length`. 5. Probar las reglas con un patrón con parámetros, otro método y otra ruta |
+| Expected result | 413 `INVALID_PHOTO` en el registro; 413 en el reporte sin crear el siniestro; el patrón `{claim_number}` coincide con un solo segmento; otro método u otra ruta no tienen tope |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_insured_registration_api.py::test_un_cuerpo_de_mas_de_7_mb_responde_413_antes_de_leer_el_multipart |
+| Evidence | backend/tests/integration/test_insured_registration_api.py::test_un_cuerpo_de_mas_de_7_mb_responde_413_antes_de_leer_el_multipart; backend/tests/integration/test_claim_report_api.py::test_un_reporte_de_mas_de_11_mb_responde_413_antes_de_leer_el_multipart; backend/tests/unit/test_body_size_limit.py::test_aplica_el_tope_de_la_ruta_que_coincide_con_el_patron; backend/tests/unit/test_body_size_limit.py::test_otro_metodo_en_la_misma_ruta_no_tiene_tope |
 | Status | PASS |
 
 ### TC-26 · La autorización biométrica no sirve para cotizar
@@ -536,12 +536,12 @@
 | Risk covered | — |
 | Level | UNIT |
 | Preconditions | Robolectric con cámaras falsas que cuentan su vista previa |
-| Procedure | 1. Pasar del documento a la selfie. 2. Con una cámara frontal que no existe. 3. Llegar al resultado aprobado y tocar «Atrás». 4. Autocompletar el código del SMS |
-| Expected result | La selfie crea su propia vista previa y la del documento se cierra (sin `key(state.step)` la prueba falla); aviso de la cámara frontal con «Salir del registro» y sin obturador; «Atrás» entrega la sesión en lugar de cerrar; el campo acepta el código autocompletado |
+| Procedure | 1. Pasar del documento a la selfie. 2. Con una cámara frontal que no existe. 3. Llegar al resultado aprobado y tocar «Atrás». 4. Autocompletar el código del SMS. 5. Desechar la vista antes y después de que CameraX entregue el proveedor |
+| Expected result | La selfie crea su propia vista previa y la del documento se cierra (sin `key(state.step)` la prueba falla); aviso de la cámara frontal con «Salir del registro» y sin obturador; «Atrás» entrega la sesión en lugar de cerrar; el campo acepta el código autocompletado; si el proveedor llega después de desechar la vista, no se enlaza y se libera |
 | Tool or method | Compose UI test con Robolectric |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"al pasar del documento a la selfie se crea una vista previa nueva con la camara frontal"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"un telefono sin camara frontal muestra un aviso con salida en lugar del obturador"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"atras en el resultado entra con la cuenta creada en lugar de cerrar la sesion"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"el campo del codigo ofrece autocompletar el codigo del SMS" |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"al pasar del documento a la selfie se crea una vista previa nueva con la camara frontal"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"un telefono sin camara frontal muestra un aviso con salida en lugar del obturador"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"atras en el resultado entra con la cuenta creada en lugar de cerrar la sesion"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt::"el campo del codigo ofrece autocompletar el codigo del SMS"; movil/app/src/test/java/com/solventa/app/ui/claims/EvidenceCameraBindingTest.kt::"si el proveedor responde despues de desechar no enlaza y libera" |
 | Status | PASS |
 
 ### TC-30 · Revocar la autorización desde «Avisos»

@@ -38,12 +38,17 @@ def upgrade() -> None:
         )
     """)
     op.execute("CREATE INDEX IF NOT EXISTS ix_identity_verifications_user_id ON identity_verifications (user_id)")
+    # La autorización biométrica se revoca por cuenta: dos cuentas pueden haber usado el mismo documento.
+    op.execute("ALTER TABLE consents ADD COLUMN IF NOT EXISTS user_id VARCHAR(36)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_consents_user_id ON consents (user_id)")
 
 
 def downgrade() -> None:
     op.execute("DELETE FROM insured_accounts WHERE verification_status <> 'APPROVED'")
     op.execute("DELETE FROM consents WHERE purpose = 'biometric_verification'")
     op.execute("DELETE FROM document_otps WHERE purpose = 'registration'")
+    op.execute("DROP INDEX IF EXISTS ix_consents_user_id")
+    op.execute("ALTER TABLE consents DROP COLUMN IF EXISTS user_id")
     op.execute("ALTER TABLE document_otps DROP COLUMN IF EXISTS binding_hash")
     op.execute("DROP TABLE IF EXISTS identity_verifications")
     op.execute("""

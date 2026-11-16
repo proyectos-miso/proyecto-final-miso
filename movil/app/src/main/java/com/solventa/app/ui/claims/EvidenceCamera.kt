@@ -56,25 +56,33 @@ class CameraXEvidenceCamera(
         val previewView = remember(this) { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
         DisposableEffect(lifecycleOwner, this) {
             val future = ProcessCameraProvider.getInstance(context)
-            var provider: ProcessCameraProvider? = null
             val preview = Preview.Builder().build()
+            var provider: ProcessCameraProvider? = null
+            val binding = CameraBinding(
+                bind = {
+                    provider?.let { cameras ->
+                        // Un teléfono sin cámara frontal no puede tomar la selfie: se avisa en lugar de reintentar.
+                        if (!cameras.hasCamera(selector)) {
+                            onUnavailable()
+                        } else {
+                            preview.setSurfaceProvider(previewView.surfaceProvider)
+                            cameras.unbindAll()
+                            cameras.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
+                        }
+                    }
+                },
+                // Solo los casos de uso de esta vista: otra cámara ya pudo enlazarse en su lugar.
+                release = { provider?.unbind(preview, imageCapture) },
+            )
             future.addListener({
                 try {
-                    val cameras = future.get()
-                    provider = cameras
-                    // Un teléfono sin cámara frontal no puede tomar la selfie: se avisa en lugar de reintentar.
-                    if (!cameras.hasCamera(selector)) {
-                        onUnavailable()
-                    } else {
-                        preview.setSurfaceProvider(previewView.surfaceProvider)
-                        cameras.unbindAll()
-                        cameras.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
-                    }
+                    provider = future.get()
+                    binding.onReady()
                 } catch (e: Exception) {
                     onUnavailable()
                 }
             }, context.mainExecutor)
-            onDispose { provider?.unbindAll() }
+            onDispose { binding.dispose() }
         }
         AndroidView(factory = { previewView }, modifier = modifier)
     }
@@ -101,6 +109,23 @@ class CameraXEvidenceCamera(
                 }
             },
         )
+    }
+}
+
+/**
+ * Enlace de una vista previa con CameraX. El listener del proveedor puede correr después de `onDispose`: en ese caso
+ * no enlaza y libera, para que la cámara no quede tomada por una vista que ya no existe. Todo corre en el hilo principal.
+ */
+internal class CameraBinding(private val bind: () -> Unit, private val release: () -> Unit) {
+    private var disposed = false
+
+    fun onReady() {
+        if (disposed) release() else bind()
+    }
+
+    fun dispose() {
+        disposed = true
+        release()
     }
 }
 

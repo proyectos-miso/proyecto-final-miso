@@ -104,6 +104,11 @@ run "el_bucket_vence_las_imagenes_de_identidad_y_sus_versiones" {
   }
 
   assert {
+    condition     = length(aws_s3_bucket_lifecycle_configuration.documents.rule) == 1
+    error_message = "Una sola regla con Expiration para identidad/: S3 rechaza dos con prefijos solapados."
+  }
+
+  assert {
     condition = one([
       for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-vence"
     ]).noncurrent_version_expiration[0].noncurrent_days == 1
@@ -115,12 +120,5 @@ run "el_bucket_vence_las_imagenes_de_identidad_y_sus_versiones" {
       for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-vence"
     ]).expiration[0].days == 30
     error_message = "Una imagen actual no puede durar más que una verificación pendiente (30 días)."
-  }
-
-  assert {
-    condition = one([
-      for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-marcadores"
-    ]).expiration[0].expired_object_delete_marker == true
-    error_message = "Los marcadores de borrado vencidos deben limpiarse."
   }
 }

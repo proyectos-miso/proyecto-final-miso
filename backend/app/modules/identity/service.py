@@ -49,8 +49,10 @@ VERIFICATION_APPROVED = "APPROVED"
 VERIFICATION_PENDING = "PENDING"
 VERIFICATION_REJECTED = "REJECTED"
 VERIFICATION_EXPIRED = "EXPIRED"
-# Cuentas cuya identidad se rechazó o venció sin decisión: el ingreso, el código y la recuperación las tratan como inexistentes.
-CLOSED_VERIFICATIONS = (VERIFICATION_REJECTED, VERIFICATION_EXPIRED)
+VERIFICATION_REVOKED = "REVOKED"
+# Cuentas cuya identidad se rechazó, venció sin decisión o quedó sin imágenes porque el titular revocó la autorización:
+# el ingreso, el código y la recuperación las tratan como inexistentes.
+CLOSED_VERIFICATIONS = (VERIFICATION_REJECTED, VERIFICATION_EXPIRED, VERIFICATION_REVOKED)
 
 # `duplicate` y `rejected` son intentos de registro fallidos: cuentan en el límite por IP (mejora FE-MOV-01).
 FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked", "duplicate", "rejected")
@@ -389,7 +391,7 @@ class InsuredAuthService:
 
     @staticmethod
     def _open(account: Optional[InsuredAccountDB]) -> Optional[InsuredAccountDB]:
-        """None si no existe o si su identidad se rechazó o venció (mejora FE-MOV-01)."""
+        """None si no existe o si su identidad se rechazó, venció o se revocó (mejora FE-MOV-01)."""
         if account is None or account.verification_status in CLOSED_VERIFICATIONS:
             return None
         return account

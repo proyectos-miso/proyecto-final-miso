@@ -1,5 +1,6 @@
 """Documentos en S3 con enlaces prefirmados (HU-WEB-16, ADR 0023); Floci en local y en el CI."""
 import asyncio
+import re
 from functools import lru_cache
 from typing import Optional, Protocol
 
@@ -8,6 +9,11 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
+
+
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# Lo único que se borra en bloque: las imágenes de una verificación de identidad (mejora FE-MOV-01).
+PURGEABLE_PREFIX = re.compile(rf"identidad/{_UUID}/{_UUID}/")
 
 
 class StorageUnavailableError(Exception):
@@ -125,8 +131,8 @@ class S3DocumentStorage:
         """Borra todas las versiones y marcadores de borrado bajo el prefijo; devuelve cuántas borró.
         El bucket tiene versionado: `delete_object` sin `VersionId` solo agrega un marcador y deja la imagen
         (mejora FE-MOV-01). El rol solo puede listar y borrar versiones bajo identidad/ (Terraform)."""
-        if not prefix.endswith("/"):
-            raise ValueError("El prefijo debe terminar en «/» para no alcanzar otras claves.")
+        if not PURGEABLE_PREFIX.fullmatch(prefix):
+            raise ValueError("Solo se borra el prefijo identidad/<usuario>/<verificación>/.")
         try:
             return await asyncio.to_thread(self._purge, prefix)
         except (BotoCoreError, ClientError) as exc:
