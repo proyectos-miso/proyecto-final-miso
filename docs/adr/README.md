@@ -25,6 +25,7 @@ team accepts or changes them.
 | [0025](0025-backend-schema-migrations.md) | Schema changes only through versioned migrations |
 | [0026](0026-backend-outbox-publisher.md) | Outbox events published to SQS at least once |
 | [0027](0027-backend-parametric-oracle.md) | Parametric claims from signed oracle events |
+| [0030](0030-backend-outbox-consumer.md) | An in-process consumer delivers outbox events once per message |
 
 ## Web portal (Angular)
 

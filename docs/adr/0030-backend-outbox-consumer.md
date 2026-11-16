@@ -1,0 +1,82 @@
+# ADR 0030 · Backend: an in-process consumer delivers outbox events once per message
+
+| Field | Value |
+|---|---|
+| Status | Proposed |
+| Date | 2026-11-15 |
+| Story | none: improvement that completes the outbox pattern (ASR-05), decided by the user on 2026-11-15 |
+| Deciders | The team (to be confirmed) |
+
+## Context
+
+- [ADR 0026](0026-backend-outbox-publisher.md) publishes `PolicyIssued`, `PaymentApproved` and `ClaimFiled`
+  from the `outbox` table to the SQS queue `events`, but nothing read that queue: the events were sent and
+  expired after four days.
+- Push notifications were sent inside the request. `ClaimService.commit` (`app/modules/claims/service.py`)
+  called `notification_service.claim_changed` after the analyst's decision, the parametric settlement of the
+  oracle and the payout retry; the daily task (`app/main.py`, `run_policy_lifecycle`) called `renewal_due`.
+  A slow Firebase slowed the analyst's request, and a failed push was logged and lost.
+- `NotificationService.notify` swallows every error by design (best effort), so a caller could not tell a
+  delivery failure from a disabled category.
+- Terraform already gives the queue a dead-letter queue after three receives and encrypts both with the
+  storage KMS key (`terraform/modules/storage_events`). The task role could only send.
+
+## Options considered
+
+| Option | Pros | Cons |
+|---|---|---|
+| A. A long-polling consumer inside the backend task, with handlers registered by the composition root and a `processed_messages` table for deduplication | No new deployable; reuses the database, the Firebase sender and the lifespan pattern of the publisher; retries and DLQ come from SQS | Each replica polls; the consumer competes with the API for the task's CPU |
+| B. A Lambda subscribed to the queue | Scales on its own; isolated from the API | A second deployable with its own image, VPC access to RDS, secrets and IAM for one notification type |
+| C. Keep sending pushes in the request and drop the queue | Simplest | The queue stays pointless; a Firebase outage still loses pushes and slows requests |
+
+## Decision
+
+Option A.
+
+1. `app/core/outbox.OutboxConsumer` receives up to 10 messages with `WaitTimeSeconds` 10 and dispatches by
+   `event_type` to handlers registered with `register(event_type, handler)`. `core` imports no module: the
+   composition root (`app/main.py`, lifespan) registers `notification_service.event_handlers()`.
+2. The message still carries only identifiers (ADR 0026). The consumer reads the event from the `outbox`
+   table by `message_id` and passes the stored `aggregate_id` and `payload` to the handler; a message whose
+   id is not in the outbox, or whose type differs from the stored one, is discarded.
+3. Idempotency: before the handler runs, the consumer inserts `message_id` into `processed_messages`
+   (migration `0006`) with `ON CONFLICT DO NOTHING`. A conflict means a repeated message: it is deleted with
+   no effect. The row and the handler's work commit together; a concurrent replica with the same message
+   waits on the row lock and then sees the conflict.
+4. A message is deleted from SQS when it was processed, repeated, of an unknown type or malformed. When the
+   handler raises, the transaction rolls back, the message is not deleted and its visibility is set to 60
+   seconds; SQS moves it to the DLQ after three receives. Logs name the event type and the error class only.
+5. Handlers call `notify(..., strict=True)`: a Firebase or database failure raises `PushDeliveryError`. A
+   disabled category, a phone without a token or a backend without Firebase credentials return normally and
+   count as processed. Callers that do not pass `strict` keep the best-effort behaviour.
+6. Events and their push: `ClaimFiled` («Recibimos su siniestro …», claims); `ClaimStatusChanged` with
+   `kind` ASSIGNED, REJECTED, SETTLED or PAID, written by `ClaimService.event` in the claim's transaction
+   (PAID goes to payments, the others to claims); `RenewalDue`, written by `remind_renewals` with the
+   `RENEWAL_REMINDER` policy event (renewals; skipped if the policy is no longer active). No push is sent
+   inside a request any more.
+7. The consumer starts only when `SQS_EVENTS_URL` or `AWS_ENDPOINT_URL` (the local emulator) is set.
+
+## Consequences
+
+- Requests no longer wait on Firebase, and a Firebase outage delays pushes instead of losing them; after
+  three failed receives the message waits in the DLQ for a person to replay it.
+- A push arrives a few seconds later than before (publisher cycle plus long polling). Events of the same
+  transaction can arrive out of order: the standard queue does not keep order.
+- The insured now also gets a push when a claim is filed, including each parametric claim, which also
+  gets its SETTLED and PAID pushes.
+- `processed_messages` grows by one row per consumed event; a cleanup older than the queue retention (four
+  days) is pending.
+- `PolicyIssued` and `PaymentApproved` still have no handler: the consumer deletes them as unknown.
+- The task role gains `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` and
+  `sqs:GetQueueAttributes` on the events queue only; it already had `kms:Decrypt` and `kms:GenerateDataKey`
+  on the storage key that encrypts the queue. `terraform/tests/consumidor_del_outbox.tftest.hcl` checks it.
+
+## Security and privacy impact
+
+- No personal data enters the queue or the new table: `processed_messages` holds a random id and a time.
+  The insured's document is read from `policies` inside the backend, as before.
+- A forged message on the queue cannot choose the recipient or the text: the consumer trusts only the
+  `outbox` row with that id and type, and the queue is reachable only with the task role.
+- The push content is unchanged: claim or policy number and a general text, no amounts or names.
+- The role can now delete messages from the events queue; it still cannot purge or delete the queue, nor
+  read the DLQ.

@@ -102,12 +102,11 @@ class Oracle:
         session.add(OracleEventDB(event_id=event.event_id, event_type=event.type, payload=payload,
                                   claim_numbers=claims, received_at=self.now()))
         try:
-            # Los siniestros y el evento en una sola transacción: una entrega simultánea del mismo evento choca con la
-            # llave del evento y se deshace entera; después se envían los avisos de los cambios.
+            # Los siniestros, sus eventos del outbox y el evento del oráculo en una sola transacción: una entrega
+            # simultánea del mismo evento choca con la llave del evento y se deshace entera, avisos incluidos.
             await claim_service.commit(session)
         except IntegrityError:
             await session.rollback()
-            session.info.pop("claim_notices", None)
             known = await session.get(OracleEventDB, event.event_id)
             return OracleResult(event_id=event.event_id, claim_numbers=known.claim_numbers if known else claims, duplicate=True)
         return OracleResult(event_id=event.event_id, claim_numbers=claims)

@@ -1,6 +1,7 @@
 """Push al teléfono del asegurado por Firebase Cloud Messaging (HU-MOV-11).
 Sin credenciales de Firebase no se envía nada: la app igual avisa cuando sincroniza.
-El mensaje no lleva datos sensibles: solo el radicado o la póliza y un texto general."""
+El mensaje no lleva datos sensibles: solo el radicado o la póliza y un texto general.
+Los avisos salen de los eventos del outbox que entrega el consumidor de la cola, no de la petición (ADR 0030)."""
 import asyncio
 import json
 import logging
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import Base
+from app.core.outbox import EventHandler, OutboxEvent
+from app.modules.policy.models import PolicyDB
 
 logger = logging.getLogger("solventa.notifications")
 
@@ -25,6 +28,11 @@ CLAIM_MESSAGES = {
     "SETTLED": "Su siniestro {claim} fue aprobado.",
     "PAID": "El pago de su siniestro {claim} fue realizado.",
 }
+CLAIM_FILED_MESSAGE = "Recibimos su siniestro {claim}. Le avisaremos cuando haya novedades."
+
+
+class PushDeliveryError(Exception):
+    """Firebase o la base fallaron al enviar un aviso que se pidió sin mejor esfuerzo."""
 
 
 class PushTokenDB(Base):
@@ -149,10 +157,11 @@ class NotificationService:
 
     async def notify(
         self, session: AsyncSession, document_number: str, title: str, body: str, data: Dict[str, str],
-        category: Category = "claims",
+        category: Category = "claims", strict: bool = False,
     ) -> bool:
         """Mejor esfuerzo: un fallo de Firebase nunca rompe la operación que lo pidió.
-        Una categoría apagada por el asegurado no se envía."""
+        Con strict, el fallo sale como PushDeliveryError para que el consumidor de la cola lo reintente.
+        Una categoría apagada por el asegurado o un teléfono sin token no se envían y devuelven False."""
         sender = self.sender_factory()
         if sender is None:
             return False
@@ -170,24 +179,68 @@ class NotificationService:
             return True
         except Exception as exc:
             logger.warning("No se pudo enviar el push (%s)", type(exc).__name__)
+            if strict:
+                raise PushDeliveryError() from exc
             return False
 
-    async def claim_changed(self, session: AsyncSession, document_number: str, claim_number: str, kind: str) -> bool:
+    async def claim_changed(
+        self, session: AsyncSession, document_number: str, claim_number: str, kind: str, strict: bool = False
+    ) -> bool:
         if kind not in CLAIM_MESSAGES:
             return False
         return await self.notify(
             session, document_number, "Solventa · Su siniestro", CLAIM_MESSAGES[kind].format(claim=claim_number),
             {"type": "CLAIM_STATUS", "claim_number": claim_number},
-            category="payments" if kind == "PAID" else "claims",
+            category="payments" if kind == "PAID" else "claims", strict=strict,
         )
 
-    async def renewal_due(self, session: AsyncSession, document_number: str, policy_number: str, valid_until) -> bool:
+    async def renewal_due(
+        self, session: AsyncSession, document_number: str, policy_number: str, valid_until, strict: bool = False
+    ) -> bool:
         return await self.notify(
             session, document_number, "Solventa · Su póliza vence pronto",
             f"Su póliza {policy_number} vence el {valid_until:%d/%m/%Y}. Puede renovarla desde la app.",
             {"type": "RENEWAL_REMINDER", "policy_number": policy_number},
-            category="renewals",
+            category="renewals", strict=strict,
         )
+
+    # -- Manejadores de los eventos del outbox (ADR 0030) ----------------------------------------
+
+    async def holder_of(self, session: AsyncSession, policy_number: Optional[str]) -> Optional[PolicyDB]:
+        if not policy_number:
+            return None
+        return await session.get(PolicyDB, policy_number)
+
+    async def on_claim_filed(self, session: AsyncSession, event: OutboxEvent) -> None:
+        policy = await self.holder_of(session, event.payload.get("policy_number"))
+        if policy is None:
+            return
+        await self.notify(
+            session, policy.insured_document, "Solventa · Su siniestro",
+            CLAIM_FILED_MESSAGE.format(claim=event.aggregate_id),
+            {"type": "CLAIM_STATUS", "claim_number": event.aggregate_id}, category="claims", strict=True,
+        )
+
+    async def on_claim_status_changed(self, session: AsyncSession, event: OutboxEvent) -> None:
+        policy = await self.holder_of(session, event.payload.get("policy_number"))
+        if policy is None:
+            return
+        await self.claim_changed(session, policy.insured_document, event.aggregate_id,
+                                 str(event.payload.get("kind")), strict=True)
+
+    async def on_renewal_due(self, session: AsyncSession, event: OutboxEvent) -> None:
+        """Si la póliza ya no está vigente (cancelada o renovada en el intermedio), el aviso ya no aplica."""
+        policy = await self.holder_of(session, event.aggregate_id)
+        if policy is None or policy.status != "ACTIVE":
+            return
+        await self.renewal_due(session, policy.insured_document, policy.policy_number, policy.valid_until, strict=True)
+
+    def event_handlers(self) -> Dict[str, EventHandler]:
+        return {
+            "ClaimFiled": self.on_claim_filed,
+            "ClaimStatusChanged": self.on_claim_status_changed,
+            "RenewalDue": self.on_renewal_due,
+        }
 
 
 notification_service = NotificationService()

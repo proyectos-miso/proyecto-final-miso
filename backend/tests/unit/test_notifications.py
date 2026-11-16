@@ -118,8 +118,8 @@ async def test_la_tarea_diaria_vence_y_avisa_con_una_sesion(monkeypatch):
     async def expire_due(session):
         calls.append(("vencer", session))
 
-    async def remind_renewals(session, notify):
-        calls.append(("avisar", session, notify))
+    async def remind_renewals(session):
+        calls.append(("avisar", session))
 
     monkeypatch.setattr(main, "AsyncSessionLocal", Session)
     monkeypatch.setattr(main.policy_operations, "expire_due", expire_due)
@@ -127,7 +127,7 @@ async def test_la_tarea_diaria_vence_y_avisa_con_una_sesion(monkeypatch):
 
     await main.run_policy_lifecycle()
 
-    assert calls == [("vencer", "sesion"), ("avisar", "sesion", main.notification_service.renewal_due)]
+    assert calls == [("vencer", "sesion"), ("avisar", "sesion")]
 
 
 async def test_una_falla_de_la_tarea_diaria_no_la_detiene(monkeypatch, capsys):
@@ -145,3 +145,71 @@ async def test_una_falla_de_la_tarea_diaria_no_la_detiene(monkeypatch, capsys):
         await main.daily_policy_lifecycle()
 
     assert "no se pudo revisar el vencimiento" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("url, endpoint, configured", [
+    (None, None, False),
+    ("https://sqs.us-east-1.amazonaws.com/000000000000/eventos", None, True),
+    (None, "http://localhost:4566", True),
+])
+def test_el_consumidor_solo_arranca_con_la_cola_o_el_emulador(monkeypatch, url, endpoint, configured):
+    from app.core import outbox
+
+    monkeypatch.setattr(settings, "SQS_EVENTS_URL", url)
+    monkeypatch.setattr(settings, "AWS_ENDPOINT_URL", endpoint)
+
+    assert outbox.events_queue_configured() is configured
+
+
+async def test_sin_cola_configurada_el_arranque_no_lanza_el_consumidor(monkeypatch):
+    started = []
+    real_create_task = asyncio.create_task
+
+    def create_task(coro):
+        started.append(coro.__qualname__)
+        return real_create_task(coro)
+
+    async def nothing():
+        return None
+
+    monkeypatch.setattr(main, "upgrade_database", nothing)
+    monkeypatch.setattr(main, "events_queue_configured", lambda: False)
+    monkeypatch.setattr(main.asyncio, "create_task", create_task)
+    monkeypatch.setattr(main, "AsyncSessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("sin base")))
+
+    async with main.lifespan(main.app):
+        pass
+
+    assert "consume_outbox" not in started
+    assert {"daily_policy_lifecycle", "publish_outbox"} <= set(started)
+
+
+async def test_una_falla_al_leer_la_cola_no_detiene_el_consumidor(monkeypatch, capsys):
+    async def failing(sessions):
+        raise RuntimeError("cola caída con detalle interno")
+
+    async def stop(seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.outbox_consumer, "consume", failing)
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.consume_outbox()
+
+    out = capsys.readouterr().out
+    assert "no se pudo leer la cola de eventos: RuntimeError" in out
+    assert "detalle interno" not in out
+
+
+def test_el_outbox_de_core_no_importa_modulos():
+    import ast
+    from pathlib import Path
+
+    from app.core import outbox
+
+    tree = ast.parse(Path(outbox.__file__).read_text(encoding="utf-8"))
+    imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module]
+    imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+
+    assert not [name for name in imported if name.startswith(("app.modules", "app.bff"))]

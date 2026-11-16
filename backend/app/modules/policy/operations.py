@@ -7,6 +7,7 @@ from typing import Callable, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.outbox import OutboxMessageDB
 from app.modules.claims.models import ClaimDB, ClaimEventDB
 from app.modules.payments.models import PaymentTransactionDB, PayoutDB
 from app.modules.payments.payouts import Payee, payout_service
@@ -173,8 +174,9 @@ class PolicyOperations:
         await session.commit()
         return len(due)
 
-    async def remind_renewals(self, session: AsyncSession, notify) -> int:
-        """Avisa una sola vez por versión a las pólizas vigentes que vencen en 30 días o menos (RC-27)."""
+    async def remind_renewals(self, session: AsyncSession) -> int:
+        """Avisa una sola vez por versión a las pólizas vigentes que vencen en 30 días o menos (RC-27); el push lo envía
+        el consumidor del outbox a partir de RenewalDue (ADR 0030)."""
         now = self.now()
         reminded = select(PolicyEventDB.policy_number).where(
             PolicyEventDB.kind == "RENEWAL_REMINDER", PolicyEventDB.version == PolicyDB.version
@@ -190,9 +192,9 @@ class PolicyOperations:
                 policy_number=policy.policy_number, kind="RENEWAL_REMINDER", version=policy.version or 1,
                 actor=AUTOMATIC, justification=f"Vence el {policy.valid_until:%d/%m/%Y}.", created_at=now,
             ))
+            session.add(OutboxMessageDB(aggregate_id=policy.policy_number, event_type="RenewalDue",
+                                        payload={"policy_number": policy.policy_number, "version": policy.version or 1}))
         await session.commit()
-        for policy in due:
-            await notify(session, policy.insured_document, policy.policy_number, policy.valid_until)
         return len(due)
 
     def terminate(self, session: AsyncSession, policy: PolicyDB, claim_number: str, actor: str) -> None:

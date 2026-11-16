@@ -143,6 +143,14 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = var.sqs_queue_arn
       },
       {
+        # Consumidor del outbox (ADR 0030): lee, aplaza el reintento y borra los mensajes de la misma cola.
+        Sid      = "ConsumirEventos"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+        Resource = var.sqs_queue_arn
+      },
+      {
+        # La misma llave cifra el bucket y la cola: Decrypt también sirve para leer los mensajes.
         Sid      = "LlaveDelBucket"
         Effect   = "Allow"
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]

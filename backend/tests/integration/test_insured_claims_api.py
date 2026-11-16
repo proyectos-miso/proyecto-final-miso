@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, insert, select
 
+from app.core.outbox import OutboxMessageDB
 from app.core.security import create_access_token
 from app.core.storage import StorageUnavailableError, get_document_storage
 from app.main import app
@@ -151,15 +152,14 @@ async def test_vencida_pasa_a_expired_y_al_renovar_vuelve_a_emitida(postgres_ses
 
 async def test_aviso_de_vencimiento_se_envia_una_sola_vez(postgres_session):
     await add_policy(postgres_session, "POL-2026-11009", MARIA_DOCUMENT, "ACTIVE", NOW + timedelta(days=20))
-    sent = []
 
-    async def notify(session, document, policy_number, valid_until):
-        sent.append((document, policy_number))
+    await policy_operations.remind_renewals(postgres_session)
+    await policy_operations.remind_renewals(postgres_session)
 
-    await policy_operations.remind_renewals(postgres_session, notify)
-    await policy_operations.remind_renewals(postgres_session, notify)
-
-    assert sent == [(MARIA_DOCUMENT, "POL-2026-11009")]
+    events = list(await postgres_session.scalars(
+        select(OutboxMessageDB).where(OutboxMessageDB.event_type == "RenewalDue")
+    ))
+    assert [(e.aggregate_id, e.payload) for e in events] == [("POL-2026-11009", {"policy_number": "POL-2026-11009", "version": 1})]
     reminders = await postgres_session.scalar(
         select(func.count()).select_from(PolicyEventDB).where(PolicyEventDB.kind == "RENEWAL_REMINDER")
     )
