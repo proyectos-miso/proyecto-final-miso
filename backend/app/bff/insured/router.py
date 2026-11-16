@@ -93,8 +93,6 @@ async def identity_in_review_handler(request: Request, exc: IdentityInReview) ->
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "code": exc.code})
 
 
-
-
 def require_verified(account: InsuredAccountDB) -> InsuredAccountDB:
     """Con la identidad en verificación no se ven pólizas ni siniestros del documento (mejora FE-MOV-01)."""
     if account.verification_status != VERIFICATION_APPROVED:

@@ -17,7 +17,7 @@ from app.core.outbox import OutboxMessageDB
 from app.modules.assistance.models import (
     AssistanceReceipt, AssistanceRequest, AssistanceRequestDB, Provider, ProviderDB,
 )
-from app.modules.identity.db_models import InsuredAccountDB
+from app.modules.identity.service import lock_account
 from app.modules.policy.models import PolicyDB
 
 MAX_PROVIDERS = 20
@@ -123,9 +123,7 @@ class AssistanceService:
     @staticmethod
     async def lock_account(session: AsyncSession, user_id: str) -> None:
         """Bloquea la cuenta hasta el commit: dos solicitudes simultáneas cuentan el tope una después de la otra."""
-        await session.execute(
-            select(InsuredAccountDB.user_id).where(InsuredAccountDB.user_id == user_id).with_for_update()
-        )
+        await lock_account(session, user_id)
 
     async def request(
         self, session: AsyncSession, user_id: str, document_number: str, request: AssistanceRequest

@@ -107,6 +107,13 @@ def _normalize(email: str) -> str:
     return email.strip().lower()
 
 
+async def lock_account(session: AsyncSession, user_id: str) -> None:
+    """Bloquea la cuenta del asegurado hasta el commit de la transacción en curso."""
+    await session.execute(
+        select(InsuredAccountDB.user_id).where(InsuredAccountDB.user_id == user_id).with_for_update()
+    )
+
+
 class InsuredAuthService:
     def __init__(self, clock: Callable[[], datetime] = _utcnow, sms_sender: Optional[SmsSender] = None):
         self._clock = clock

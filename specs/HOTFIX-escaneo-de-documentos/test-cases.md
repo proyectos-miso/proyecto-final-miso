@@ -96,12 +96,12 @@
 | Risk covered | THR-02 |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas y emulador de S3 |
-| Procedure | Enviar un PNG, un ejecutable, un PDF, un archivo con firma JPEG que no decodifica, una imagen sobre el tope de píxeles y un JPEG de más de 5 MB |
-| Expected result | 422, 422, 422, 422, 422 y 413; nada guardado |
+| Procedure | Enviar un PNG, un ejecutable, un PDF, un archivo con firma JPEG que no decodifica, una imagen sobre el tope de píxeles y un JPEG de más de 5 MB; enviar una página que limpia pasa del tope a calidad 90 y otra que lo pasa aun a calidad 70; recodificar seis envíos a la vez |
+| Expected result | 422, 422, 422, 422, 422 y 413; nada guardado; la primera se guarda a calidad 80 dentro del tope y la segunda responde 413 sin guardar nada; nunca más de dos recodificaciones a la vez |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_claim_documents_api.py::test_paginas_que_no_son_jpeg_o_muy_grandes_se_rechazan; backend/tests/integration/test_claim_documents_api.py::test_una_imagen_con_demasiados_pixeles_se_rechaza |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_paginas_que_no_son_jpeg_o_muy_grandes_se_rechazan; backend/tests/integration/test_claim_documents_api.py::test_una_imagen_con_demasiados_pixeles_se_rechaza; backend/tests/integration/test_claim_documents_api.py::test_una_pagina_que_limpia_pasa_del_tope_se_guarda_con_menor_calidad; backend/tests/integration/test_claim_documents_api.py::test_una_pagina_que_ni_a_calidad_70_queda_en_el_tope_responde_413; backend/tests/integration/test_claim_documents_api.py::test_no_se_recodifican_mas_de_dos_envios_a_la_vez |
 | Status | PASS |
 
 ### TC-05 · Número de páginas, manifiesto y tope

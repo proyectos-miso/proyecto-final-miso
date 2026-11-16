@@ -5,7 +5,6 @@ import asyncio
 import hashlib
 import io
 import uuid
-import warnings
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -27,8 +26,15 @@ MAX_PAGE_BYTES = 5_000_000
 MAX_PAGES_PER_CLAIM = 50
 # Diez páginas de 5 MB, el manifiesto y el sobrecosto del multipart; el middleware corta antes de leer el formulario.
 DOCUMENTS_MAX_BODY_BYTES = MAX_PAGES * MAX_PAGE_BYTES + 512 * 1024
-# Una hoja carta a 600 ppp tiene unos 34 megapíxeles; más que esto es una imagen hecha para agotar la memoria.
-MAX_PAGE_PIXELS = 40_000_000
+# Una hoja carta escaneada a 300 ppp tiene unos 8,4 megapíxeles; más de 25 es una imagen hecha para agotar la memoria.
+MAX_PAGE_PIXELS = 25_000_000
+# Pillow avisa por encima de este tope y falla con DecompressionBombError por encima del doble, antes de decodificar.
+Image.MAX_IMAGE_PIXELS = MAX_PAGE_PIXELS
+# Una página decodificada ocupa hasta unos 150 MB y la tarea tiene 1 GB: el proceso recodifica dos envíos a la vez.
+MAX_CONCURRENT_RECODES = 2
+RECODE_SLOTS = asyncio.Semaphore(MAX_CONCURRENT_RECODES)
+# Si la página limpia pasa de 5 MB se baja la calidad; si a 70 sigue pasando, se rechaza con 413.
+RECODE_QUALITIES = (90, 80, 70)
 CONTENT_TYPE = "image/jpeg"
 UPLOADED_BY = "App del asegurado"
 
@@ -75,21 +81,23 @@ class DocumentRejectedError(Exception):
 
 def clean_jpeg(content: bytes) -> Optional[bytes]:
     """La imagen decodificada y codificada de nuevo, con la orientación aplicada y sin EXIF, ICC ni comentarios;
-    None si no es un JPEG que se pueda decodificar o si es más grande de lo que cabe en una hoja."""
+    None si no es un JPEG que se pueda decodificar o si es más grande de lo que cabe en una hoja. Si ni a la menor
+    calidad queda en 5 MB, lanza PageTooLargeError."""
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(content), formats=["JPEG"]) as source:
-                if source.width * source.height > MAX_PAGE_PIXELS:
-                    return None
-                source.load()
-                image = ImageOps.exif_transpose(source)
+        with Image.open(io.BytesIO(content), formats=["JPEG"]) as source:
+            if source.width * source.height > MAX_PAGE_PIXELS:
+                return None
+            source.load()
+            image = ImageOps.exif_transpose(source)
         if image.mode not in ("L", "RGB"):
             image = image.convert("RGB")
         image.info = {}
-        out = io.BytesIO()
-        image.save(out, "JPEG", quality=90)
-        return out.getvalue()
+        for quality in RECODE_QUALITIES:
+            out = io.BytesIO()
+            image.save(out, "JPEG", quality=quality)
+            if out.tell() <= MAX_PAGE_BYTES:
+                return out.getvalue()
+        raise PageTooLargeError()
     except (OSError, ValueError, SyntaxError, Image.DecompressionBombWarning, Image.DecompressionBombError):
         return None
 
@@ -115,6 +123,12 @@ def checked_pages(request: DocumentsUploadRequest, files: Dict[int, bytes]) -> D
     return cleaned
 
 
+async def recode_pages(request: DocumentsUploadRequest, files: Dict[int, bytes]) -> Dict[int, bytes]:
+    """Revisa y recodifica las páginas fuera del ciclo de eventos, con a lo sumo dos envíos a la vez por proceso."""
+    async with RECODE_SLOTS:
+        return await asyncio.to_thread(checked_pages, request, files)
+
+
 class ClaimDocuments:
     def __init__(self, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.now = now
@@ -134,7 +148,7 @@ class ClaimDocuments:
         if existing is not None:
             await session.rollback()
             return existing, False
-        pages = await asyncio.to_thread(checked_pages, request, files)
+        pages = await recode_pages(request, files)
         stored = await session.scalar(
             select(func.count()).select_from(ClaimDocumentDB).where(ClaimDocumentDB.claim_number == claim_number)
         )
@@ -146,7 +160,7 @@ class ClaimDocuments:
             content = pages[page.position]
             key = f"siniestros/{claim_number}/documentos/{request.upload_id.lower()}/{page.position}.jpg"
             await storage.put_bytes(key, content, CONTENT_TYPE)
-            # La huella guardada es la de lo que queda en S3: la imagen ya limpia.
+            # La huella guardada es la de lo que queda en S3: la imagen ya limpia; la del teléfono no se guarda (RISK-07).
             rows.append(ClaimDocumentDB(
                 document_id=str(uuid.uuid4()), claim_number=claim_number, upload_id=request.upload_id.lower(),
                 position=page.position, s3_key=key, sha256=hashlib.sha256(content).hexdigest(),

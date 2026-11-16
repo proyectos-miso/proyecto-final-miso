@@ -91,7 +91,7 @@ verificación de la huella de cada documento al abrir el expediente; límite de 
 |---|---|---|---|---|---|
 | AB-01 | Agregar documentos al siniestro de otra persona o reutilizar el envío de otra | Asegurado malicioso | THR-01 | 404 igual que un siniestro inexistente | TC-03 |
 | AB-02 | Agregar documentos a un siniestro ya decidido para cambiar el expediente | Asegurado | THR-01 | 409 sin guardar nada | TC-03 |
-| AB-03 | Subir un ejecutable, un PDF, un archivo enorme, una imagen que agota la memoria o cientos de páginas | Persona maliciosa | THR-02 | 413 antes de leer el formulario si el cuerpo pasa de 10 × 5 MB + 512 KiB, con o sin `Content-Length`; 422 sin firma JPEG, si no se decodifica o pasa de 40 megapíxeles; 413 sobre 5 MB por página; 422 con más de 10 páginas o pasado el tope del siniestro; el parser no acepta más de 10 archivos | TC-04, TC-05, TC-17 |
+| AB-03 | Subir un ejecutable, un PDF, un archivo enorme, una imagen que agota la memoria o cientos de páginas | Persona maliciosa | THR-02 | 413 antes de leer el formulario si el cuerpo pasa de 10 × 5 MB + 512 KiB, con o sin `Content-Length`; 422 sin firma JPEG, si no se decodifica o pasa de 25 megapíxeles; 413 sobre 5 MB por página; 422 con más de 10 páginas o pasado el tope del siniestro; el parser no acepta más de 10 archivos | TC-04, TC-05, TC-17 |
 | AB-04 | Cambiar una página en tránsito | Atacante en la red o malware | THR-03 | 422 si la huella no coincide | TC-06 |
 | AB-05 | Ver documentos de siniestros de otro socio desde el portal | Analista de un socio | THR-04 | 404 en el expediente ajeno | TC-09 |
 | AB-06 | Recuperar las páginas del teléfono perdido o de una copia de respaldo | Ladrón o malware | THR-05 | Las páginas solo existen en memoria; los archivos de ML Kit se borran al leerlos | TC-11, TC-12 |
@@ -196,7 +196,7 @@ Portal → `GET /experience/claims/{n}` → enlaces prefirmados de 15 minutos �
 | Decision | Implements | Rejected alternative and why |
 |---|---|---|
 | Tipo por firma del archivo (`\xff\xd8\xff`), no por el `Content-Type` del cliente | CTL-02 | Confiar en el tipo declarado: se puede falsear |
-| Solo JPEG, decodificado y codificado de nuevo con Pillow (orientación aplicada, sin EXIF, ICC ni comentarios, tope de 40 megapíxeles) | CTL-02, CTL-08 | Aceptar PDF: puede traer contenido activo que llega al navegador del analista. Validar con `Image.verify()` y guardar el original: deja EXIF (ubicación, equipo) y cualquier dato escondido en el archivo |
+| Solo JPEG, decodificado y codificado de nuevo con Pillow (orientación aplicada, sin EXIF, ICC ni comentarios, tope de 25 megapíxeles, a lo sumo dos envíos recodificándose a la vez por proceso; si la página limpia pasa de 5 MB se reintenta a calidad 80 y 70 y, si sigue pasando, 413) | CTL-02, CTL-08 | Aceptar PDF: puede traer contenido activo que llega al navegador del analista. Validar con `Image.verify()` y guardar el original: deja EXIF (ubicación, equipo) y cualquier dato escondido en el archivo |
 | Tope del cuerpo en el middleware antes del parser | CTL-02 | Medir en la ruta: Starlette ya habría leído todo el formulario, con partes en archivos temporales |
 | `request.form(max_files=10, max_fields=1)` en lugar de diez parámetros `File` | CTL-02 | Parámetros de FastAPI: el parser acepta hasta 1000 archivos antes de que el código los cuente |
 | `insured_account` y no `reporting_account` | CTL-01 | Aceptar el token de solo reporte: amplía su uso, y sin cola en segundo plano no hace falta |

@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import Base
 
+IDEMPOTENCY_TTL_HOURS = 24
+
 
 class IdempotencyConflictError(Exception):
     pass
@@ -33,11 +35,11 @@ def request_hash(request: BaseModel, exclude: Optional[AbstractSet[str]] = None)
 
 
 async def find_response(
-    session: AsyncSession, partner_id: str, idempotency_key: str, request: BaseModel, max_age_hours: int = 24,
-    exclude: Optional[AbstractSet[str]] = None,
+    session: AsyncSession, partner_id: str, idempotency_key: str, request: BaseModel,
+    max_age_hours: int = IDEMPOTENCY_TTL_HOURS, exclude: Optional[AbstractSet[str]] = None,
 ) -> Optional[IdempotencyRecordDB]:
     """Respuesta guardada para la clave, o None si es nueva; si la clave se usó con otra petición, lanza el conflicto.
-    Si la clave tiene más de max_age_hours (24h), expira y se elimina para permitir una nueva operación (ASR-05, HA-11)."""
+    Si la clave tiene más de max_age_hours, expira y se elimina para permitir una nueva operación (ASR-05, HA-11)."""
     record = await session.get(IdempotencyRecordDB, (partner_id, idempotency_key))
     if record:
         now = datetime.now(timezone.utc)
@@ -73,7 +75,7 @@ def save_response(
     return record
 
 
-async def purge_expired(session: AsyncSession, max_age_hours: int = 24) -> int:
+async def purge_expired(session: AsyncSession, max_age_hours: int = IDEMPOTENCY_TTL_HOURS) -> int:
     """Borra las respuestas que ya vencieron; `find_response` no las repetiría y solo guardarían datos de más."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
     result = await session.execute(delete(IdempotencyRecordDB).where(IdempotencyRecordDB.created_at < cutoff))

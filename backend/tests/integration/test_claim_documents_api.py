@@ -4,6 +4,9 @@ import hashlib
 import io
 import json
 import logging
+import random
+import threading
+import time
 import uuid
 
 import pytest
@@ -15,7 +18,8 @@ from app.bff.insured import router as router_module
 from app.core.outbox import OutboxMessageDB
 from app.core.storage import StorageUnavailableError, get_document_storage
 from app.main import app
-from app.modules.claims.documents import DOCUMENTS_MAX_BODY_BYTES, ClaimDocuments
+from app.modules.claims import documents as documents_module
+from app.modules.claims.documents import DOCUMENTS_MAX_BODY_BYTES, ClaimDocuments, DocumentsUploadRequest
 from app.modules.claims.models import ClaimDB, ClaimDocumentDB, ClaimEventDB
 from app.modules.identity.db_models import InsuredAccountDB
 from app.modules.identity.service import insured_auth_service
@@ -257,6 +261,72 @@ async def test_una_imagen_con_demasiados_pixeles_se_rechaza(async_client, claims
 
     assert response.status_code == 422
     assert await count(claims, ClaimDocumentDB) == 0
+
+
+def noise_jpeg(quality=50, size=(300, 300)) -> bytes:
+    """Ruido fijo: al recodificarlo a mayor calidad crece, y sirve para probar el tope de la página limpia."""
+    raw = random.Random(7).randbytes(size[0] * size[1] * 3)
+    out = io.BytesIO()
+    Image.frombytes("RGB", size, raw).save(out, "JPEG", quality=quality)
+    return out.getvalue()
+
+
+def recoded_size(content: bytes, quality: int) -> int:
+    out = io.BytesIO()
+    image(content).save(out, "JPEG", quality=quality)
+    return out.tell()
+
+
+async def test_una_pagina_que_limpia_pasa_del_tope_se_guarda_con_menor_calidad(async_client, claims, storage, monkeypatch):
+    content = noise_jpeg()
+    limit = (recoded_size(content, 90) + recoded_size(content, 80)) // 2
+    assert len(content) <= limit
+    monkeypatch.setattr(documents_module, "MAX_PAGE_BYTES", limit)
+
+    response = await upload(async_client, OWN, manifest([content]), [content])
+
+    assert response.status_code == 201
+    [row] = await documents_of(claims, OWN)
+    assert row.size_bytes == recoded_size(content, 80)
+    assert row.size_bytes <= limit
+
+
+async def test_una_pagina_que_ni_a_calidad_70_queda_en_el_tope_responde_413(async_client, claims, storage, monkeypatch):
+    content = noise_jpeg()
+    limit = recoded_size(content, 70) - 1
+    assert len(content) <= limit
+    monkeypatch.setattr(documents_module, "MAX_PAGE_BYTES", limit)
+
+    response = await upload(async_client, OWN, manifest([content]), [content])
+
+    assert response.status_code == 413
+    assert await count(claims, ClaimDocumentDB) == 0
+
+
+async def test_no_se_recodifican_mas_de_dos_envios_a_la_vez(monkeypatch):
+    # Un semáforo nuevo con el mismo tope: el del módulo no queda atado al ciclo de eventos de esta prueba.
+    monkeypatch.setattr(documents_module, "RECODE_SLOTS", asyncio.Semaphore(documents_module.MAX_CONCURRENT_RECODES))
+    lock = threading.Lock()
+    active = peak = 0
+
+    def slow_clean(content):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return content
+
+    monkeypatch.setattr(documents_module, "clean_jpeg", slow_clean)
+    requests = [DocumentsUploadRequest.model_validate(manifest([JPEG])) for _ in range(6)]
+
+    pages = await asyncio.gather(*(documents_module.recode_pages(r, {1: JPEG}) for r in requests))
+
+    assert pages == [{1: JPEG}] * 6
+    assert documents_module.MAX_CONCURRENT_RECODES == 2
+    assert peak == 2
 
 
 async def test_mas_de_10_paginas_se_rechazan(async_client, claims, storage):

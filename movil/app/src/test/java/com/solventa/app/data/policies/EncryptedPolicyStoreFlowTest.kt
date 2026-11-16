@@ -279,6 +279,8 @@ class EncryptedPolicyStoreFlowTest {
     fun `guarda la lista de prestadores con la copia de la billetera y la borra con ella`() = runBlocking {
         val copy = com.solventa.app.domain.assistance.ProvidersCopy(listOf(com.solventa.app.data.assistance.sampleProvider()), "BOGOTA", LATER)
         assertFalse(store.saveProviders(EMAIL, copy))
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
 
         store.save(EMAIL, listOf(policy), SYNCED_AT)
         assertTrue(store.saveProviders(EMAIL, copy))

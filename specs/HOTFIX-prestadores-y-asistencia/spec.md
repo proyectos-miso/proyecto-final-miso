@@ -157,7 +157,8 @@ cancelar una solicitud; purga de solicitudes antiguas; administración de presta
 
 - **Backend:** módulo `assistance` (ADR 0004): `ProviderDB` y `AssistanceRequestDB`; `AssistanceService.nearby`
   (activos, filtro por ciudad y por servicio en SQL, con coordenadas solo los de 50 km o menos por haversine; sin
-  ellas, por nombre; tope de 20), `request` (bloqueo `FOR UPDATE` de la cuenta para contar el tope en serie, póliza
+  ellas, por nombre; tope de 20), `request` (bloqueo `FOR UPDATE` de la cuenta con `lock_account` del servicio de `identity`, sin importar
+  su modelo, para contar el tope en serie, póliza
   propia `ACTIVE` y vigente, tope por hora con el `Retry-After` que falta, prestador sugerido más cercano, tiempo
   estimado, fila RECEIVED y outbox sin commit) y `requests_of`. El router usa `insured_account` (identidad aprobada;
   en verificación, 403 con `code` `IDENTITY_IN_REVIEW`); `POST /insured/providers/search` recibe `ProviderSearch`
