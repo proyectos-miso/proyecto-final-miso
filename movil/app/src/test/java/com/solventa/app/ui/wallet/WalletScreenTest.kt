@@ -346,4 +346,14 @@ class WalletScreenTest {
 
         compose.onNodeWithText(s(R.string.notices_open_button)).assertDoesNotExist()
     }
+
+    @Test
+    fun `con la identidad en verificacion muestra el aviso y no el de sin conexion`() {
+        show(WalletUiState(loading = false, identityInReview = true))
+
+        compose.onNodeWithText(s(R.string.identity_in_review)).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.wallet_offline)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.wallet_needs_connection)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.wallet_empty)).assertDoesNotExist()
+    }
 }

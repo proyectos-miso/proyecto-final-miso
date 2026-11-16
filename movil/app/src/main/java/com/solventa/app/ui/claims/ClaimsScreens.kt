@@ -68,7 +68,11 @@ fun ClaimsListScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (state.offline && !state.needsConnection) item(key = "offline") { WarningBanner(stringResource(R.string.claims_offline)) }
+            if (state.identityInReview) {
+                item(key = "identityInReview") { WarningBanner(stringResource(R.string.identity_in_review), icon = R.drawable.ic_shield) }
+            } else if (state.offline && !state.needsConnection) {
+                item(key = "offline") { WarningBanner(stringResource(R.string.claims_offline)) }
+            }
             state.pending?.let { pending -> item(key = "pending") { PendingRow(pending, onOpenPending) } }
             when {
                 state.loading -> item(key = "loading") { Loading() }

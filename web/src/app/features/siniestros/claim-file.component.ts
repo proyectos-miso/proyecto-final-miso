@@ -17,7 +17,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { Observable, finalize } from 'rxjs';
 import { ClaimService } from '../../core/claims/claim.service';
-import { ClaimDetail, ClaimDocument, ClaimEvent, Expert } from '../../core/models/claim.model';
+import { ClaimDetail, ClaimEvent, Expert } from '../../core/models/claim.model';
 import { COP } from '../../core/money';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { PLAN_LABELS, policyStatusLabel } from '../gestion/policy-labels';
@@ -128,11 +128,11 @@ const OPEN = ['REPORTED', 'IN_REVIEW'];
             @for (doc of c.documents; track doc.document_id) {
               <li>
                 @if (doc.url) {
-                  <a [href]="doc.url" target="_blank" rel="noopener noreferrer">{{ documentName(doc) }}</a>
+                  <a [href]="doc.url" target="_blank" rel="noopener noreferrer">Envío del {{ doc.uploaded_at | date: 'dd/MM/yyyy HH:mm' }}, página {{ doc.position }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
                 } @else {
-                  <span>{{ documentName(doc) }} · enlace no disponible</span>
+                  <span>Envío del {{ doc.uploaded_at | date: 'dd/MM/yyyy HH:mm' }}, página {{ doc.position }} · enlace no disponible</span>
                 }
-                <span class="sub">Agregado el {{ doc.uploaded_at | date: 'dd/MM/yyyy HH:mm' }} · {{ doc.size_bytes / 1024 | number: '1.0-0' }} KB</span>
+                <span class="sub">Imagen JPEG · {{ doc.size_bytes / 1024 | number: '1.0-0' }} KB</span>
               </li>
             }
           </ul>
@@ -239,6 +239,7 @@ const OPEN = ['REPORTED', 'IN_REVIEW'];
     </section>
   `,
   styles: [`
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .file { max-width: 1000px; margin: 0 auto; padding: 24px; }
     .back { color: var(--marca-600); font-size: var(--t-sm); display: inline-flex; min-height: 24px; align-items: center; }
     h1 { font-size: var(--t-xl); margin: 8px 0; color: var(--texto); }
@@ -343,10 +344,6 @@ export class ClaimFileComponent {
 
   planLabel(plan: string): string {
     return PLAN_LABELS[plan as keyof typeof PLAN_LABELS] ?? plan;
-  }
-
-  documentName(doc: ClaimDocument): string {
-    return `Página ${doc.position} (${doc.content_type === 'application/pdf' ? 'PDF' : 'imagen'})`;
   }
 
   eventLabel(kind: string): string {

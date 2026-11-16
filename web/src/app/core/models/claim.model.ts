@@ -35,7 +35,7 @@ export interface ClaimDocument {
   document_id: string;
   upload_id: string;
   position: number;
-  content_type: 'image/jpeg' | 'application/pdf';
+  content_type: 'image/jpeg';
   size_bytes: number;
   uploaded_at: string;
   url: string | null;

@@ -360,7 +360,7 @@
     <string name="register_camera_settings">Abrir ajustes</string>
     <string name="register_camera_allow">Permitir la cámara</string>
     <string name="register_consent_title">Autorización de datos biométricos</string>
-    <string name="register_consent_body">Para crear su cuenta comparamos la foto de su documento con su selfie. Son datos biométricos, una categoría especial de datos personales. Solo los usamos para verificar su identidad: si la verificación termina en el momento, no guardamos las fotos; si queda en revisión, las guardamos cifradas hasta la decisión, máximo 30 días, y luego las borramos. Puede revocar esta autorización en «Avisos», dentro de la app, o escribiendo a soporte de Solventa.</string>
+    <string name="register_consent_body">Para crear su cuenta comparamos la foto de su documento con su selfie. Son datos biométricos, una categoría especial de datos personales. Solo los usamos para verificar su identidad: si la verificación termina en el momento, no guardamos las fotos; si queda en revisión, las guardamos cifradas hasta la decisión, máximo 30 días, y luego las borramos. Puede revocar esta autorización en «Avisos», dentro de la app.</string>
     <string name="register_consent_check">Autorizo el tratamiento de la foto de mi documento y mi selfie para verificar mi identidad.</string>
     <string name="register_submit">Crear cuenta</string>
     <string name="register_submitting">Verificando su identidad…</string>
@@ -376,6 +376,9 @@
     <string name="register_error_code">El código no es válido o venció. Pida uno nuevo.</string>
     <string name="register_error_duplicate">No pudimos crear la cuenta con esos datos. Si ya tiene cuenta, ingrese o recupere su contraseña.</string>
     <string name="register_error_capture">No se pudo tomar la foto. Intente de nuevo.</string>
+    <string name="register_error_disabled">El registro desde la app no está disponible por ahora.</string>
+    <!-- Cuenta creada con la identidad aún en verificación (403 IDENTITY_IN_REVIEW) -->
+    <string name="identity_in_review">Estamos verificando su identidad. Cuando terminemos podrá usar esta sección; vuelva más tarde.</string>
     <!-- Documentos del siniestro abierto (mejora FE-MOV-05) -->
     <string name="documents_add_button">Agregar documentos</string>
     <string name="documents_title">Agregar documentos</string>
@@ -417,7 +420,6 @@
     <string name="assistance_use_location">Usar mi ubicación</string>
     <string name="assistance_location_help">Su ubicación aproximada solo se usa para ordenar los prestadores y no se guarda. También puede elegir su ciudad.</string>
     <string name="assistance_choose_city">Elegir ciudad</string>
-    <string name="assistance_city_label">Ciudad</string>
     <string name="assistance_city_selected">Ciudad: %1$s</string>
     <string name="assistance_near_me">Ordenados por distancia a su ubicación</string>
     <string name="assistance_locating">Buscando su ubicación</string>
@@ -441,26 +443,34 @@
     <string name="assistance_notice_location">No pudimos obtener su ubicación. Elija su ciudad.</string>
     <string name="assistance_notice_offline">Sin conexión. Esta es la última lista guardada.</string>
     <string name="assistance_notice_offline_empty">Sin conexión y sin una lista guardada. Puede llamar a la línea de Solventa.</string>
+    <string name="assistance_notice_offline_empty_no_line">Sin conexión y sin una lista guardada. Intente de nuevo cuando tenga señal.</string>
+    <string name="assistance_notice_rejected">No pudimos hacer esta búsqueda. Elija su ciudad e intente de nuevo.</string>
     <string name="assistance_notice_saved_at">Lista guardada el %1$s</string>
     <string name="assistance_notice_session">Su sesión venció. Ingrese de nuevo.</string>
     <string name="assistance_notice_cannot_open">No hay una app en el teléfono para abrir esto.</string>
     <string name="assistance_form_title">Pedir asistencia</string>
-    <string name="assistance_form_subtitle">Le asignamos el prestador más cercano</string>
+    <string name="assistance_form_subtitle">Le sugerimos el prestador más cercano</string>
     <string name="assistance_form_policy">Póliza</string>
     <string name="assistance_form_no_policy">No tiene pólizas vigentes. Llame a la línea de Solventa.</string>
+    <string name="assistance_form_no_policy_no_line">No tiene pólizas vigentes para pedir asistencia.</string>
     <string name="assistance_form_description">Qué pasó (opcional)</string>
     <string name="assistance_form_description_help">Máximo 300 caracteres. No escriba datos de salud ni contraseñas.</string>
     <string name="assistance_form_needs_place">Primero use su ubicación o elija su ciudad.</string>
     <string name="assistance_form_send">Enviar solicitud</string>
     <string name="assistance_form_sending">Enviando su solicitud</string>
-    <string name="assistance_assigned_title">Solicitud recibida</string>
-    <string name="assistance_assigned_provider">Prestador asignado: %1$s</string>
-    <string name="assistance_assigned_eta">Tiempo estimado de llegada: %1$d minutos</string>
+    <string name="assistance_received_title">Solicitud recibida</string>
+    <string name="assistance_received_provider">El prestador más cercano es %1$s.</string>
+    <string name="assistance_received_eta">Tiempo estimado si lo contacta: %1$d minutos.</string>
+    <string name="assistance_received_call_hint">Llámelo para coordinar la ayuda.</string>
     <string name="assistance_done">Listo</string>
     <string name="assistance_request_offline">Sin conexión. Puede reintentar o llamar a la línea de Solventa.</string>
+    <string name="assistance_request_offline_no_line">Sin conexión. Puede reintentar cuando tenga señal.</string>
     <string name="assistance_request_policy">La póliza no está vigente o no es suya.</string>
     <string name="assistance_request_no_provider">No hay prestadores de ese servicio en su zona. Llame a la línea de Solventa.</string>
+    <string name="assistance_request_no_provider_no_line">No hay prestadores de ese servicio a menos de 50 km de usted.</string>
+    <string name="assistance_request_key_reused">La solicitud cambió mientras se enviaba. Revísela y envíela de nuevo.</string>
     <string name="assistance_request_too_many">Ya pidió varias asistencias en la última hora. Llame a la línea de Solventa.</string>
+    <string name="assistance_request_too_many_no_line">Ya pidió varias asistencias en la última hora. Intente más tarde.</string>
     <string name="assistance_request_session">Su sesión venció. Ingrese de nuevo para pedir asistencia.</string>
     <string name="assistance_request_rejected">No pudimos registrar la solicitud. Revise los datos.</string>
     <string name="register_camera_missing_back">No pudimos abrir la cámara trasera de este teléfono. Sin ella no es posible fotografiar el documento desde la app.</string>

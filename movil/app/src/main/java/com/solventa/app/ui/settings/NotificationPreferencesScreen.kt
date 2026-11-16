@@ -72,8 +72,10 @@ fun NotificationPreferencesScreen(
                     PreferencesError.SESSION -> R.string.notices_error_session
                     PreferencesError.INVALID -> R.string.notices_error_invalid
                     PreferencesError.UNAVAILABLE -> R.string.notices_error
+                    PreferencesError.IDENTITY_IN_REVIEW -> R.string.identity_in_review
                 }
-                WarningBanner(stringResource(text), icon = R.drawable.ic_cloud_off)
+                val icon = if (error == PreferencesError.IDENTITY_IN_REVIEW) R.drawable.ic_shield else R.drawable.ic_cloud_off
+                WarningBanner(stringResource(text), icon = icon)
                 SecondaryButton(stringResource(R.string.notices_retry), onRetry)
             }
             if (state.loading) {

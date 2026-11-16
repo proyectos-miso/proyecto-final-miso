@@ -45,12 +45,19 @@ sealed interface ProvidersResult {
     data class Loaded(val providers: List<Provider>) : ProvidersResult
     data object Offline : ProvidersResult
     data object Unauthorized : ProvidersResult
+
+    /** El servidor no aceptó la búsqueda (422): reintentar igual no sirve, no es falta de red. */
+    data object Rejected : ProvidersResult
+
+    /** La identidad del asegurado sigue en verificación (403 con `IDENTITY_IN_REVIEW`). */
+    data object IdentityInReview : ProvidersResult
 }
 
 sealed interface CitiesResult {
     data class Loaded(val cities: List<City>) : CitiesResult
     data object Offline : CitiesResult
     data object Unauthorized : CitiesResult
+    data object IdentityInReview : CitiesResult
 }
 
 /** Lo que envía «Pedir asistencia»: ubicación o ciudad, nunca ambas. */
@@ -67,7 +74,11 @@ data class AssistanceForm(
 }
 
 sealed interface AssistanceResult {
-    data class Assigned(val requestId: String, val provider: Provider, val etaMinutes: Int) : AssistanceResult
+    /**
+     * Solicitud recibida. [provider] es el prestador sugerido más cercano y [etaMinutes] un tiempo estimado si el
+     * asegurado lo contacta: nadie lo despacha todavía (RISK-05).
+     */
+    data class Received(val requestId: String, val provider: Provider, val etaMinutes: Int) : AssistanceResult
 
     /** Sin red, tiempo agotado o error del servidor: se reintenta con la misma llave. */
     data object Offline : AssistanceResult
@@ -75,8 +86,13 @@ sealed interface AssistanceResult {
     /** La póliza no es del asegurado o no está vigente. */
     data object PolicyNotAvailable : AssistanceResult
 
-    /** Ningún prestador ofrece ese servicio en la zona. */
+    /** Ningún prestador ofrece ese servicio a 50 km o en la ciudad (409 con `NO_PROVIDER`). */
     data object NoProvider : AssistanceResult
+
+    /** La llave ya se usó con otra solicitud (409 con `IDEMPOTENCY_KEY_REUSED`): se envía con una llave nueva. */
+    data object KeyReused : AssistanceResult
+
+    data object IdentityInReview : AssistanceResult
 
     /** Demasiadas solicitudes en la última hora. */
     data object TooMany : AssistanceResult

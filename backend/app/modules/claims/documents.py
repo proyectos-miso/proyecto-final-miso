@@ -1,10 +1,15 @@
 """Documentos que el asegurado agrega a su siniestro abierto desde la app (mejora FE-MOV-05): de 1 a 10 páginas JPEG
-o PDF de hasta 5 MB, cada una con la huella que calculó el teléfono, registradas una sola vez por envío."""
+de hasta 5 MB, cada una con la huella que calculó el teléfono, registradas una sola vez por envío. Cada página se
+decodifica y se vuelve a codificar en el servidor: lo que llega a S3 es una imagen limpia, sin EXIF ni comentarios."""
+import asyncio
 import hashlib
+import io
 import uuid
+import warnings
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
+from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -20,8 +25,11 @@ from app.modules.policy.models import PolicyDB
 MAX_PAGES = 10
 MAX_PAGE_BYTES = 5_000_000
 MAX_PAGES_PER_CLAIM = 50
-PDF_MAGIC = b"%PDF-"
-FORMATS = ((JPEG_MAGIC, "image/jpeg", "jpg"), (PDF_MAGIC, "application/pdf", "pdf"))
+# Diez páginas de 5 MB, el manifiesto y el sobrecosto del multipart; el middleware corta antes de leer el formulario.
+DOCUMENTS_MAX_BODY_BYTES = MAX_PAGES * MAX_PAGE_BYTES + 512 * 1024
+# Una hoja carta a 600 ppp tiene unos 34 megapíxeles; más que esto es una imagen hecha para agotar la memoria.
+MAX_PAGE_PIXELS = 40_000_000
+CONTENT_TYPE = "image/jpeg"
 UPLOADED_BY = "App del asegurado"
 
 
@@ -58,34 +66,53 @@ class PageTooLargeError(Exception):
 
 
 class DocumentRejectedError(Exception):
-    """La página falta, no es JPEG ni PDF, no coincide con su huella o el siniestro ya no admite más."""
+    """La página falta, no es JPEG, no coincide con su huella o el siniestro ya no admite más."""
 
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
 
 
-def page_format(content: bytes) -> Optional[Tuple[str, str]]:
-    """Tipo y extensión según la firma del archivo, no según lo que declare el cliente."""
-    return next(((kind, ext) for magic, kind, ext in FORMATS if content.startswith(magic)), None)
+def clean_jpeg(content: bytes) -> Optional[bytes]:
+    """La imagen decodificada y codificada de nuevo, con la orientación aplicada y sin EXIF, ICC ni comentarios;
+    None si no es un JPEG que se pueda decodificar o si es más grande de lo que cabe en una hoja."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(content), formats=["JPEG"]) as source:
+                if source.width * source.height > MAX_PAGE_PIXELS:
+                    return None
+                source.load()
+                image = ImageOps.exif_transpose(source)
+        if image.mode not in ("L", "RGB"):
+            image = image.convert("RGB")
+        image.info = {}
+        out = io.BytesIO()
+        image.save(out, "JPEG", quality=90)
+        return out.getvalue()
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombWarning, Image.DecompressionBombError):
+        return None
 
 
-def checked_pages(request: DocumentsUploadRequest, files: Dict[int, bytes]) -> Dict[int, Tuple[str, str]]:
-    """Cada página declarada llega, pesa a lo sumo 5 MB, es JPEG o PDF y su SHA-256 es el del teléfono."""
+def checked_pages(request: DocumentsUploadRequest, files: Dict[int, bytes]) -> Dict[int, bytes]:
+    """Cada página declarada llega, pesa a lo sumo 5 MB, es JPEG por su firma, su SHA-256 es el del teléfono y se
+    decodifica; devuelve las páginas limpias que se guardan. Solo JPEG: un PDF puede traer contenido activo (RISK-05)."""
     if set(files) != {p.position for p in request.pages}:
         raise DocumentRejectedError("Las páginas enviadas no coinciden con las declaradas.")
-    formats = {}
+    cleaned = {}
     for page in request.pages:
         content = files[page.position]
         if len(content) > MAX_PAGE_BYTES:
             raise PageTooLargeError()
-        detected = page_format(content)
-        if detected is None:
-            raise DocumentRejectedError(f"La página {page.position} no es una imagen JPEG ni un PDF.")
+        if not content.startswith(JPEG_MAGIC):
+            raise DocumentRejectedError(f"La página {page.position} no es una imagen JPEG.")
         if hashlib.sha256(content).hexdigest() != page.sha256:
             raise DocumentRejectedError(f"La página {page.position} cambió después de escanearla. Escanéela de nuevo.")
-        formats[page.position] = detected
-    return formats
+        clean = clean_jpeg(content)
+        if clean is None:
+            raise DocumentRejectedError(f"La página {page.position} no es una imagen JPEG válida.")
+        cleaned[page.position] = clean
+    return cleaned
 
 
 class ClaimDocuments:
@@ -101,7 +128,13 @@ class ClaimDocuments:
         if existing is not None:
             return existing, False
         claim = await self.own_open_claim(session, document_number, claim_number)
-        formats = checked_pages(request, files)
+        # Otro envío con el mismo `upload_id` pudo terminar mientras este esperaba el bloqueo: se devuelve ese y S3
+        # no se toca, para que lo guardado siga siendo lo que dice la huella registrada.
+        existing = await self.already_received(session, document_number, claim_number, request.upload_id)
+        if existing is not None:
+            await session.rollback()
+            return existing, False
+        pages = await asyncio.to_thread(checked_pages, request, files)
         stored = await session.scalar(
             select(func.count()).select_from(ClaimDocumentDB).where(ClaimDocumentDB.claim_number == claim_number)
         )
@@ -110,13 +143,14 @@ class ClaimDocuments:
         uploaded_at = self.now()
         rows = []
         for page in request.pages:
-            content_type, ext = formats[page.position]
-            key = f"siniestros/{claim_number}/documentos/{request.upload_id.lower()}/{page.position}.{ext}"
-            await storage.put_bytes(key, files[page.position], content_type)
+            content = pages[page.position]
+            key = f"siniestros/{claim_number}/documentos/{request.upload_id.lower()}/{page.position}.jpg"
+            await storage.put_bytes(key, content, CONTENT_TYPE)
+            # La huella guardada es la de lo que queda en S3: la imagen ya limpia.
             rows.append(ClaimDocumentDB(
                 document_id=str(uuid.uuid4()), claim_number=claim_number, upload_id=request.upload_id.lower(),
-                position=page.position, s3_key=key, sha256=page.sha256, content_type=content_type,
-                size_bytes=len(files[page.position]), uploaded_at=uploaded_at,
+                position=page.position, s3_key=key, sha256=hashlib.sha256(content).hexdigest(),
+                content_type=CONTENT_TYPE, size_bytes=len(content), uploaded_at=uploaded_at,
             ))
         session.add_all(rows)
         detail = {"upload_id": request.upload_id.lower(), "pages": len(rows)}

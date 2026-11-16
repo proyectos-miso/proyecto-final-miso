@@ -50,9 +50,12 @@ android {
     buildTypes {
         debug {
             buildConfigField("boolean", "SECURE_SCREENS", "$secureScreensInDebug")
+            buildConfigField("boolean", "REGISTRATION_IN_APP", "true")
         }
         release {
             buildConfigField("boolean", "SECURE_SCREENS", "true")
+            // En AWS el backend no registra desde la app (REGISTRATION_ENABLED apagado).
+            buildConfigField("boolean", "REGISTRATION_IN_APP", "false")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(

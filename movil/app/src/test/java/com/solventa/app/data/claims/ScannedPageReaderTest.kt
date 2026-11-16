@@ -48,6 +48,50 @@ class ScannedPageReaderTest {
     }
 
     @Test
+    fun `si una pagina posterior falla las ya leidas quedan en cero`() = runTest {
+        val files = listOf(scannedFile("page1.jpg", byteArrayOf(1)), scannedFile("page2.jpg", byteArrayOf(2)))
+        val produced = mutableListOf<ByteArray>()
+        val reader = ScannedPageReader(context) { raw ->
+            if (raw[0] == 2.toByte()) null else ByteArray(8) { 7 }.also { produced += it }
+        }
+
+        assertEquals(ScanResult.Failed, reader.read(files.map(Uri::fromFile)))
+        assertTrue(produced.single().all { it == 0.toByte() })
+    }
+
+    @Test
+    fun `si un archivo posterior no se puede abrir las ya leidas quedan en cero`() = runTest {
+        val first = scannedFile("page1.jpg", byteArrayOf(1))
+        val produced = mutableListOf<ByteArray>()
+        val reader = ScannedPageReader(context) { ByteArray(8) { 7 }.also { produced += it } }
+
+        assertEquals(ScanResult.Failed, reader.read(listOf(Uri.fromFile(first), Uri.fromFile(File(context.cacheDir, "no-existe.jpg")))))
+        assertTrue(produced.single().all { it == 0.toByte() })
+    }
+
+    @Test
+    fun `limpiar la cache del escaner borra su carpeta y nada mas`() {
+        val leftover = File(File(context.cacheDir, ScannedPageReader.SCANNER_CACHE_DIR).apply { mkdirs() }, "123.jpg").apply { writeBytes(byteArrayOf(1)) }
+        val other = File(context.cacheDir, "otra.tmp").apply { writeBytes(byteArrayOf(2)) }
+
+        ScannedPageReader.clearScannerCache(context.cacheDir)
+
+        assertFalse(leftover.exists() || leftover.parentFile!!.exists())
+        assertTrue(other.exists())
+        other.delete()
+    }
+
+    @Test
+    fun `al arrancar la app borra las paginas que el escaner dejo si el proceso murio`() {
+        val app = ApplicationProvider.getApplicationContext<com.solventa.app.SolventaApplication>()
+        val leftover = File(File(app.cacheDir, ScannedPageReader.SCANNER_CACHE_DIR).apply { mkdirs() }, "456.jpg").apply { writeBytes(byteArrayOf(1)) }
+
+        app.clearLeftoverScans()
+
+        assertFalse(leftover.exists())
+    }
+
+    @Test
     fun `un archivo que no existe falla sin romper la app`() = runTest {
         val missing = File(context.cacheDir, "no-existe.jpg")
 

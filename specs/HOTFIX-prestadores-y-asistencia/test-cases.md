@@ -4,23 +4,25 @@
 
 | ID | From | Scenario | Disposition |
 |---|---|---|---|
-| SC-01 | AC-01, AC-03 | Dado el catálogo sembrado, cuando el asegurado busca con coordenadas y con un servicio, entonces recibe hasta 20 activos ordenados por distancia, solo los que ofrecen el servicio y sin los inactivos | TC-01 |
+| SC-01 | AC-01, AC-03 | Dado el catálogo sembrado, cuando el asegurado busca con coordenadas y con un servicio, entonces recibe hasta 20 activos a 50 km o menos ordenados por distancia, solo los que ofrecen el servicio (filtrado en SQL) y sin los inactivos; desde Pasto, la lista vacía | TC-01 |
 | SC-02 | AC-02 | Dado un asegurado sin ubicación, cuando busca por ciudad, entonces recibe los de la ciudad por nombre y sin distancias; sin ubicación ni ciudad, 422 | TC-01, TC-07 |
-| SC-03 | AC-09 | Dada una búsqueda con coordenadas, cuando termina, entonces no hay filas nuevas en solicitudes, outbox ni idempotencia | TC-02 |
-| SC-04 | AC-12 | Dada una cuenta en verificación, sin sesión o con rol de analista, cuando usa las rutas, entonces 403, 401 y 403 | TC-03 |
-| SC-05 | AC-10 | Dada una póliza ajena, vencida o inexistente, o un servicio sin prestador en la ciudad, cuando pide asistencia, entonces 404 o 409 sin registrar nada | TC-04 |
+| SC-03 | AC-09 | Dada una búsqueda con coordenadas, cuando termina, entonces no hay filas nuevas en solicitudes, outbox ni idempotencia, y la búsqueda por `GET` con coordenadas en la URL ya no existe | TC-02 |
+| SC-04 | AC-12 | Dada una cuenta en verificación, sin sesión, con rol de analista o con el token de solo reporte, cuando usa las rutas, entonces 403 con `IDENTITY_IN_REVIEW`, 401, 403 y 401 | TC-03 |
+| SC-05 | AC-10 | Dada una póliza ajena, vencida o inexistente, o un servicio sin prestador en la ciudad o a 50 km, cuando pide asistencia, entonces 404 o 409 con `NO_PROVIDER` sin registrar nada | TC-04 |
 | SC-06 | AC-07 | Dada una llave usada, cuando llega el mismo cuerpo, otro cuerpo, otro asegurado con la misma llave o dos envíos a la vez, entonces la misma respuesta, 409, otra solicitud y una sola solicitud | TC-05 |
-| SC-07 | AC-13 | Dadas 5 solicitudes en la última hora, cuando pide la sexta, entonces 429 con `Retry-After` | TC-06 |
+| SC-07 | AC-13 | Dadas 5 solicitudes en la última hora, cuando pide la sexta, entonces 429 con el `Retry-After` que falta; dadas 4, cuando llegan 3 a la vez, entonces solo una pasa | TC-06 |
 | SC-08 | AC-07, SR-05 | Dada una llave ausente o malformada, coordenadas incompletas, servicio desconocido, descripción larga, campo extra o póliza malformada, cuando pide asistencia, entonces 422 | TC-07 |
-| SC-09 | AC-06, AC-14 | Dada una póliza vigente, cuando pide con coordenadas o con ciudad, entonces el más cercano con el tiempo de la fórmula o 45 minutos, y el listado muestra solo las suyas | TC-08 |
+| SC-09 | AC-06, AC-14 | Dada una póliza vigente, cuando pide con coordenadas o con ciudad, entonces la solicitud queda RECEIVED con el más cercano como sugerencia y el tiempo de la fórmula o 45 minutos, y el listado muestra solo las suyas aunque otro asegurado tenga solicitudes | TC-08 |
 | SC-10 | AC-08, AC-09 | Dada una solicitud registrada, cuando se revisa la base, entonces no hay coordenadas, el evento lleva solo identificadores y el consumidor lo ignora; la migración `0009` sube y se revierte | TC-09 |
 | SC-11 | AC-01 a AC-05, AC-11 | Dada la app con y sin permiso, sin ubicación, con filtro, sin red con y sin copia, sesión vencida, intents y cada respuesta del servidor, cuando se usa, entonces cada caso deja la lista y el aviso correctos | TC-10 |
 | SC-12 | AC-07, AC-11 | Dado el formulario, cuando se reintenta sin cambios, se cambia o se vuelve a abrir, entonces la llave se conserva, se renueva y se renueva | TC-11 |
 | SC-13 | AC-09, UC-01 | Dada la app, cuando se revisan el código, la base de la billetera y los intents, entonces la ubicación no se registra ni se guarda, la copia vive cifrada con la billetera y se borra con ella, y no hay mapa embebido ni permiso de llamadas | TC-12 |
-| SC-14 | UC-01 | Dado el arranque en producción, cuando se siembran los datos, entonces no hay prestadores ficticios; fuera de producción hay 18 con teléfonos 555 | TC-13 |
+| SC-14 | UC-01 | Dado el arranque en producción, cuando se siembran los datos, entonces no hay prestadores ficticios; fuera de producción hay 18 con teléfonos 555; si la siembra falla, la cuenta de prueba igual se siembra | TC-13 |
+| SC-18 | AC-15 | Dada la app sin número de la línea de Solventa, cuando se abre la billetera o aparece un aviso, entonces no hay «Asistencia» y ningún texto manda a llamar a la línea | TC-16 |
+| SC-19 | AC-09 | Dada la tarea diaria, cuando corre, entonces borra los registros de idempotencia de más de 24 h aunque las tareas anteriores fallen | TC-17 |
 | SC-15 | UC-01, UC-02 | Dadas las pantallas, cuando se recorren con TalkBack, entonces cada control dice su nombre y mide 48 dp y los avisos se anuncian | TC-14 |
 | SC-16 | UC-01, UC-02 | Dado un teléfono real en DEV, cuando se usa con y sin permiso, en modo avión y se pide asistencia, entonces todo funciona y el marcador y los mapas abren | TC-15 |
-| SC-17 | UC-02 | Dada una solicitud asignada, cuando el prestador debe enterarse | OUT OF SCOPE: no hay despacho al prestador (RISK-05) |
+| SC-17 | UC-02 | Dada una solicitud recibida, cuando el prestador debe enterarse | OUT OF SCOPE: no hay despacho al prestador; la app pide llamarlo (RISK-05) |
 
 ## Scenario coverage
 
@@ -45,12 +47,12 @@
 | Risk covered | — |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas con ciudades y el catálogo ficticio |
-| Procedure | 1. Buscar con coordenadas del norte de Bogotá. 2. Buscar por Medellín. 3. Filtrar por cerrajería. 4. Desactivar un prestador |
-| Expected result | 18 por distancia creciente con el más cercano primero y `no-store`; 4 de Medellín por nombre sin distancia; los 3 de cerrajería; el inactivo no aparece |
+| Procedure | 1. Buscar con coordenadas del norte de Bogotá. 2. Buscar desde Pasto. 3. Buscar por Medellín. 4. Filtrar por cerrajería con coordenadas y por ciudad, y plomería en el servicio. 5. Desactivar un prestador |
+| Expected result | Los 5 de Bogotá (a 50 km o menos) por distancia creciente con el más cercano primero y `no-store`; desde Pasto, lista vacía; 4 de Medellín por nombre sin distancia; PRV-BOG-04 y PRV-MED-04 para cerrajería; el filtro por servicio se resuelve en la consulta; el inactivo no aparece |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_con_ubicacion_ordena_los_prestadores_por_distancia; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_ubicacion_filtra_por_ciudad_y_no_da_distancias; backend/tests/integration/test_providers_and_assistance_api.py::test_el_filtro_por_servicio_deja_solo_quienes_lo_ofrecen; backend/tests/integration/test_providers_and_assistance_api.py::test_un_prestador_inactivo_no_aparece; backend/tests/integration/test_providers_and_assistance_api.py::test_el_catalogo_de_ciudades_esta_disponible_para_el_asegurado |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_con_ubicacion_ordena_los_prestadores_a_50_km_por_distancia; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_ubicacion_filtra_por_ciudad_y_no_da_distancias; backend/tests/integration/test_providers_and_assistance_api.py::test_el_filtro_por_servicio_deja_solo_quienes_lo_ofrecen; backend/tests/integration/test_providers_and_assistance_api.py::test_un_prestador_inactivo_no_aparece; backend/tests/integration/test_providers_and_assistance_api.py::test_el_catalogo_de_ciudades_esta_disponible_para_el_asegurado; backend/tests/integration/test_providers_and_assistance_api.py::test_lejos_de_todo_prestador_la_lista_sale_vacia; backend/tests/integration/test_providers_and_assistance_api.py::test_el_filtro_por_servicio_se_hace_en_la_consulta |
 | Status | PASS |
 
 ### TC-02 · La búsqueda no guarda la ubicación
@@ -67,7 +69,7 @@
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_buscar_prestadores_no_guarda_la_ubicacion |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_buscar_prestadores_no_guarda_la_ubicacion; backend/tests/integration/test_providers_and_assistance_api.py::test_la_ubicacion_no_va_en_la_url_la_busqueda_por_get_ya_no_existe; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"los prestadores por ubicacion envian las coordenadas redondeadas en el cuerpo y no en la URL" |
 | Status | PASS |
 
 ### TC-03 · Sin sesión, otro rol o identidad en verificación
@@ -84,7 +86,7 @@
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_sin_sesion_responde_401_y_con_otro_rol_403; backend/tests/integration/test_providers_and_assistance_api.py::test_la_cuenta_en_verificacion_no_ve_prestadores_ni_pide_asistencia |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_sin_sesion_responde_401_y_con_otro_rol_403; backend/tests/integration/test_providers_and_assistance_api.py::test_la_cuenta_en_verificacion_no_ve_prestadores_ni_pide_asistencia; backend/tests/integration/test_providers_and_assistance_api.py::test_el_token_de_solo_reporte_responde_401 |
 | Status | PASS |
 
 ### TC-04 · Póliza ajena, vencida o sin prestador
@@ -96,12 +98,12 @@
 | Risk covered | THR-01 |
 | Level | INTEGRATION |
 | Preconditions | Pólizas del titular (vigente y vencida) y de otro asegurado |
-| Procedure | 1. Pedir con la póliza ajena, la vencida y una inexistente. 2. Pedir en Cartagena, sin prestadores |
-| Expected result | 404 en las tres sin solicitud ni registro de idempotencia; 409 con «línea de Solventa» sin registrar nada |
+| Procedure | 1. Pedir con la póliza ajena, la vencida y una inexistente. 2. Pedir en Cartagena, sin prestadores. 3. Pedir plomería desde Pasto (1.21, −77.28) |
+| Expected result | 404 en las tres sin solicitud ni registro de idempotencia; 409 con `code` `NO_PROVIDER` y sin mencionar la línea de Solventa, sin registrar nada; desde Pasto, 409 `NO_PROVIDER` porque no hay plomería a 50 km |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_una_poliza_ajena_o_vencida_responde_404_sin_registrar_nada; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_prestador_que_ofrezca_el_servicio_responde_409 |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_una_poliza_ajena_o_vencida_responde_404_sin_registrar_nada; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_prestador_que_ofrezca_el_servicio_responde_409_con_su_codigo; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_prestador_del_servicio_a_50_km_responde_409 |
 | Status | PASS |
 
 ### TC-05 · Idempotencia por asegurado y llave
@@ -113,12 +115,12 @@
 | Risk covered | THR-02 |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas; una segunda cuenta con su póliza |
-| Procedure | 1. La misma llave y el mismo cuerpo dos veces. 2. La misma llave con otra descripción. 3. La misma llave desde otra cuenta. 4. Dos envíos iguales a la vez |
-| Expected result | 201 dos veces con el mismo cuerpo, una solicitud y un evento; 409; la otra cuenta crea la suya; una sola solicitud y la misma respuesta |
+| Procedure | 1. La misma llave y el mismo cuerpo dos veces. 2. La misma llave con otras coordenadas. 3. La misma llave con otra descripción. 4. La misma llave desde otra cuenta. 5. Dos envíos iguales a la vez, detenidos los dos después de `find_response` para forzar la carrera |
+| Expected result | 201 dos veces con el mismo cuerpo, una solicitud y un evento; con otras coordenadas, la misma respuesta porque la huella no las incluye; 409 con `IDEMPOTENCY_KEY_REUSED`; la otra cuenta crea la suya; en la carrera, el segundo choca con la llave primaria, entra en la rama `IntegrityError` y devuelve la respuesta del ganador: una solicitud y un registro |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_misma_llave_con_el_mismo_cuerpo_devuelve_la_misma_respuesta; backend/tests/integration/test_providers_and_assistance_api.py::test_la_misma_llave_con_otro_cuerpo_responde_409; backend/tests/integration/test_providers_and_assistance_api.py::test_la_llave_es_de_cada_asegurado; backend/tests/integration/test_providers_and_assistance_api.py::test_dos_envios_simultaneos_con_la_misma_llave_crean_una_sola_solicitud |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_misma_llave_con_el_mismo_cuerpo_devuelve_la_misma_respuesta; backend/tests/integration/test_providers_and_assistance_api.py::test_la_misma_llave_con_otro_cuerpo_responde_409_con_su_codigo; backend/tests/integration/test_providers_and_assistance_api.py::test_la_llave_es_de_cada_asegurado; backend/tests/integration/test_providers_and_assistance_api.py::test_dos_envios_simultaneos_con_la_misma_llave_crean_una_sola_solicitud; backend/tests/integration/test_providers_and_assistance_api.py::test_la_misma_llave_con_otra_ubicacion_repite_la_respuesta_porque_la_huella_no_la_incluye |
 | Status | PASS |
 
 ### TC-06 · Tope por hora
@@ -130,12 +132,12 @@
 | Risk covered | THR-03 |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas |
-| Procedure | Pedir 5 veces con llaves distintas y una sexta |
-| Expected result | 5 veces 201 y luego 429 con `Retry-After: 600` |
+| Procedure | 1. Pedir 5 veces con llaves distintas, mover su hora 50 minutos atrás y pedir una sexta. 2. Con 4 ya pedidas, tres a la vez detenidas antes del bloqueo de la cuenta |
+| Expected result | 5 veces 201 y luego 429 con `TOO_MANY_REQUESTS`, sin mencionar la línea, y `Retry-After` de unos 600 s; de las tres simultáneas pasa una y las otras dos reciben 429: quedan 5 |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_mas_de_cinco_solicitudes_en_una_hora_responde_429 |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_mas_de_cinco_solicitudes_en_una_hora_responde_429_con_el_tiempo_que_falta; backend/tests/integration/test_providers_and_assistance_api.py::test_el_tope_por_hora_se_respeta_con_solicitudes_simultaneas |
 | Status | PASS |
 
 ### TC-07 · Entrada inválida
@@ -164,12 +166,12 @@
 | Risk covered | — |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas con el catálogo |
-| Procedure | 1. Pedir grúa desde el norte de Bogotá. 2. Pedir atención médica en Cali sin coordenadas. 3. Listar las solicitudes |
-| Expected result | 201 con PRV-BOG-01 a 1,2 km y 18 minutos (`ceil(1,2 / 30 × 60) + 15`); PRV-CAL-03 con 45 minutos; el listado trae solo la propia con `no-store` |
+| Procedure | 1. Pedir grúa desde el norte de Bogotá. 2. Pedir atención médica en Cali sin coordenadas. 3. Otro asegurado pide la suya. 4. Listar las solicitudes |
+| Expected result | 201 en estado RECEIVED con PRV-BOG-01 como sugerencia a 1,2 km y 18 minutos (`ceil(1,2 / 30 × 60) + 15`); PRV-CAL-03 con 45 minutos; el listado trae solo la propia con `no-store` y no la del otro asegurado |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_pide_asistencia_con_el_prestador_mas_cercano_y_su_tiempo_estimado; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_ubicacion_asigna_en_la_ciudad_con_45_minutos; backend/tests/integration/test_providers_and_assistance_api.py::test_lista_solo_las_solicitudes_del_asegurado |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_recibe_la_solicitud_con_el_prestador_sugerido_y_su_tiempo_estimado; backend/tests/integration/test_providers_and_assistance_api.py::test_sin_ubicacion_sugiere_en_la_ciudad_con_45_minutos; backend/tests/integration/test_providers_and_assistance_api.py::test_lista_solo_las_solicitudes_del_asegurado |
 | Status | PASS |
 
 ### TC-09 · Sin ubicación guardada, evento, consumidor y migración
@@ -186,7 +188,7 @@
 | Tool or method | pytest con Alembic |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_solicitud_no_guarda_la_ubicacion_y_el_evento_solo_lleva_identificadores; backend/tests/unit/test_notifications.py::test_la_solicitud_de_asistencia_no_tiene_aviso_y_se_ignora; backend/tests/integration/test_migrations.py::test_la_migracion_de_prestadores_y_asistencia_crea_sus_tablas_desde_0008_y_se_revierte; backend/tests/integration/test_migrations.py::test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_solicitud_no_guarda_la_ubicacion_ni_en_la_huella_y_el_evento_solo_lleva_identificadores; backend/tests/unit/test_notifications.py::test_la_solicitud_de_asistencia_no_tiene_aviso_y_se_ignora; backend/tests/integration/test_migrations.py::test_la_migracion_de_prestadores_y_asistencia_crea_sus_tablas_desde_0008_y_se_revierte; backend/tests/integration/test_migrations.py::test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema |
 | Status | PASS |
 
 ### TC-10 · Flujo de la app
@@ -203,7 +205,7 @@
 | Tool or method | JUnit con Robolectric y MockWebServer |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"con permiso busca por la ubicacion aproximada redondeada y guarda la lista en la copia"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin permiso no pide la ubicacion, carga las ciudades y busca por la elegida"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"negar el permiso deja elegir la ciudad y darlo busca alrededor"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion a tiempo avisa y ofrece las ciudades"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"el filtro por servicio vuelve a consultar con el servicio"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin red muestra la ultima lista guardada con su fecha y filtra en el telefono"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin red y sin copia avisa sin lista, y al volver la red se reemplaza el aviso"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"la sesion vencida se avisa al buscar prestadores o ciudades"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"Llamar y Ver en el mapa usan el doble de intents y avisan si no hay app"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"pedir asistencia envia la poliza, el servicio y la ubicacion y muestra el prestador y el tiempo"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion pide asistencia con la ciudad elegida"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion ni ciudad el formulario no se puede enviar"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"cada respuesta del servidor muestra su aviso"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"la descripcion se corta en 300 caracteres y sin polizas vigentes no se envia"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"los prestadores por ubicacion envian las coordenadas redondeadas y leen la distancia"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"los prestadores por ciudad no envian coordenadas y aceptan distancia nula"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sesion vencida, error del servidor o respuesta mal formada en prestadores y ciudades"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"pedir asistencia envia la llave y el cuerpo y lee el prestador y el tiempo estimado"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sin ubicacion la solicitud envia la ciudad"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"cada codigo de error de la solicitud tiene su resultado"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sin servidor la solicitud queda sin conexion"; movil/app/src/test/java/com/solventa/app/data/assistance/AndroidProviderContactTest.kt::"Llamar abre el marcador con el numero y no llama directamente"; movil/app/src/test/java/com/solventa/app/data/assistance/AndroidProviderContactTest.kt::"Ver en el mapa abre geo con las coordenadas y el nombre del prestador" |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"con permiso busca por la ubicacion aproximada redondeada y guarda la lista en la copia"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin permiso no pide la ubicacion, carga las ciudades y busca por la elegida"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"negar el permiso deja elegir la ciudad y darlo busca alrededor"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion a tiempo avisa y ofrece las ciudades"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"el filtro por servicio vuelve a consultar con el servicio"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin red muestra la ultima lista guardada con su fecha y filtra en el telefono"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin red y sin copia avisa sin lista, y al volver la red se reemplaza el aviso"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"la sesion vencida se avisa al buscar prestadores o ciudades"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"Llamar y Ver en el mapa usan el doble de intents y avisan si no hay app"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"pedir asistencia envia la poliza, el servicio y la ubicacion y muestra el prestador y el tiempo"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion pide asistencia con la ciudad elegida"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"sin ubicacion ni ciudad el formulario no se puede enviar"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"cada respuesta del servidor muestra su aviso"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"la descripcion se corta en 300 caracteres y sin polizas vigentes no se envia"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"los prestadores por ubicacion envian las coordenadas redondeadas en el cuerpo y no en la URL"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"los prestadores por ciudad no envian coordenadas y aceptan distancia nula"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sesion vencida, error del servidor o respuesta mal formada en prestadores y ciudades"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"pedir asistencia envia la llave y el cuerpo y lee el prestador y el tiempo estimado"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sin ubicacion la solicitud envia la ciudad"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"cada codigo de error de la solicitud tiene su resultado"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"sin servidor la solicitud queda sin conexion"; movil/app/src/test/java/com/solventa/app/data/assistance/AndroidProviderContactTest.kt::"Llamar abre el marcador con el numero y no llama directamente"; movil/app/src/test/java/com/solventa/app/data/assistance/AndroidProviderContactTest.kt::"Ver en el mapa abre geo con las coordenadas y el nombre del prestador"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"la llave ya usada con otra solicitud no se lee como sin prestador y el siguiente envio lleva otra llave"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceViewModelTest.kt::"una busqueda rechazada o la identidad en verificacion no se muestran como sin conexion"; movil/app/src/test/java/com/solventa/app/data/assistance/HttpAssistanceApiTest.kt::"una busqueda rechazada no es falta de red y la identidad en verificacion tiene su resultado"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"una busqueda rechazada avisa sin hablar de conexion" |
 | Status | PASS |
 
 ### TC-11 · Llave de idempotencia por formulario
@@ -254,7 +256,7 @@
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_lifespan.py::test_arranque_crea_tablas_y_la_asegurada_de_prueba; backend/tests/integration/test_lifespan.py::test_tc_08_con_environment_production_no_siembra_cuentas; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistancePrivacyTest.kt::"la linea ficticia de Solventa solo existe en depuracion" |
+| Evidence | backend/tests/integration/test_lifespan.py::test_arranque_crea_tablas_y_la_asegurada_de_prueba; backend/tests/integration/test_lifespan.py::test_tc_08_con_environment_production_no_siembra_cuentas; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistancePrivacyTest.kt::"la linea ficticia de Solventa solo existe en depuracion"; backend/tests/integration/test_lifespan.py::test_una_falla_al_sembrar_prestadores_no_impide_sembrar_la_cuenta |
 | Status | PASS |
 
 ### TC-14 · Accesibilidad de las pantallas
@@ -271,7 +273,41 @@
 | Tool or method | Compose UI test con Robolectric |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"la billetera ofrece Asistencia con un boton de 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"cada prestador tiene Llamar y Ver en el mapa con su nombre para TalkBack y de al menos 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin ubicacion ofrece usarla, elegir ciudad y llamar a la linea, todo de 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"el filtro de servicio marca el elegido y cada opcion mide 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin conexion el aviso con la fecha de la copia se anuncia por TalkBack"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"el formulario elige poliza y servicio como radios de 48 dp y envia"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin ubicacion ni ciudad el envio queda deshabilitado y lo explica"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin red el formulario avisa y ofrece llamar a la linea de Solventa"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"la solicitud recibida muestra el prestador y el tiempo estimado y se anuncia" |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"la billetera ofrece Asistencia con un boton de 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"cada prestador tiene Llamar y Ver en el mapa con su nombre para TalkBack y de al menos 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin ubicacion ofrece usarla, elegir ciudad y llamar a la linea, todo de 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"el filtro de servicio marca el elegido y cada opcion mide 48 dp"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin conexion el aviso con la fecha de la copia se anuncia por TalkBack"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"el formulario elige poliza y servicio como radios de 48 dp y envia"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin ubicacion ni ciudad el envio queda deshabilitado y lo explica"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin red el formulario avisa y ofrece llamar a la linea de Solventa"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"la solicitud recibida sugiere el prestador sin decir que ya fue asignado y ofrece llamarlo" |
+| Status | PASS |
+
+### TC-16 · Sin línea de Solventa no se ofrece ni se menciona
+
+| Field | Value |
+|---|---|
+| Covers | AC-15, SR-04 |
+| Kind | SECURITY |
+| Risk covered | THR-06 |
+| Level | UNIT |
+| Preconditions | Robolectric con la línea vacía inyectada como en release |
+| Procedure | 1. Abrir la billetera sin línea y con línea. 2. Mostrar el formulario sin línea con los avisos sin red, sin prestador y demasiadas solicitudes. 3. Mostrar la lista sin red y sin copia |
+| Expected result | Sin línea no aparece «Asistencia»; con línea sí; los avisos usan sus textos sin línea, no hay botón de la línea y ningún texto contiene «línea de Solventa» |
+| Tool or method | JUnit, Robolectric y Compose |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | movil/app/src/test/java/com/solventa/app/SolventaMobileRootClaimsTest.kt::"sin la linea de Solventa la billetera no ofrece Asistencia"; movil/app/src/test/java/com/solventa/app/SolventaMobileRootClaimsTest.kt::"con la linea de Solventa la billetera ofrece Asistencia"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin numero de la linea el formulario no manda a llamar a una linea que no existe"; movil/app/src/test/java/com/solventa/app/ui/assistance/AssistanceScreensTest.kt::"sin numero de la linea y sin copia el aviso sin conexion no menciona la linea" |
+| Status | PASS |
+
+### TC-17 · Purga diaria de la idempotencia
+
+| Field | Value |
+|---|---|
+| Covers | AC-09, SR-04 |
+| Kind | SECURITY |
+| Risk covered | THR-04 |
+| Level | INTEGRATION |
+| Preconditions | PostgreSQL de pruebas |
+| Procedure | 1. Guardar un registro de 25 h y otro de 23 h y purgar. 2. Correr una vuelta de la tarea diaria con las tareas anteriores fallando |
+| Expected result | Se borra solo el de 25 h; la tarea diaria llama a la purga aunque las anteriores fallen |
+| Tool or method | pytest |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_purga_borra_las_llaves_de_mas_de_24_horas; backend/tests/integration/test_lifespan.py::test_la_tarea_diaria_purga_las_llaves_de_idempotencia_aunque_falle_lo_anterior |
 | Status | PASS |
 
 ### TC-15 · Prestadores y asistencia de punta a punta en un teléfono

@@ -28,6 +28,9 @@ enum class RegistrationError {
     TOO_MANY_REQUESTS,
     SMS_UNAVAILABLE,
     NETWORK,
+
+    /** El registro desde la app está apagado en este entorno (404). */
+    REGISTRATION_DISABLED,
     CAPTURE_FAILED,
     /** El teléfono no tiene la cámara del paso (la frontal para la selfie) o no se pudo abrir. */
     CAMERA_UNAVAILABLE,
@@ -116,6 +119,7 @@ class RegistrationViewModel(private val authApi: AuthApi) : ViewModel() {
                     is OtpResult.TooManyRequests -> state.copy(busy = false, error = RegistrationError.TOO_MANY_REQUESTS)
                     OtpResult.SendFailed -> state.copy(busy = false, error = RegistrationError.SMS_UNAVAILABLE)
                     OtpResult.Failed -> state.copy(busy = false, error = RegistrationError.NETWORK)
+                    OtpResult.Disabled -> state.copy(busy = false, error = RegistrationError.REGISTRATION_DISABLED)
                 }
             }
         }

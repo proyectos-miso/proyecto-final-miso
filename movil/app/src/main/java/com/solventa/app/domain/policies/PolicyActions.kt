@@ -47,6 +47,7 @@ sealed interface PreferencesResult {
     data object Unauthorized : PreferencesResult
     data object Invalid : PreferencesResult
     data object Unavailable : PreferencesResult
+    data object IdentityInReview : PreferencesResult
 }
 
 /** Revocación de la autorización biométrica del registro (mejora FE-MOV-01). */

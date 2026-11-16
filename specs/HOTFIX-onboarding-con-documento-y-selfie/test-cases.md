@@ -35,6 +35,8 @@
 | SC-30 | AC-02 | Dada la migración `0007` con cuentas aprobadas, pendientes y rechazadas, cuando se revierte, entonces solo quedan las aprobadas y ninguna autorización biométrica | TC-28 |
 | SC-31 | AC-01, AC-11 | Dada la app, cuando pasa del documento a la selfie, el teléfono no tiene cámara frontal, se toca «Atrás» en el resultado o llega el SMS, entonces se crea otra vista previa, se avisa con salida, se entra con la cuenta y se ofrece autocompletar el código | TC-29 |
 | SC-32 | UC-03 | Dada la app, cuando el asegurado revoca la autorización desde «Avisos», entonces confirma, se llama al servidor y se informa el resultado | TC-30 |
+| SC-33 | AC-18 | Dada una cuenta en verificación, cuando la app sincroniza o abre siniestros, avisos o asistencia, entonces el 403 trae `IDENTITY_IN_REVIEW`, la app muestra «Estamos verificando su identidad» sin aviso de conexión y el trabajo de sincronización termina sin reintentar | TC-31 |
+| SC-34 | AC-19 | Dado el registro apagado, cuando se pide el código, entonces la app dice que el registro no está disponible; con `REGISTRATION_IN_APP` apagada no aparece «Crear cuenta» | TC-32 |
 | SC-19 | UC-01 | Dado un asegurado con varias cuentas en el teléfono, cuando registra otra, entonces la nueva se suma sin tocar las huellas existentes | OUT OF SCOPE: lo cubre `SecureSessionRepository` (HU-MOV-03) y `completeRegistration` usa el mismo camino del ingreso |
 
 ## Scenario coverage
@@ -321,6 +323,40 @@
 | Automation | AUTOMATED |
 | Environment | LOCAL |
 | Evidence | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"los datos tienen etiquetas, el paso y el boton solo se activa con todo completo"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"el tipo de documento es un grupo de opciones de 48 dp que TalkBack lee como radio"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"los terminos son una casilla de 48 dp con su estado"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"atras tiene etiqueta y mide 48 dp"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"la camara tiene el obturador con etiqueta para TalkBack"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"la autorizacion biometrica explica el uso y exige la casilla"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"cada resultado muestra su titulo y su accion"; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationScreensTest.kt::"las pantallas de ingreso ofrecen crear cuenta" |
+| Status | PASS |
+
+### TC-31 · Identidad en verificación en la app
+
+| Field | Value |
+|---|---|
+| Covers | AC-18 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | PostgreSQL de pruebas para el backend; MockWebServer, dobles y Robolectric en la app |
+| Procedure | 1. Pedir prestadores y asistencia con la cuenta PENDING. 2. Responder 403 con y sin `IDENTITY_IN_REVIEW` a pólizas, siniestros, preferencias y asistencia. 3. Sincronizar y correr el trabajo. 4. Abrir la billetera y «Avisos» |
+| Expected result | 403 `{detail, code: IDENTITY_IN_REVIEW}`; con el código, el resultado es identidad en verificación y sin él sigue como hoy; la sincronización conserva la sesión y el trabajo termina con éxito sin reintentar; la billetera y «Avisos» muestran el aviso de verificación y no el de conexión |
+| Tool or method | pytest, JUnit, MockWebServer, Robolectric y Compose |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_providers_and_assistance_api.py::test_la_cuenta_en_verificacion_no_ve_prestadores_ni_pide_asistencia; movil/app/src/test/java/com/solventa/app/data/policies/HttpPoliciesApiTest.kt::"403 con IDENTITY_IN_REVIEW es identidad en verificacion y no sin conexion"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimsApiTest.kt::"403 con IDENTITY_IN_REVIEW es identidad en verificacion en los siniestros"; movil/app/src/test/java/com/solventa/app/data/policies/HttpPolicyActionsApiTest.kt::"403 con IDENTITY_IN_REVIEW en las preferencias es identidad en verificacion"; movil/app/src/test/java/com/solventa/app/data/policies/SessionPolicySyncTest.kt::"un 403 de identidad en verificacion responde IdentityInReview y conserva la sesion"; movil/app/src/test/java/com/solventa/app/data/policies/PolicySyncWorkerTest.kt::"con la identidad en verificacion el trabajo termina sin reintentar"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletViewModelTest.kt::"con la identidad en verificacion no se muestra sin conexion ni se agenda la sincronizacion"; movil/app/src/test/java/com/solventa/app/ui/wallet/WalletScreenTest.kt::"con la identidad en verificacion muestra el aviso y no el de sin conexion"; movil/app/src/test/java/com/solventa/app/ui/settings/NotificationPreferencesViewModelTest.kt::"con la identidad en verificacion muestra ese aviso y no sin conexion" |
+| Status | PASS |
+
+### TC-32 · Registro apagado en la app
+
+| Field | Value |
+|---|---|
+| Covers | AC-19 |
+| Kind | FUNCTIONAL |
+| Risk covered | — |
+| Level | UNIT |
+| Preconditions | MockWebServer y Robolectric |
+| Procedure | 1. Responder 404 a `POST /auth/register/otp`. 2. Mostrar el ingreso con `REGISTRATION_IN_APP` apagada y encendida |
+| Expected result | El 404 es «registro apagado» y no falta de conexión; con la bandera apagada no aparece «Crear cuenta» y con ella sí |
+| Tool or method | JUnit, MockWebServer, Robolectric y Compose |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/auth/HttpRegistrationApiTest.kt::"404 al pedir el codigo es registro apagado y no falta de conexion"; movil/app/src/test/java/com/solventa/app/RegistrationInAppFlagTest.kt::"con el registro en la app apagado no aparece crear cuenta"; movil/app/src/test/java/com/solventa/app/RegistrationInAppFlagTest.kt::"con el registro en la app encendido aparece crear cuenta" |
 | Status | PASS |
 
 ### TC-17 · Registro de punta a punta en un teléfono

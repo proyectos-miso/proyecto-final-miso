@@ -1,6 +1,10 @@
 package com.solventa.app.ui.claims
 
 import android.content.Context
+import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -27,6 +31,7 @@ import com.solventa.app.domain.claims.ScanResult
 import com.solventa.app.domain.claims.ScannedPage
 import com.solventa.app.ui.theme.SolventaTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -172,5 +177,42 @@ class ClaimDocumentsScreenTest {
 
         assertEquals(listOf(10), scanner.requested)
         compose.onNodeWithText(s(R.string.documents_pages_title, 2).uppercase()).assertIsDisplayed()
+    }
+
+    @Test
+    fun `al cerrar la pantalla de documentos se limpia la cache del escaner`() {
+        val scanner = FakeDocumentScanner()
+        val viewModel = ClaimDocumentsViewModel(RecordingUploader())
+        viewModel.open("SIN-2026-00001", true)
+        var shown by mutableStateOf(true)
+        compose.setContent {
+            SolventaTheme { if (shown) ClaimDocumentsFlow(viewModel, scanner, ClaimScreensTest.FakeCamera(), onClose = {}) }
+        }
+        assertEquals(0, scanner.cleared)
+
+        shown = false
+        compose.waitForIdle()
+
+        assertEquals(1, scanner.cleared)
+    }
+
+    @Test
+    fun `la miniatura se reduce y se recicla al quitar la pagina`() {
+        val jpeg = java.io.ByteArrayOutputStream().also {
+            Bitmap.createBitmap(1200, 1600, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 80, it)
+        }.toByteArray()
+        val decoded = mutableListOf<Bitmap>()
+        var shown by mutableStateOf(true)
+        compose.setContent {
+            if (shown) rememberThumbnail(ScannedPage(jpeg)) { bytes -> decodePageThumbnail(bytes)?.also { decoded += it } }
+        }
+        val bitmap = decoded.single()
+        assertTrue(bitmap.width < 1200 && bitmap.width >= 168)
+        assertFalse(bitmap.isRecycled)
+
+        shown = false
+        compose.waitForIdle()
+
+        assertTrue(bitmap.isRecycled)
     }
 }

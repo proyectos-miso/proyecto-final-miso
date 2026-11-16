@@ -35,6 +35,9 @@ sealed interface OtpResult {
     data class TooManyRequests(val retryAfterSeconds: Int) : OtpResult
     data object SendFailed : OtpResult
     data object Failed : OtpResult
+
+    /** 404: el registro desde la app está apagado en este entorno. */
+    data object Disabled : OtpResult
 }
 
 sealed interface LoginResult {

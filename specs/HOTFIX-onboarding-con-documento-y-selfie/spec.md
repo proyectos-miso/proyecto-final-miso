@@ -60,7 +60,7 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | backend/app/modules/claims/intake.py | `REPORT_MAX_BODY_BYTES`: tope del cuerpo del reporte de siniestro |
 | backend/app/core/storage.py | `purge`: borra todas las versiones y marcadores de un prefijo `identidad/<uuid>/<uuid>/` y rechaza cualquier otro |
 | backend/app/bff/auth/router.py | `POST /auth/register/otp` y `POST /auth/register` |
-| backend/app/bff/insured/router.py | Las rutas de datos exigen identidad aprobada; `POST /insured/consents/biometric/revoke` |
+| backend/app/bff/insured/router.py | Las rutas de datos exigen identidad aprobada (403 con `code` `IDENTITY_IN_REVIEW`); `POST /insured/consents/biometric/revoke` |
 | backend/app/main.py | La tarea diaria vence y decide las verificaciones pendientes; topes del cuerpo del registro y del reporte de siniestro |
 | backend/tests/** | Pruebas de integración, unitarias y de la migración |
 | terraform/modules/ecs/main.tf | El rol de la tarea escribe, lee y borra versiones solo bajo `identidad/` y lista versiones solo con `s3:prefix` en `identidad/` |
@@ -81,7 +81,20 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | movil/app/src/main/java/com/solventa/app/domain/policies/PolicyActions.kt | `revokeBiometricConsent` |
 | movil/app/src/main/java/com/solventa/app/data/policies/HttpPolicyActionsApi.kt | `POST /insured/consents/biometric/revoke` |
 | movil/app/src/main/java/com/solventa/app/data/policies/SessionPolicyActions.kt | La revocación con el token de la sesión |
-| movil/app/src/main/java/com/solventa/app/MainActivity.kt | Navegación, cámara frontal, ventana segura del registro y revocación en «Avisos» |
+| movil/app/src/main/java/com/solventa/app/data/policies/IdentityInReview.kt | Reconoce el 403 con `code` `IDENTITY_IN_REVIEW` |
+| movil/app/src/main/java/com/solventa/app/data/policies/HttpPoliciesApi.kt | El 403 de identidad en verificación no es falta de conexión |
+| movil/app/src/main/java/com/solventa/app/data/claims/HttpClaimsApi.kt | Lo mismo en los siniestros |
+| movil/app/src/main/java/com/solventa/app/data/policies/SessionPolicySync.kt | `SyncOutcome.IdentityInReview` sin cerrar la sesión |
+| movil/app/src/main/java/com/solventa/app/data/policies/PolicySyncWorker.kt | Con la identidad en verificación termina sin reintentar |
+| movil/app/src/main/java/com/solventa/app/domain/policies/PolicyCard.kt | `PoliciesResult.IdentityInReview` |
+| movil/app/src/main/java/com/solventa/app/domain/policies/PolicySync.kt | `SyncOutcome.IdentityInReview` |
+| movil/app/src/main/java/com/solventa/app/domain/claims/InsuredClaims.kt | `ClaimsResult.IdentityInReview` |
+| movil/app/src/main/java/com/solventa/app/ui/wallet/WalletViewModel.kt | Estado de identidad en verificación, sin aviso sin conexión ni sincronización agendada |
+| movil/app/src/main/java/com/solventa/app/ui/wallet/WalletScreen.kt | Aviso «Estamos verificando su identidad» |
+| movil/app/src/main/java/com/solventa/app/ui/claims/ClaimsViewModel.kt | El mismo estado en Mis siniestros |
+| movil/app/src/main/java/com/solventa/app/ui/claims/ClaimsScreens.kt | El mismo aviso en Mis siniestros |
+| movil/app/build.gradle.kts | `REGISTRATION_IN_APP`: encendida en debug, apagada en release |
+| movil/app/src/main/java/com/solventa/app/MainActivity.kt | Navegación, cámara frontal, ventana segura del registro, revocación en «Avisos» y «Crear cuenta» solo con `REGISTRATION_IN_APP` |
 | movil/app/src/main/res/values/strings.xml | Textos |
 | movil/app/src/test/** | Pruebas de la app |
 | docs/adr/0031-backend-identity-verifier-port.md | ADR Proposed del puerto |
@@ -130,6 +143,8 @@ opcional); corregir en todo el backend la IP tomada de `X-Forwarded-For` (RISK-0
 | AC-15 | WHILE `REGISTRATION_ENABLED` está apagado, THE backend SHALL responder 404 en `POST /auth/register/otp` y `POST /auth/register`; sin valor, SHALL estar encendido solo en development, local y test | DERIVED: sin proveedor real, el registro fuera de desarrollo guardaría datos biométricos sin propósito |
 | AC-16 | WHEN una verificación lleva 30 días PENDING, THE backend SHALL marcarla EXPIRED, borrar sus imágenes, cerrar la cuenta y dejar libre el documento | DERIVED: una pendiente no puede guardar datos biométricos ni ocupar un documento indefinidamente |
 | AC-17 | THE backend SHALL borrar todas las versiones y marcadores de las imágenes, y el bucket SHALL vencer las versiones no actuales bajo `identidad/` | DERIVED: el bucket tiene versionado; borrar la clave no borra la imagen |
+| AC-18 | WHILE la identidad está en verificación, THE backend SHALL responder el 403 de las rutas del asegurado con `code` `IDENTITY_IN_REVIEW`, y THE app SHALL mostrar «Estamos verificando su identidad» en la billetera, Mis siniestros y «Avisos», sin aviso de conexión y sin reintentar la sincronización en bucle | DERIVED: la app lo leía como «Sin conexión» y reintentaba sin fin (auditoría del 2026-11-16) |
+| AC-19 | WHILE la registración desde la app está apagada, THE app SHALL decir «El registro desde la app no está disponible por ahora» ante el 404 de `POST /auth/register/otp`, y en release SHALL no mostrar «Crear cuenta» | DERIVED: en AWS `REGISTRATION_ENABLED` está apagado y el botón llevaba a un aviso de conexión falso (auditoría del 2026-11-16) |
 
 ### Quality requirements
 

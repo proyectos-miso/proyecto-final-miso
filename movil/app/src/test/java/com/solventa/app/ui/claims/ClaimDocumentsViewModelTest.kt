@@ -27,8 +27,13 @@ import org.junit.Test
 /** Doble del puerto del escáner: entrega el resultado que se le programe (mejora FE-MOV-05). */
 class FakeDocumentScanner(var available: Boolean = true, var next: ScanResult = ScanResult.Cancelled) : DocumentScanner {
     val requested = mutableListOf<Int>()
+    var cleared = 0
 
     override fun available() = available
+
+    override fun clearCache() {
+        cleared++
+    }
 
     @Composable
     override fun rememberLauncher(onResult: (ScanResult) -> Unit): (Int) -> Unit = { max ->

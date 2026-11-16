@@ -51,3 +51,21 @@ async def test_otro_metodo_en_la_misma_ruta_no_tiene_tope():
     response = await post("/api/v1/auth/register", b"0" * 500, method="PUT")
 
     assert response.status_code == 200
+
+
+async def test_sin_content_length_responde_413_aunque_un_middleware_interno_envuelva_el_corte():
+    """Como BaseHTTPMiddleware, la app lee el cuerpo dentro de un grupo de tareas que envuelve la excepción."""
+    import anyio
+
+    async def wrapped(scope, receive, send):
+        async with anyio.create_task_group() as group:
+            group.start_soon(echo, scope, receive, send)
+
+    transport = ASGITransport(app=BodySizeLimitMiddleware(wrapped, limits=LIMITS))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async def chunks():
+            for _ in range(10):
+                yield b"0" * 50
+        response = await client.post("/api/v1/auth/register", content=chunks())
+
+    assert response.status_code == 413

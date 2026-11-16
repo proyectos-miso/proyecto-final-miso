@@ -94,8 +94,10 @@ class BodySizeLimitMiddleware:
 
         try:
             await self.app(scope, limited_receive, guarded_send)
-        except _BodyTooLarge:
-            pass
+        except Exception:
+            # Un BaseHTTPMiddleware interno envuelve el corte en un ExceptionGroup: basta saber que se pasó del tope.
+            if not exceeded:
+                raise
         if exceeded and not started:
             await self._too_large(scope, receive, send)
 

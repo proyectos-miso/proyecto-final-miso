@@ -3,6 +3,7 @@ package com.solventa.app.ui.claims
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,11 +35,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -85,6 +88,8 @@ fun ClaimDocumentsFlow(
         viewModel.close()
         onClose()
     }
+    // Al salir de la pantalla, por «atrás», sesión cerrada o cambio de siniestro, no queda nada del escáner en la caché.
+    DisposableEffect(scanner) { onDispose { scanner.clearCache() } }
     if (state.cameraOpen) {
         DocumentCameraScreen(
             pageNumber = state.pages.size + 1,
@@ -181,11 +186,29 @@ fun ClaimDocumentsScreen(
     }
 }
 
+/** Miniatura reducida de la página; el bitmap se recicla cuando la página sale de la lista o la pantalla se cierra. */
+@Composable
+internal fun rememberThumbnail(page: ScannedPage, decode: (ByteArray) -> Bitmap? = ::decodePageThumbnail): ImageBitmap? {
+    val bitmap = remember(page.id) { decode(page.jpeg) }
+    DisposableEffect(bitmap) { onDispose { bitmap?.recycle() } }
+    return remember(bitmap) { bitmap?.asImageBitmap() }
+}
+
+private const val THUMBNAIL_PX = 168
+
+internal fun decodePageThumbnail(jpeg: ByteArray): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= THUMBNAIL_PX && bounds.outHeight / (sample * 2) >= THUMBNAIL_PX) sample *= 2
+    return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })
+}
+
 @Composable
 private fun PageRow(position: Int, page: ScannedPage, enabled: Boolean, onRemove: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val preview = stringResource(R.string.documents_page_preview, position)
-    val thumbnail = remember(page.id) { BitmapFactory.decodeByteArray(page.jpeg, 0, page.jpeg.size)?.asImageBitmap() }
+    val thumbnail = rememberThumbnail(page)
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = colors.surface,

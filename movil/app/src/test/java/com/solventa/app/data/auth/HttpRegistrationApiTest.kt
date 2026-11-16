@@ -165,4 +165,13 @@ class HttpRegistrationApiTest {
             name to chunk.copyOfRange(headerEnd + 4, chunk.size)
         }
     }
+
+    @Test
+    fun `404 al pedir el codigo es registro apagado y no falta de conexion`() = runTest {
+        answer(404, """{"detail":"Not Found"}""")
+        answer(404)
+
+        assertEquals(OtpResult.Disabled, api.requestRegistrationOtp(DocumentType.CC, "1098765432", "3000000000"))
+        assertEquals(OtpResult.Failed, api.forgotPassword("ana.registro@example.com"))
+    }
 }

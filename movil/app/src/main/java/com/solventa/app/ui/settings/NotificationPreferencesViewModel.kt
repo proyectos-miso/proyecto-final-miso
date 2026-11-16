@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class PreferencesError { SESSION, INVALID, UNAVAILABLE }
+enum class PreferencesError { SESSION, INVALID, UNAVAILABLE, IDENTITY_IN_REVIEW }
 
 /** Revocación de la autorización biométrica desde «Avisos» (mejora FE-MOV-01). */
 enum class BiometricRevocation { CONFIRMING, REVOKING, REVOKED, FAILED, SESSION }
@@ -121,6 +121,8 @@ class NotificationPreferencesViewModel(
             PreferencesResult.Unavailable -> state.copy(preferences = sent, loading = false, saving = false, offline = true, saved = false)
             PreferencesResult.Unauthorized -> state.copy(preferences = sent, loading = false, saving = false, saved = false, error = PreferencesError.SESSION)
             PreferencesResult.Invalid -> state.copy(preferences = sent, loading = false, saving = false, saved = false, error = PreferencesError.INVALID)
+            PreferencesResult.IdentityInReview ->
+                state.copy(preferences = sent, loading = false, saving = false, offline = false, saved = false, error = PreferencesError.IDENTITY_IN_REVIEW)
         }
     }
 }

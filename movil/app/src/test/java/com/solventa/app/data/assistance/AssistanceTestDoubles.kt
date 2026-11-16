@@ -27,7 +27,7 @@ val CITIES = listOf(City("BOGOTA", "Bogotá, D.C."), City("CALI", "Cali"))
 class FakeAssistance : Assistance {
     var providers: ProvidersResult = ProvidersResult.Loaded(listOf(sampleProvider()))
     var cities: CitiesResult = CitiesResult.Loaded(CITIES)
-    var result: AssistanceResult = AssistanceResult.Assigned("REQ-1", sampleProvider(), 18)
+    var result: AssistanceResult = AssistanceResult.Received("REQ-1", sampleProvider(), 18)
     val queries = mutableListOf<ProviderQuery>()
     val requests = mutableListOf<Pair<String, AssistanceForm>>()
     var cityCalls = 0

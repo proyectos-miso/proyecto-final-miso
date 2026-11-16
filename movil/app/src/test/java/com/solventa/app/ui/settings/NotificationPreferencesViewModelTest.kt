@@ -176,4 +176,16 @@ class NotificationPreferencesViewModelTest {
     private companion object {
         const val EMAIL = "asegurada@example.com"
     }
+
+    @Test
+    fun `con la identidad en verificacion muestra ese aviso y no sin conexion`() {
+        actions.preferences = PreferencesResult.IdentityInReview
+
+        viewModel.open(EMAIL)
+
+        val state = viewModel.uiState.value
+        assertFalse(state.offline)
+        assertFalse(state.loading)
+        assertEquals(PreferencesError.IDENTITY_IN_REVIEW, state.error)
+    }
 }

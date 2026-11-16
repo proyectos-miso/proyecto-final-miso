@@ -133,4 +133,13 @@ class PolicySyncWorkerTest {
         )
         assertTrue(exported.values.all { it != null })
     }
+
+    // Con la identidad en verificación reintentar no sirve: el trabajo termina.
+    @Test
+    fun `con la identidad en verificacion el trabajo termina sin reintentar`() = runBlocking {
+        val worker = TestListenableWorkerBuilder<PolicySyncWorker>(context).build()
+        sync.next = { SyncOutcome.IdentityInReview }
+
+        assertEquals(ListenableWorker.Result.success(), worker.doWork())
+    }
 }

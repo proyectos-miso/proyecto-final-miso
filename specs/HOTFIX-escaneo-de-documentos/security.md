@@ -13,13 +13,13 @@
 
 | Question | Answer |
 |---|---|
-| What it contains | Imágenes JPEG (o PDF desde otros clientes) de documentos que pueden traer nombres, números de documento, diagnósticos y valores de terceros |
+| What it contains | Imágenes JPEG de documentos que pueden traer nombres, números de documento, diagnósticos y valores de terceros; el servidor guarda la imagen recodificada sin EXIF ni comentarios |
 | Why it is needed | AC-04, AC-09: el analista decide el siniestro con esos soportes |
 | Who can access it | El asegurado que las escanea; el backend; el analista de Solventa y el de un socio solo para siniestros de sus pólizas (CTL-04) |
 | Where it is captured | Escáner de ML Kit (UI de Google en el teléfono) o la cámara de la app |
 | How it is transmitted | Multipart por HTTPS (CRY-01); el portal las abre con enlaces prefirmados HTTPS de 15 minutos |
 | Where it is stored | S3 `siniestros/{claim}/documentos/{upload}/{page}` cifrado con la llave KMS del bucket (CRY-02); en la app solo en memoria |
-| Copies, caches and backups | ML Kit deja cada página en un archivo de la caché de la app hasta que `ScannedPageReader` la lee y la borra (RISK-02); la caché no entra en respaldos (`allowBackup=false` y `dataExtractionRules` excluyen todo); Starlette puede escribir partes de más de 1 MB a un archivo temporal del contenedor durante la petición; versiones del bucket si están activas; el navegador del analista puede guardar en caché lo que abre |
+| Copies, caches and backups | ML Kit deja cada página en un archivo de `cacheDir/mlkit_docscan_ui_client` hasta que `ScannedPageReader` la lee y la borra; esa carpeta se borra también al arrancar la app y al cerrar la pantalla de documentos (RISK-02); la caché no entra en respaldos (`allowBackup=false` y `dataExtractionRules` excluyen todo); Starlette puede escribir partes de más de 1 MB a un archivo temporal del contenedor durante la petición; versiones del bucket si están activas; el navegador del analista puede guardar en caché lo que abre |
 | How long it is kept | Mientras exista el siniestro, como las fotos del reporte; sin purga definida (RISK-03) |
 | How access is audited | El evento `DOCUMENTS_ADDED` en el historial inmutable; las consultas del expediente, como hoy; CloudTrail de S3 según la configuración del bucket |
 | How it is deleted or anonymized | Sin borrado en este cambio (RISK-03); en la app los bytes se ponen en cero al quitar, enviar o salir |
@@ -57,8 +57,8 @@
 
 | Boundary | Between | What is validated when crossing it |
 |---|---|---|
-| ML Kit → app | Biblioteca de Google y la app | Las páginas se leen, se recodifican a JPEG ≤ 2 MB sin EXIF y su archivo se borra |
-| App → backend | Teléfono e internet | Token de acceso, identidad aprobada, dueño y estado del siniestro, manifiesto estricto, firma, tamaño, número de páginas, huella |
+| ML Kit → app | Biblioteca de Google y la app | Las páginas se leen, se recodifican a JPEG ≤ 2 MB sin EXIF y su archivo se borra; si una falla, las ya leídas se ponen en cero |
+| App → backend | Teléfono e internet | Tamaño del cuerpo antes del parser, token de acceso, identidad aprobada, dueño y estado del siniestro, manifiesto estricto, firma JPEG, tamaño, número de páginas, huella, decodificación con tope de píxeles y recodificación |
 | Backend → S3 | Backend y AWS | Claves construidas en el servidor; rol limitado a `siniestros/*` |
 | Portal → S3 | Navegador y AWS | Enlace prefirmado de una clave, solo lectura, 15 minutos |
 
@@ -82,7 +82,7 @@
 
 | Surface | Exposure | Inputs the attacker controls |
 |---|---|---|
-| POST /insured/claims/{claim_number}/documents | Autenticada (insured) | Radicado, manifiesto JSON, hasta 10 archivos y sus nombres de campo |
+| POST /insured/claims/{claim_number}/documents | Autenticada (insured) | Radicado, manifiesto JSON, hasta 10 archivos y sus nombres de campo, el tamaño del cuerpo y el contenido que decodifica Pillow |
 | GET /experience/claims/{claim_number} | Autenticada (analyst) | Radicado |
 | Pantalla de documentos de la app | Teléfono del asegurado | Lo que entregue el escáner o la cámara |
 
@@ -91,7 +91,7 @@
 | ID | STRIDE | Asset | Threat | Actor | Likelihood | Impact | Risk | Controls |
 |---|---|---|---|---|---|---|---|---|
 | THR-01 | E | Expediente del siniestro | Agregar documentos a un siniestro ajeno, decidido o desde una cuenta sin identidad aprobada | Asegurado malicioso | MEDIUM | HIGH | HIGH | CTL-01 |
-| THR-02 | D | Backend y bucket | Archivos enormes, ejecutables, cientos de páginas o de partes del multipart | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-02 |
+| THR-02 | D | Backend y bucket | Cuerpos o archivos enormes, ejecutables, PDF con contenido activo, imágenes hechas para agotar la memoria, cientos de páginas o de partes del multipart | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-02 |
 | THR-03 | T | DATA-01 | Página cambiada después del escaneo, o un reintento que duplica | Atacante o error de red | LOW | MEDIUM | LOW | CTL-03 |
 | THR-04 | I | DATA-01 | Un analista de un socio ve documentos de otro socio, o un enlace sirve demasiado tiempo | Analista de un socio | LOW | HIGH | MEDIUM | CTL-04 |
 | THR-05 | I | DATA-01 | Páginas recuperables del teléfono (disco, respaldo, recientes, registros) | Ladrón o malware | LOW | HIGH | MEDIUM | CTL-06 |
@@ -103,13 +103,13 @@
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
 | CTL-01 | `insured_account` (sesión de acceso con identidad APPROVED); el siniestro se busca por radicado y `insured_document` del token con `FOR UPDATE`; ajeno o inexistente 404, decidido 409; un `upload_id` de otra persona 404 | API | EXISTING | THR-01 | TC-03, TC-07, TC-08 | T-01 | API1:2023, CWE-639 | — |
-| CTL-02 | Manifiesto Pydantic con `extra="forbid"`, UUID y huellas hexadecimales; de 1 a 10 páginas consecutivas; `request.form(max_files=10, max_fields=1)`; lectura con tope de 5 MB; firma JPEG o `%PDF-`; 50 páginas por siniestro | BACKEND | EXISTING | THR-02 | TC-04, TC-05 | T-01 | CWE-20, CWE-434, CWE-770 | — |
-| CTL-03 | SHA-256 de cada página contra el manifiesto; índice único `(upload_id, position)`, repetición 200 con la misma constancia y carrera resuelta al ganador | BACKEND | EXISTING | THR-03 | TC-01, TC-02, TC-06 | T-01 | CWE-345 | — |
+| CTL-02 | `BodySizeLimitMiddleware` corta con 413 el cuerpo de más de 10 × 5 MB + 512 KiB antes del parser, por `Content-Length` o contando los bytes, aunque un middleware interno envuelva el corte; manifiesto Pydantic con `extra="forbid"`, UUID y huellas hexadecimales; de 1 a 10 páginas consecutivas; `request.form(max_files=10, max_fields=1)`; lectura con tope de 5 MB; solo firma JPEG; Pillow decodifica con tope de 40 megapíxeles y vuelve a codificar sin EXIF, ICC ni comentarios en un hilo aparte; 50 páginas por siniestro | BACKEND | EXISTING | THR-02 | TC-04, TC-05, TC-17, TC-18 | T-01 | CWE-20, CWE-400, CWE-434, CWE-770 | — |
+| CTL-03 | SHA-256 de cada página contra el manifiesto; la fila guarda la huella de la imagen que queda en S3; índice único `(upload_id, position)`; la idempotencia se revisa otra vez ya con el bloqueo del siniestro, así que un segundo envío con el mismo `upload_id` no escribe en S3; repetición 200 con la misma constancia y carrera resuelta al ganador | BACKEND | EXISTING | THR-03 | TC-01, TC-02, TC-06 | T-01 | CWE-345, CWE-362 | — |
 | CTL-04 | Documentos dentro de `ClaimService.detail`, que filtra por el socio del analista; enlaces prefirmados de solo lectura de 900 s y `Cache-Control: no-store` en el expediente; el portal abre con `noopener noreferrer` | API | EXISTING | THR-04 | TC-09, TC-10 | T-02 | API1:2023, CWE-284 | — |
 | CTL-05 | Outbox e historial con radicado, `upload_id` y número de páginas; sin registros con contenido ni documento del asegurado | BACKEND | EXISTING | THR-06 | TC-01, TC-13 | T-01 | CWE-532 | — |
-| CTL-06 | Páginas solo en memoria en la app (sin disco, registros ni estado guardado) y en cero al quitar, enviar o salir; archivos de ML Kit leídos y borrados siempre, solo dentro de la app; recodificadas sin EXIF; ventana segura; sin galería; sin cola en disco | MOBILE | EXISTING | THR-05 | TC-11, TC-12 | T-03, T-04 | MASVS-STORAGE-2, MASVS-PLATFORM-3 | — |
+| CTL-06 | Páginas solo en memoria en la app (sin disco, registros ni estado guardado) y en cero al quitar, enviar, salir o cambiar de siniestro, y las ya leídas si una posterior falla; archivos de ML Kit leídos y borrados siempre, solo dentro de la app; carpeta `mlkit_docscan_ui_client` borrada al arrancar la app y al cerrar la pantalla; miniatura reducida y reciclada al quitar la página; recodificadas sin EXIF; ventana segura en las pantallas de la app; sin galería; sin cola en disco | MOBILE | EXISTING | THR-05 | TC-11, TC-12 | T-03, T-04 | MASVS-STORAGE-2, MASVS-PLATFORM-3 | — |
 | CTL-07 | Dependencia evaluada con OSV.dev y su POM; detrás del puerto `DocumentScanner` con respaldo de cámara; componentes de ML Kit no exportados y sin permisos nuevos | MOBILE | EXISTING | THR-07 | TC-14 | T-03 | MASVS-CODE-3 | — |
-| CTL-08 | El portal muestra los documentos solo como enlaces con `rel="noopener noreferrer"` e interpolación de Angular, sin `innerHTML`; el token del portal nunca va a S3 porque el enlace prefirmado no lleva credenciales del usuario | WEB | EXISTING | THR-04 | TC-10 | T-02 | CWE-79, CWE-1022 | — |
+| CTL-08 | El portal muestra los documentos solo como enlaces con `rel="noopener noreferrer"` e interpolación de Angular, sin `innerHTML`; solo llegan imágenes JPEG recodificadas en el servidor, nunca PDF; el token del portal nunca va a S3 porque el enlace prefirmado no lleva credenciales del usuario | WEB | EXISTING | THR-04 | TC-10, TC-18 | T-02 | CWE-79, CWE-1022 | — |
 
 ## 10. Cryptography
 
@@ -188,16 +188,17 @@
 |---|---|---|---|---|---|---|---|---|
 | DEP-01 | com.google.android.gms:play-services-mlkit-document-scanner | 16.0.0 (última en Google Maven, `lastUpdated` 2025-09-29) | app | Escáner de documentos detrás del puerto `DocumentScanner` | HIGH | OSV.dev 2026-11-15 (paquete y transitivas `mlkit:common` 18.11.0, `play-services-base` 18.5.0, `datatransport` 2.2.6 y 2.3.3); POM de Google Maven | Sin vulnerabilidades conocidas en OSV hoy; licencia ML Kit Terms of Service (propietaria); mantenedor Google; exige Google Play services; la UI del escaneo la presta Google; agrega componentes no exportados y ningún permiso | EVALUATED |
 | DEP-02 | CameraX (`androidx.camera`) | Sin cambio de versión (1.5.3) | app | Respaldo sin Play services | MEDIUM | Revisión manual 2026-11-15 | Sin cambio; evaluada en HU-MOV-08 | EVALUATED |
+| DEP-03 | pillow | 13.0.0 (la del lock, sin cambio de versión) | backend | Decodificar y recodificar las páginas sin EXIF | HIGH | OSV.dev 2026-11-01 en HU-WEB-16 (DEP-03, como transitiva de fpdf2); ahora se declara directa en `pyproject.toml` y `poetry lock` solo cambió la huella | Sin vulnerabilidades conocidas en esa evaluación; procesa contenido no confiable, así que se limita a JPEG, 5 MB y 40 megapíxeles y corre fuera del bucle de eventos | EVALUATED |
 
 ## 15. Risk register and residual risk
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | Términos propietarios de ML Kit y telemetría de uso hacia Google por `datatransport`; no se verificó qué envía ni que el contenido no salga del teléfono | THR-07 | LOW | HIGH | MEDIUM | MITIGATE | Medio; propuesta: revisar los términos y la telemetría con el responsable de datos y, si hace falta, desactivarla o volver solo a la cámara | OPEN |
-| RISK-02 | ML Kit escribe cada página en claro en la caché de la app hasta que se lee; borrar en memoria flash no es un borrado seguro y un cierre forzado en ese instante deja el archivo | THR-05 | LOW | HIGH | MEDIUM | MITIGATE | Medio; propuesta: limpiar al arrancar la carpeta de la caché del escáner y valorar solo la cámara en teléfonos sin cifrado de almacenamiento | OPEN |
+| RISK-01 | Términos propietarios de ML Kit y telemetría de uso hacia Google por `datatransport`; no se verificó qué envía ni que el contenido no salga del teléfono. Además, la UI del escáner es una actividad de Google Play services: el `FLAG_SECURE` de la app no la cubre, así que mientras se escanea se pueden tomar capturas y la vista puede aparecer en recientes | THR-07, THR-05 | LOW | HIGH | MEDIUM | MITIGATE | Medio; propuesta: revisar los términos y la telemetría con el responsable de datos y, si hace falta, desactivarla o volver solo a la cámara de la app, que sí queda bajo la ventana segura | OPEN |
+| RISK-02 | ML Kit escribe cada página en claro en `cacheDir/mlkit_docscan_ui_client` hasta que se lee. Mitigado en parte: el lector borra cada archivo, la carpeta se borra al arrancar la app y al cerrar la pantalla de documentos. Queda: si el proceso muere entre la escritura y el siguiente arranque, el archivo vive hasta ese arranque; borrar en memoria flash no es un borrado seguro; y el lector solo borra URIs `file://` dentro de la app: si una versión futura de ML Kit entrega `content://` u otra ruta, la app no la borra y solo la limpieza de la carpeta conocida lo cubre | THR-05 | LOW | HIGH | MEDIUM | MITIGATE | Medio; propuesta: valorar solo la cámara de la app en teléfonos sin cifrado de almacenamiento y revisar la carpeta al actualizar ML Kit | OPEN |
 | RISK-03 | Los documentos no tienen retención ni purga definidas, igual que las fotos del reporte | THR-06 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio; propuesta: definir la retención de los expedientes con el responsable de datos | OPEN |
 | RISK-04 | Sin límite de envíos por usuario o IP; el tope de 50 páginas por siniestro acota el almacenamiento, no el ancho de banda | THR-02 | LOW | MEDIUM | LOW | MITIGATE | Bajo; propuesta: límite por usuario en el borde | OPEN |
-| RISK-05 | El backend no inspecciona el contenido: un PDF con contenido activo llega al navegador del analista | THR-02 | LOW | MEDIUM | LOW | MITIGATE | Bajo; el visor PDF del navegador aísla el contenido; propuesta: antivirus del bucket o aceptar solo JPEG | OPEN |
+| RISK-05 | Un PDF con contenido activo llegaría al navegador del analista | THR-02 | LOW | MEDIUM | LOW | MITIGATE | Cerrado: desde el 2026-11-16 el backend solo acepta JPEG (un PDF responde 422), decodifica cada página con Pillow y guarda una imagen nueva sin EXIF ni comentarios, y el portal ya no muestra PDF; queda el riesgo de una vulnerabilidad del decodificador, acotado por el tope de tamaño y de píxeles (DEP-03) | MITIGATED |
 | RISK-06 | Sin cola sin conexión: si el asegurado sale de la pantalla sin red pierde las páginas y debe escanear de nuevo; es el costo de no guardarlas en el teléfono | THR-05 | MEDIUM | LOW | LOW | MITIGATE | Bajo; DEC-02 | OPEN |
 
 ## 16. Pending decisions

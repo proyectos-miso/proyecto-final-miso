@@ -29,6 +29,9 @@ interface DocumentScanner {
     /** Lanzador que abre el escáner con un tope de páginas y entrega el resultado en [onResult]. */
     @Composable
     fun rememberLauncher(onResult: (ScanResult) -> Unit): (maxPages: Int) -> Unit
+
+    /** Borra los archivos que el proveedor haya dejado en la caché de la app; se llama al cerrar la pantalla. */
+    fun clearCache() {}
 }
 
 /**
@@ -42,6 +45,8 @@ class MlKitDocumentScanner(
 
     override fun available(): Boolean =
         GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+
+    override fun clearCache() = reader.clearCache()
 
     @Composable
     override fun rememberLauncher(onResult: (ScanResult) -> Unit): (Int) -> Unit {

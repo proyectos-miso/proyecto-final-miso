@@ -12,6 +12,7 @@ import com.solventa.app.data.claims.ClaimSender
 import com.solventa.app.data.claims.EncryptedClaimStore
 import com.solventa.app.data.claims.HttpClaimDocumentsApi
 import com.solventa.app.data.claims.HttpClaimSubmitApi
+import com.solventa.app.data.claims.ScannedPageReader
 import com.solventa.app.data.claims.SessionClaimDocuments
 import com.solventa.app.domain.claims.ClaimDocumentUploader
 import com.solventa.app.data.claims.OpenSessionSubmitter
@@ -142,11 +143,15 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
         appScope.launch { runCatching { policyActions.registerPushToken(token) } }
     }
 
+    /** Páginas de ML Kit que quedaron en la caché si el proceso murió antes de leerlas (mejora FE-MOV-05, RISK-02). */
+    fun clearLeftoverScans() = ScannedPageReader.clearScannerCache(cacheDir)
+
     override fun onCreate() {
         super.onCreate()
         // SQLCipher escribe en logcat la ruta de la base cuando no abre; la app no registra nada de la copia (CTL-06).
         Logger.setTarget(NoopTarget())
         AndroidNotificationPoster.ensureChannel(this)
+        clearLeftoverScans()
         // Un reporte en cola de una versión anterior, o de antes de reiniciar, vuelve a la cola de envío.
         if (encryptedClaimStore.accounts().isNotEmpty()) claimSendScheduler.request(now = false)
     }

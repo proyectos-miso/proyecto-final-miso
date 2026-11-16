@@ -106,7 +106,9 @@ fun WalletScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "greeting") { Greeting(fullName, uiState) }
-        if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
+        if (uiState.identityInReview) {
+            item(key = "identityInReview") { WarningBanner(stringResource(R.string.identity_in_review), icon = R.drawable.ic_shield) }
+        } else if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
             item(key = "offline") { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
         if (uiState.stale) {

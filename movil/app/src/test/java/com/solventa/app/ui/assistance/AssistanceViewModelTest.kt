@@ -191,7 +191,7 @@ class AssistanceViewModelTest {
         assertEquals(Coordinates(4.676, -74.048), form.coordinates)
         assertNull(form.cityCode)
         assertEquals("El carro no enciende.", form.description)
-        assertEquals(AssistanceResult.Assigned("REQ-1", sampleProvider(), 18), state.form!!.assigned)
+        assertEquals(AssistanceResult.Received("REQ-1", sampleProvider(), 18), state.form!!.received)
         assertFalse(state.canSubmit)
     }
 
@@ -240,11 +240,45 @@ class AssistanceViewModelTest {
     }
 
     @Test
+    fun `la llave ya usada con otra solicitud no se lee como sin prestador y el siguiente envio lleva otra llave`() {
+        viewModel.open(EMAIL, POLICIES)
+        viewModel.openForm()
+        assistance.result = AssistanceResult.KeyReused
+
+        viewModel.submit()
+        assertEquals(RequestNotice.KEY_REUSED, state.form!!.notice)
+        viewModel.submit()
+
+        assertEquals(listOf("llave-1", "llave-2"), assistance.requests.map { it.first })
+    }
+
+    @Test
+    fun `una busqueda rechazada o la identidad en verificacion no se muestran como sin conexion`() {
+        assistance.providers = ProvidersResult.Rejected
+        viewModel.open(EMAIL, POLICIES)
+        assertEquals(AssistanceNotice.REJECTED, state.notice)
+        assertTrue(state.providers.isEmpty())
+
+        viewModel.close()
+        assistance.providers = ProvidersResult.IdentityInReview
+        viewModel.open(EMAIL, POLICIES)
+        assertEquals(AssistanceNotice.IDENTITY, state.notice)
+
+        viewModel.close()
+        locator.permission = false
+        assistance.cities = CitiesResult.IdentityInReview
+        viewModel.open(EMAIL, POLICIES)
+        assertEquals(AssistanceNotice.IDENTITY, state.notice)
+    }
+
+    @Test
     fun `cada respuesta del servidor muestra su aviso`() {
         viewModel.open(EMAIL, POLICIES)
         val expected = mapOf(
             AssistanceResult.PolicyNotAvailable to RequestNotice.POLICY,
             AssistanceResult.NoProvider to RequestNotice.NO_PROVIDER,
+            AssistanceResult.KeyReused to RequestNotice.KEY_REUSED,
+            AssistanceResult.IdentityInReview to RequestNotice.IDENTITY,
             AssistanceResult.TooMany to RequestNotice.TOO_MANY,
             AssistanceResult.Unauthorized to RequestNotice.SESSION,
             AssistanceResult.Rejected to RequestNotice.REJECTED,

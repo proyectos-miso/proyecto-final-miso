@@ -212,8 +212,10 @@ describe('ClaimFileComponent (HU-WEB-15)', () => {
       documents: [
         { document_id: 'd1', upload_id: 'u1', position: 1, content_type: 'image/jpeg', size_bytes: 204_800,
           uploaded_at: '2026-10-28T09:00:00Z', url: 'https://s3.example/d1?X-Amz-Expires=900' },
-        { document_id: 'd2', upload_id: 'u1', position: 2, content_type: 'application/pdf', size_bytes: 512_000,
+        { document_id: 'd2', upload_id: 'u1', position: 2, content_type: 'image/jpeg', size_bytes: 512_000,
           uploaded_at: '2026-10-28T09:00:00Z', url: null },
+        { document_id: 'd3', upload_id: 'u2', position: 1, content_type: 'image/jpeg', size_bytes: 102_400,
+          uploaded_at: '2026-10-30T15:30:00Z', url: 'https://s3.example/d3?X-Amz-Expires=900' },
       ],
       events: [...claim.events, { kind: 'DOCUMENTS_ADDED', actor: 'App del asegurado', justification: null, amount: null,
         created_at: '2026-10-28T09:00:00Z' }],
@@ -221,13 +223,19 @@ describe('ClaimFileComponent (HU-WEB-15)', () => {
 
     const list = page().querySelector('[data-testid="documents"]')!;
     const links = list.querySelectorAll('a');
-    expect(text()).toContain('Documentos del asegurado (2)');
-    expect(links.length).toBe(1);
+    expect(text()).toContain('Documentos del asegurado (3)');
+    expect(links.length).toBe(2);
     expect(links[0].getAttribute('href')).toBe('https://s3.example/d1?X-Amz-Expires=900');
     expect(links[0].getAttribute('rel')).toBe('noopener noreferrer');
-    expect(links[0].textContent).toContain('Página 1 (imagen)');
-    expect(list.textContent).toContain('Página 2 (PDF) · enlace no disponible');
+    // Cada enlace dice de qué envío es, para distinguir las páginas 1 de envíos distintos.
+    expect(links[0].textContent).toMatch(/^Envío del \d{2}\/10\/2026 \d{2}:\d{2}, página 1/);
+    expect(links[1].textContent).toMatch(/^Envío del \d{2}\/10\/2026 \d{2}:\d{2}, página 1/);
+    expect(links[0].textContent).not.toBe(links[1].textContent);
+    const hidden = links[0].querySelector('.sr-only');
+    expect(hidden?.textContent).toBe(' (se abre en otra pestaña)');
+    expect(list.textContent).toMatch(/página 2 · enlace no disponible/);
     expect(list.textContent).toContain('200 KB');
+    expect(list.textContent).not.toContain('PDF');
     expect(text()).toContain('Documentos agregados');
   });
 

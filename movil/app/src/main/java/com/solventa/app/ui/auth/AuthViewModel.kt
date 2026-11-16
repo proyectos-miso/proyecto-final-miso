@@ -309,7 +309,7 @@ class AuthViewModel(
                         is OtpResult.Sent -> form.copy(otpSent = true, debugOtpCode = result.debugCode, error = null)
                         is OtpResult.TooManyRequests -> form.copy(error = AlternativeLoginError.TOO_MANY_REQUESTS)
                         OtpResult.SendFailed -> form.copy(error = AlternativeLoginError.SMS_UNAVAILABLE)
-                        OtpResult.Failed -> form.copy(error = AlternativeLoginError.NETWORK)
+                        OtpResult.Failed, OtpResult.Disabled -> form.copy(error = AlternativeLoginError.NETWORK)
                     },
                 )
             }
@@ -553,7 +553,7 @@ class AuthViewModel(
                         is OtpResult.Sent -> recovery.copy(codeSent = true, debugCode = result.debugCode, error = null)
                         is OtpResult.TooManyRequests -> recovery.copy(error = RecoveryError.TOO_MANY_REQUESTS)
                         OtpResult.SendFailed -> recovery.copy(error = RecoveryError.SMS_UNAVAILABLE)
-                        OtpResult.Failed -> recovery.copy(error = RecoveryError.NETWORK)
+                        OtpResult.Failed, OtpResult.Disabled -> recovery.copy(error = RecoveryError.NETWORK)
                     },
                 )
             }

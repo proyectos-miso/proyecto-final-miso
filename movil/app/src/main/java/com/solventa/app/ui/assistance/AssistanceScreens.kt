@@ -76,9 +76,13 @@ data class AssistanceActions(
 
 /** Prestadores por distancia o por ciudad, con el filtro de servicio, «Llamar» y «Ver en el mapa» (mejora FE-MOV-07). */
 @Composable
-fun AssistanceScreen(state: AssistanceUiState, actions: AssistanceActions, modifier: Modifier = Modifier) {
+fun AssistanceScreen(
+    state: AssistanceUiState,
+    actions: AssistanceActions,
+    modifier: Modifier = Modifier,
+    line: String = stringResource(R.string.assistance_line_phone),
+) {
     BackHandler(onBack = actions.onBack)
-    val line = stringResource(R.string.assistance_line_phone)
     Column(modifier.fillMaxSize()) {
         ClaimTopBar(title = stringResource(R.string.assistance_title), subtitle = stringResource(R.string.assistance_subtitle), onBack = actions.onBack)
         LazyColumn(
@@ -88,7 +92,7 @@ fun AssistanceScreen(state: AssistanceUiState, actions: AssistanceActions, modif
         ) {
             item(key = "request") { PrimaryButton(stringResource(R.string.assistance_request_button), actions.onOpenForm) }
             if (line.isNotBlank()) item(key = "line") { SecondaryButton(stringResource(R.string.assistance_call_line), { actions.onCall(line) }) }
-            state.notice?.let { notice -> item(key = "notice") { Notice(notice, state) } }
+            state.notice?.let { notice -> item(key = "notice") { Notice(notice, state, hasLine = line.isNotBlank()) } }
             item(key = "place") { Place(state, actions) }
             item(key = "services") { ServiceFilter(state.service, actions.onSelectService) }
             when {
@@ -105,14 +109,16 @@ fun AssistanceScreen(state: AssistanceUiState, actions: AssistanceActions, modif
 }
 
 @Composable
-private fun Notice(notice: AssistanceNotice, state: AssistanceUiState) {
+private fun Notice(notice: AssistanceNotice, state: AssistanceUiState, hasLine: Boolean) {
     val text = when (notice) {
         AssistanceNotice.LOCATION_UNAVAILABLE -> stringResource(R.string.assistance_notice_location)
         AssistanceNotice.OFFLINE -> state.copySavedAt?.let {
             stringResource(R.string.assistance_notice_offline) + " " + stringResource(R.string.assistance_notice_saved_at, formatDateTime(it))
-        } ?: stringResource(R.string.assistance_notice_offline_empty)
+        } ?: stringResource(if (hasLine) R.string.assistance_notice_offline_empty else R.string.assistance_notice_offline_empty_no_line)
         AssistanceNotice.SESSION -> stringResource(R.string.assistance_notice_session)
         AssistanceNotice.CANNOT_OPEN -> stringResource(R.string.assistance_notice_cannot_open)
+        AssistanceNotice.REJECTED -> stringResource(R.string.assistance_notice_rejected)
+        AssistanceNotice.IDENTITY -> stringResource(R.string.identity_in_review)
     }
     Box(Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) { WarningBanner(text) }
 }
@@ -229,12 +235,19 @@ data class RequestFormActions(
     val onCall: (String) -> Unit = {},
 )
 
-/** Póliza, servicio y descripción; muestra el prestador asignado y su tiempo estimado (mejora FE-MOV-07). */
+/**
+ * Póliza, servicio y descripción; al recibir la solicitud muestra el prestador sugerido, un tiempo estimado si lo
+ * contacta y «Llamar» para coordinar: nadie lo despacha todavía, así que nada dice que ya va en camino (mejora FE-MOV-07).
+ */
 @Composable
-fun AssistanceRequestScreen(state: AssistanceUiState, actions: RequestFormActions, modifier: Modifier = Modifier) {
+fun AssistanceRequestScreen(
+    state: AssistanceUiState,
+    actions: RequestFormActions,
+    modifier: Modifier = Modifier,
+    line: String = stringResource(R.string.assistance_line_phone),
+) {
     val form = state.form ?: return
     BackHandler(onBack = actions.onClose)
-    val line = stringResource(R.string.assistance_line_phone)
     Column(modifier.fillMaxSize()) {
         ClaimTopBar(
             title = stringResource(R.string.assistance_form_title),
@@ -248,11 +261,13 @@ fun AssistanceRequestScreen(state: AssistanceUiState, actions: RequestFormAction
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
-            form.assigned?.let { assigned ->
-                Assigned(assigned, onCall = { actions.onCall(assigned.provider.phone) }, onDone = actions.onClose)
+            form.received?.let { received ->
+                Received(received, onCall = { actions.onCall(received.provider.phone) }, onDone = actions.onClose)
                 return@Column
             }
-            if (form.policies.isEmpty()) WarningBanner(stringResource(R.string.assistance_form_no_policy))
+            if (form.policies.isEmpty()) {
+                WarningBanner(stringResource(if (line.isNotBlank()) R.string.assistance_form_no_policy else R.string.assistance_form_no_policy_no_line))
+            }
             if (!state.hasPlace) WarningBanner(stringResource(R.string.assistance_form_needs_place))
             Choices(
                 title = stringResource(R.string.assistance_form_policy),
@@ -278,7 +293,7 @@ fun AssistanceRequestScreen(state: AssistanceUiState, actions: RequestFormAction
                 modifier = Modifier.fillMaxWidth(),
             )
             form.notice?.let { notice ->
-                Box(Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) { WarningBanner(stringResource(requestNotice(notice))) }
+                Box(Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) { WarningBanner(stringResource(requestNotice(notice, line.isNotBlank()))) }
             }
             if (form.sending) {
                 Loading(R.string.assistance_form_sending)
@@ -291,19 +306,21 @@ fun AssistanceRequestScreen(state: AssistanceUiState, actions: RequestFormAction
 }
 
 @Composable
-private fun Assigned(assigned: AssistanceResult.Assigned, onCall: () -> Unit, onDone: () -> Unit) {
+private fun Received(received: AssistanceResult.Received, onCall: () -> Unit, onDone: () -> Unit) {
+    val callLabel = stringResource(R.string.assistance_call_provider, received.provider.name)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) {
         Text(
-            stringResource(R.string.assistance_assigned_title),
+            stringResource(R.string.assistance_received_title),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.semantics { heading() },
         )
-        Text(stringResource(R.string.assistance_assigned_provider, assigned.provider.name), style = MaterialTheme.typography.bodyLarge)
-        Text(stringResource(R.string.assistance_assigned_eta, assigned.etaMinutes), style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.assistance_received_provider, received.provider.name), style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.assistance_received_eta, received.etaMinutes), style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.assistance_received_call_hint), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
     }
-    val callLabel = stringResource(R.string.assistance_call_provider, assigned.provider.name)
-    PrimaryButton(stringResource(R.string.assistance_call), onCall, Modifier.semantics { contentDescription = callLabel })
+    // «Llamar» al prestador sugerido es la acción principal: es lo único que hace llegar la ayuda.
+    PrimaryButton(callLabel, onCall)
     SecondaryButton(stringResource(R.string.assistance_done), onDone)
 }
 
@@ -339,11 +356,13 @@ internal fun serviceLabel(service: AssistanceService): Int = when (service) {
 }
 
 @StringRes
-private fun requestNotice(notice: RequestNotice): Int = when (notice) {
-    RequestNotice.OFFLINE -> R.string.assistance_request_offline
+private fun requestNotice(notice: RequestNotice, hasLine: Boolean): Int = when (notice) {
+    RequestNotice.OFFLINE -> if (hasLine) R.string.assistance_request_offline else R.string.assistance_request_offline_no_line
     RequestNotice.POLICY -> R.string.assistance_request_policy
-    RequestNotice.NO_PROVIDER -> R.string.assistance_request_no_provider
-    RequestNotice.TOO_MANY -> R.string.assistance_request_too_many
+    RequestNotice.NO_PROVIDER -> if (hasLine) R.string.assistance_request_no_provider else R.string.assistance_request_no_provider_no_line
+    RequestNotice.KEY_REUSED -> R.string.assistance_request_key_reused
+    RequestNotice.TOO_MANY -> if (hasLine) R.string.assistance_request_too_many else R.string.assistance_request_too_many_no_line
     RequestNotice.SESSION -> R.string.assistance_request_session
     RequestNotice.REJECTED -> R.string.assistance_request_rejected
+    RequestNotice.IDENTITY -> R.string.identity_in_review
 }

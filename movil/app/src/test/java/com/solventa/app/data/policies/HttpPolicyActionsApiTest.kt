@@ -140,4 +140,15 @@ class HttpPolicyActionsApiTest {
         assertEquals(ConsentRevocationResult.Unauthorized, api.revokeBiometricConsent("t"))
         assertEquals(ConsentRevocationResult.Unavailable, api.revokeBiometricConsent("t"))
     }
+
+    @Test
+    fun `403 con IDENTITY_IN_REVIEW en las preferencias es identidad en verificacion`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\": \"Estamos verificando su identidad.\", \"code\": \"IDENTITY_IN_REVIEW\"}"))
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\": \"Estamos verificando su identidad.\", \"code\": \"IDENTITY_IN_REVIEW\"}"))
+        server.enqueue(MockResponse().setResponseCode(403).setBody("no es json"))
+
+        assertEquals(PreferencesResult.IdentityInReview, api.pushPreferences("t"))
+        assertEquals(PreferencesResult.IdentityInReview, api.savePushPreferences("t", PushPreferences()))
+        assertEquals(PreferencesResult.Unavailable, api.pushPreferences("t"))
+    }
 }

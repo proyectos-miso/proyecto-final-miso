@@ -1,4 +1,6 @@
 """Arranque del backend: crea tablas y semillas, y no se cae si la base de datos no responde."""
+import asyncio
+
 import pytest
 from sqlalchemy import make_url, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -57,3 +59,47 @@ async def test_arranque_sin_base_de_datos_avisa_y_sigue(monkeypatch, capsys):
 
     assert "Aviso de inicialización" in capsys.readouterr().out
     await engine.dispose()
+
+
+async def test_una_falla_al_sembrar_prestadores_no_impide_sembrar_la_cuenta(postgres_session, monkeypatch, capsys):
+    engine = create_async_engine(make_url(settings.DATABASE_URL).set(database=TEST_DATABASE))
+    monkeypatch.setattr(main, "engine", engine)
+    monkeypatch.setattr(migrations, "engine", engine)
+    monkeypatch.setattr(main, "AsyncSessionLocal", async_sessionmaker(engine, expire_on_commit=False))
+
+    async def broken(session):
+        raise RuntimeError("catálogo roto")
+
+    monkeypatch.setattr(main.assistance_service, "seed_providers", broken)
+
+    async with main.lifespan(main.app):
+        pass
+
+    assert "sin prestadores de prueba" in capsys.readouterr().out
+    accounts = (await postgres_session.execute(select(InsuredAccountDB.email))).scalars().all()
+    assert "maria.ruiz@correo.co" in accounts
+    await engine.dispose()
+
+
+async def test_la_tarea_diaria_purga_las_llaves_de_idempotencia_aunque_falle_lo_anterior(monkeypatch):
+    calls = []
+
+    async def failing():
+        calls.append("pólizas")
+        raise RuntimeError("sin base")
+
+    async def purge():
+        calls.append("purga")
+
+    async def stop(seconds):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main, "run_policy_lifecycle", failing)
+    monkeypatch.setattr(main, "run_identity_verifications", failing)
+    monkeypatch.setattr(main, "run_idempotency_purge", purge)
+    monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main.daily_policy_lifecycle()
+
+    assert calls == ["pólizas", "pólizas", "purga"]

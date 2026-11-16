@@ -27,8 +27,9 @@ data class ClaimsUiState(
     val pending: PendingReport? = null,
     /** Constancia del último reporte recibido: su siniestro dice qué radicado provisional reemplazó (HU-MOV-10). */
     val receipt: ClaimReceipt? = null,
+    val identityInReview: Boolean = false,
 ) {
-    val empty: Boolean get() = !loading && !needsConnection && claims.isEmpty() && pending == null
+    val empty: Boolean get() = !loading && !needsConnection && !identityInReview && claims.isEmpty() && pending == null
 
     fun claim(claimNumber: String?): InsuredClaim? = claims.firstOrNull { it.claimNumber == claimNumber }
 }
@@ -74,7 +75,12 @@ class ClaimsViewModel(
             _uiState.value = _uiState.value.copy(pending = onPhone)
             val outcome = policySync.sync()
             val claims = (outcome as? SyncOutcome.Synced)?.takeIf { it.accountEmail == accountEmail }?.copy?.claims
-            val loaded = if (claims != null) online(claims) else fromCopy(accountEmail)
+            val loaded = when {
+                claims != null -> online(claims)
+                outcome == SyncOutcome.IdentityInReview ->
+                    fromCopy(accountEmail).copy(offline = false, needsConnection = false, identityInReview = true)
+                else -> fromCopy(accountEmail)
+            }
             _uiState.value = loaded.copy(pending = pending(accountEmail), receipt = policyStore.readReceipt(accountEmail))
             if (outcome is SyncOutcome.Failed || outcome is SyncOutcome.NoSession) policySync.schedule()
         }

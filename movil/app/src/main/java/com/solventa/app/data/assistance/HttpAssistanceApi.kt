@@ -15,24 +15,21 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 
 /** Prestadores, ciudades y solicitudes de asistencia del asegurado (mejora FE-MOV-07). */
 class HttpAssistanceApi(private val baseUrl: String) : AssistanceApi {
 
+    // La ubicación va en el cuerpo de un POST: en la URL quedaría en los registros de acceso (RISK-01).
     override suspend fun providers(accessToken: String, query: ProviderQuery): ProvidersResult {
-        val params = buildList {
-            query.coordinates?.let {
-                add("lat=${it.lat}")
-                add("lng=${it.lng}")
-            }
-            if (query.coordinates == null) query.cityCode?.let { add("city=${encode(it)}") }
-            query.service?.let { add("service=${it.name}") }
-        }
-        return call("insured/providers?" + params.joinToString("&"), "GET", accessToken, null, emptyMap(), ProvidersResult.Offline) { code, body ->
+        val body = JSONObject()
+        query.coordinates?.let { body.put("lat", it.lat).put("lng", it.lng) } ?: query.cityCode?.let { body.put("city", it) }
+        query.service?.let { body.put("service", it.name) }
+        return call("insured/providers/search", "POST", accessToken, body.toString(), emptyMap(), ProvidersResult.Offline) { code, text ->
             when (code) {
-                HttpURLConnection.HTTP_OK -> ProvidersResult.Loaded(ProvidersJson.providers(JSONObject(body).getJSONArray("providers")))
+                HttpURLConnection.HTTP_OK -> ProvidersResult.Loaded(ProvidersJson.providers(JSONObject(text).getJSONArray("providers")))
                 HttpURLConnection.HTTP_UNAUTHORIZED -> ProvidersResult.Unauthorized
+                HttpURLConnection.HTTP_FORBIDDEN -> if (errorCode(text) == IDENTITY_IN_REVIEW) ProvidersResult.IdentityInReview else ProvidersResult.Rejected
+                HttpURLConnection.HTTP_BAD_REQUEST, HTTP_UNPROCESSABLE -> ProvidersResult.Rejected
                 else -> ProvidersResult.Offline
             }
         }
@@ -45,6 +42,7 @@ class HttpAssistanceApi(private val baseUrl: String) : AssistanceApi {
                     CitiesResult.Loaded((0 until array.length()).map { i -> array.getJSONObject(i).let { City(it.getString("code"), it.getString("name")) } })
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED -> CitiesResult.Unauthorized
+                HttpURLConnection.HTTP_FORBIDDEN -> if (errorCode(body) == IDENTITY_IN_REVIEW) CitiesResult.IdentityInReview else CitiesResult.Offline
                 else -> CitiesResult.Offline
             }
         }
@@ -59,13 +57,18 @@ class HttpAssistanceApi(private val baseUrl: String) : AssistanceApi {
         return call("insured/assistance", "POST", accessToken, body.toString(), headers, AssistanceResult.Offline) { code, text ->
             when (code) {
                 HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_CREATED -> JSONObject(text).let {
-                    AssistanceResult.Assigned(it.getString("request_id"), ProvidersJson.provider(it.getJSONObject("provider")), it.getInt("eta_minutes"))
+                    AssistanceResult.Received(it.getString("request_id"), ProvidersJson.provider(it.getJSONObject("provider")), it.getInt("eta_minutes"))
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED -> AssistanceResult.Unauthorized
                 HttpURLConnection.HTTP_NOT_FOUND -> AssistanceResult.PolicyNotAvailable
-                HttpURLConnection.HTTP_CONFLICT -> AssistanceResult.NoProvider
+                HttpURLConnection.HTTP_CONFLICT -> when (errorCode(text)) {
+                    NO_PROVIDER -> AssistanceResult.NoProvider
+                    KEY_REUSED -> AssistanceResult.KeyReused
+                    else -> AssistanceResult.Rejected
+                }
                 HTTP_TOO_MANY_REQUESTS -> AssistanceResult.TooMany
-                HttpURLConnection.HTTP_FORBIDDEN, HttpURLConnection.HTTP_BAD_REQUEST, HTTP_UNPROCESSABLE -> AssistanceResult.Rejected
+                HttpURLConnection.HTTP_FORBIDDEN -> if (errorCode(text) == IDENTITY_IN_REVIEW) AssistanceResult.IdentityInReview else AssistanceResult.Rejected
+                HttpURLConnection.HTTP_BAD_REQUEST, HTTP_UNPROCESSABLE -> AssistanceResult.Rejected
                 else -> AssistanceResult.Offline
             }
         }
@@ -104,9 +107,17 @@ class HttpAssistanceApi(private val baseUrl: String) : AssistanceApi {
         }
     }
 
-    private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
+    // Código estable del cuerpo de error (`{detail, code}`); vacío si no viene o no es JSON.
+    private fun errorCode(body: String): String = try {
+        JSONObject(body).optString("code")
+    } catch (e: JSONException) {
+        ""
+    }
 
     private companion object {
+        const val IDENTITY_IN_REVIEW = "IDENTITY_IN_REVIEW"
+        const val NO_PROVIDER = "NO_PROVIDER"
+        const val KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
         const val TIMEOUT_MS = 10_000
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_MANY_REQUESTS = 429

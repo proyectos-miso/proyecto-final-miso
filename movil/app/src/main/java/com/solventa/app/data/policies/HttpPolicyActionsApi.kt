@@ -80,7 +80,7 @@ class HttpPolicyActionsApi(private val baseUrl: String) : PolicyActionsApi {
         }
         HttpURLConnection.HTTP_UNAUTHORIZED -> PreferencesResult.Unauthorized
         HTTP_UNPROCESSABLE -> PreferencesResult.Invalid
-        else -> PreferencesResult.Unavailable
+        else -> if (isIdentityInReview(code, body)) PreferencesResult.IdentityInReview else PreferencesResult.Unavailable
     }
 
     private suspend fun <T> call(

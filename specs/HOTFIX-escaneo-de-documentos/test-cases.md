@@ -4,13 +4,13 @@
 
 | ID | From | Scenario | Disposition |
 |---|---|---|---|
-| SC-01 | AC-04, AC-08 | Dado un siniestro abierto del titular, cuando envía una página JPEG y una PDF, entonces 201, dos filas, dos objetos bajo `documentos/{upload}/`, el evento del historial y `ClaimDocumentsAdded` solo con identificadores | TC-01 |
+| SC-01 | AC-04, AC-08 | Dado un siniestro abierto del titular, cuando envía dos páginas JPEG, entonces 201, dos filas con la huella de lo guardado, dos imágenes recodificadas bajo `documentos/{upload}/`, el evento del historial y `ClaimDocumentsAdded` solo con identificadores | TC-01, TC-18 |
 | SC-02 | AC-05, AC-10 | Dado un envío ya registrado, cuando llega otra vez o dos a la vez, entonces 200 con la misma constancia y una sola copia; con S3 caído 503 y el mismo envío se reintenta | TC-02 |
 | SC-03 | AC-06 | Dado un siniestro ajeno, inexistente o decidido, o el `upload_id` de otra persona, cuando se envía, entonces 404, 404, 409 y 404 sin guardar nada | TC-03 |
-| SC-04 | AC-07 | Dada una página PNG, ejecutable o de más de 5 MB, cuando se envía, entonces 422 o 413 sin guardar nada | TC-04 |
+| SC-04 | AC-07 | Dada una página PNG, ejecutable, PDF, con firma JPEG que no decodifica, con demasiados píxeles o de más de 5 MB, cuando se envía, entonces 422 o 413 sin guardar nada; dado un cuerpo mayor al tope, con o sin `Content-Length`, entonces 413 antes de armar el formulario | TC-04, TC-17 |
 | SC-05 | AC-07, AC-13 | Dadas 11 páginas, un manifiesto mal formado, una página declarada que no llega o el tope del siniestro, cuando se envía, entonces 422 | TC-05 |
 | SC-06 | AC-07 | Dada una página cambiada después de escanearla, cuando se envía, entonces 422 sin guardar nada | TC-06 |
-| SC-07 | AC-12 | Dada una cuenta en verificación, sin sesión o con rol de analista, cuando sube, entonces 403, 401 y 403 | TC-07 |
+| SC-07 | AC-12 | Dada una cuenta en verificación, sin sesión, con rol de analista o con el token de solo reporte, cuando sube, entonces 403, 401, 403 y 401 | TC-07 |
 | SC-08 | AC-04 | Dada una base en `0007`, cuando se migra y se revierte, entonces la tabla aparece con su índice único y desaparece | TC-08 |
 | SC-09 | AC-09 | Dado un expediente con documentos, cuando lo abre el analista de Solventa o el del socio, entonces ve los suyos con enlaces de 900 s y el del socio no ve el de Solventa; sin S3, sin enlaces | TC-09 |
 | SC-10 | AC-09 | Dado el expediente en el portal, cuando trae documentos, entonces se listan con enlace, fecha y tamaño, y sin enlace se avisa | TC-10 |
@@ -45,12 +45,12 @@
 | Risk covered | — |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas y emulador de S3 |
-| Procedure | 1. Enviar una página JPEG y una PDF al siniestro abierto del titular. 2. Leer filas, S3, historial y outbox |
-| Expected result | 201 con 2 páginas; tipos por firma; claves `siniestros/{n}/documentos/{upload}/1.jpg` y `2.pdf` con los mismos bytes; `DOCUMENTS_ADDED` en el historial; outbox `{claim_number, upload_id, pages}` |
+| Procedure | 1. Enviar dos páginas JPEG al siniestro abierto del titular. 2. Leer filas, S3, historial y outbox |
+| Expected result | 201 con 2 páginas; `image/jpeg`; claves `siniestros/{n}/documentos/{upload}/1.jpg` y `2.jpg` con imágenes de las mismas dimensiones; la huella y el tamaño de cada fila son los de lo guardado; `DOCUMENTS_ADDED` en el historial; outbox `{claim_number, upload_id, pages}` |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_claim_documents_api.py::test_agrega_paginas_jpeg_y_pdf_al_siniestro_abierto_del_titular; backend/tests/integration/test_claim_documents_api.py::test_el_evento_del_outbox_lleva_solo_identificadores |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_agrega_paginas_jpeg_al_siniestro_abierto_del_titular; backend/tests/integration/test_claim_documents_api.py::test_el_evento_del_outbox_lleva_solo_identificadores |
 | Status | PASS |
 
 ### TC-02 · Idempotencia y reintento
@@ -62,12 +62,12 @@
 | Risk covered | THR-03 |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas y emulador de S3 |
-| Procedure | 1. Enviar el mismo `upload_id` dos veces seguidas. 2. Dos veces a la vez. 3. Con S3 caído y luego de nuevo |
-| Expected result | 201 y 200 con la misma constancia; una sola copia; 503 con `Retry-After: 30` y luego 201 |
+| Procedure | 1. Enviar el mismo `upload_id` dos veces seguidas. 2. Dos veces a la vez. 3. Dos a la vez con el mismo `upload_id` y contenido distinto, las dos detenidas hasta llegar al bloqueo. 4. Con S3 caído y luego de nuevo |
+| Expected result | 201 y 200 con la misma constancia; una sola copia; con contenido distinto queda solo el primero, S3 se escribe una sola vez y su huella es la guardada; 503 con `Retry-After: 30` y luego 201 |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_claim_documents_api.py::test_el_mismo_envio_repetido_no_duplica_las_paginas; backend/tests/integration/test_claim_documents_api.py::test_dos_envios_simultaneos_iguales_dejan_una_sola_copia; backend/tests/integration/test_claim_documents_api.py::test_s3_caido_responde_503_y_el_mismo_envio_se_puede_reintentar |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_el_mismo_envio_repetido_no_duplica_las_paginas; backend/tests/integration/test_claim_documents_api.py::test_dos_envios_simultaneos_iguales_dejan_una_sola_copia; backend/tests/integration/test_claim_documents_api.py::test_s3_caido_responde_503_y_el_mismo_envio_se_puede_reintentar; backend/tests/integration/test_claim_documents_api.py::test_dos_envios_simultaneos_con_el_mismo_id_y_otro_contenido_dejan_solo_el_primero |
 | Status | PASS |
 
 ### TC-03 · Siniestro ajeno, inexistente o decidido
@@ -96,12 +96,12 @@
 | Risk covered | THR-02 |
 | Level | INTEGRATION |
 | Preconditions | PostgreSQL de pruebas y emulador de S3 |
-| Procedure | Enviar un PNG, un ejecutable y un JPEG de más de 5 MB |
-| Expected result | 422, 422 y 413; nada guardado |
+| Procedure | Enviar un PNG, un ejecutable, un PDF, un archivo con firma JPEG que no decodifica, una imagen sobre el tope de píxeles y un JPEG de más de 5 MB |
+| Expected result | 422, 422, 422, 422, 422 y 413; nada guardado |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_claim_documents_api.py::test_paginas_que_no_son_jpeg_ni_pdf_o_muy_grandes_se_rechazan |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_paginas_que_no_son_jpeg_o_muy_grandes_se_rechazan; backend/tests/integration/test_claim_documents_api.py::test_una_imagen_con_demasiados_pixeles_se_rechaza |
 | Status | PASS |
 
 ### TC-05 · Número de páginas, manifiesto y tope
@@ -147,12 +147,12 @@
 | Risk covered | THR-01 |
 | Level | INTEGRATION |
 | Preconditions | Cuenta del titular en PENDING; token de analista |
-| Procedure | Subir con la cuenta PENDING, sin token y con el token del analista |
-| Expected result | 403, 401 y 403; nada guardado |
+| Procedure | Subir con la cuenta PENDING, sin token, con el token del analista y con el token de solo reporte |
+| Expected result | 403, 401, 403 y 401; nada guardado |
 | Tool or method | pytest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | backend/tests/integration/test_claim_documents_api.py::test_la_cuenta_en_verificacion_no_sube_documentos; backend/tests/integration/test_claim_documents_api.py::test_sin_sesion_o_con_otro_rol_no_se_suben_documentos |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_la_cuenta_en_verificacion_no_sube_documentos; backend/tests/integration/test_claim_documents_api.py::test_sin_sesion_o_con_otro_rol_no_se_suben_documentos; backend/tests/integration/test_claim_documents_api.py::test_el_token_de_solo_reporte_no_sube_documentos |
 | Status | PASS |
 
 ### TC-08 · Migración 0008
@@ -198,8 +198,8 @@
 | Risk covered | THR-04 |
 | Level | UNIT |
 | Preconditions | `HttpTestingController` con un expediente |
-| Procedure | Abrir el expediente con dos documentos (uno sin enlace) y sin documentos |
-| Expected result | Título con el conteo, enlace con `noopener noreferrer`, «Página 1 (imagen)», «Página 2 (PDF) · enlace no disponible», tamaño en KB, evento «Documentos agregados»; sin documentos, el aviso |
+| Procedure | Abrir el expediente con tres documentos de dos envíos (uno sin enlace) y sin documentos |
+| Expected result | Título con el conteo; cada enlace dice «Envío del <fecha>, página N», lleva `noopener noreferrer` y el texto oculto «(se abre en otra pestaña)»; las páginas 1 de dos envíos se distinguen; «… página 2 · enlace no disponible»; tamaño en KB; nada dice PDF; evento «Documentos agregados»; sin documentos, el aviso |
 | Tool or method | Vitest |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
@@ -220,7 +220,7 @@
 | Tool or method | JUnit con Robolectric y MockWebServer |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"las paginas escaneadas se ven en orden y se envian con su huella"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"quitar una pagina la borra de memoria y cambia el id del envio"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"sin red avisa, conserva las paginas en memoria y el reintento usa el mismo id"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"el siniestro cerrado, inexistente, la sesion vencida y el rechazo se informan"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"no acepta mas de 10 paginas y descarta las que sobran"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"mientras envia no se puede quitar ni enviar dos veces"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"sin escaner de Google se pasa a la camara trasera"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"la camara agrega la pagina y una captura fallida avisa"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"un escaneo cancelado no cambia nada y uno fallido avisa"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"cerrar pone las paginas en cero y olvida el siniestro"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"abrir otro siniestro descarta las paginas del anterior"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"envia un multipart con el manifiesto y cada pagina con su posicion y el token"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"cada respuesta del servidor tiene su resultado"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"sin red el envio queda para reintentar"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el flujo usa el puerto del escaner y muestra lo escaneado" |
+| Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"las paginas escaneadas se ven en orden y se envian con su huella"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"quitar una pagina la borra de memoria y cambia el id del envio"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"sin red avisa, conserva las paginas en memoria y el reintento usa el mismo id"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"el siniestro cerrado, inexistente, la sesion vencida y el rechazo se informan"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"no acepta mas de 10 paginas y descarta las que sobran"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"mientras envia no se puede quitar ni enviar dos veces"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"sin escaner de Google se pasa a la camara trasera"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"la camara agrega la pagina y una captura fallida avisa"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"un escaneo cancelado no cambia nada y uno fallido avisa"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"cerrar pone las paginas en cero y olvida el siniestro"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsViewModelTest.kt::"abrir otro siniestro descarta las paginas del anterior"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"envia un multipart con el manifiesto y cada pagina con su posicion y el token"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"cada respuesta del servidor tiene su resultado"; movil/app/src/test/java/com/solventa/app/data/claims/HttpClaimDocumentsApiTest.kt::"sin red el envio queda para reintentar"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el flujo usa el puerto del escaner y muestra lo escaneado"; movil/app/src/test/java/com/solventa/app/SolventaMobileRootClaimsTest.kt::"salir del siniestro pone en cero las paginas escaneadas que no se enviaron" |
 | Status | PASS |
 
 ### TC-12 · Páginas solo en memoria
@@ -232,12 +232,12 @@
 | Risk covered | THR-05 |
 | Level | STATIC |
 | Preconditions | Código de la app; archivos de prueba en la caché de Robolectric |
-| Procedure | 1. Leer páginas de la caché, con una que falla, una que no existe y un escaneo cancelado. 2. Buscar en el código de documentos escrituras a disco, galería, registros y estado guardado |
-| Expected result | Los archivos de la app se borran siempre y uno fuera de la app no; ninguna coincidencia; el escáner tiene la galería apagada y salida JPEG |
+| Procedure | 1. Leer páginas de la caché, con una que falla, una que no existe y un escaneo cancelado. 2. Limpiar la carpeta del escáner y arrancar la app con páginas sobrantes. 3. Cerrar la pantalla de documentos. 4. Mostrar y quitar una miniatura. 5. Buscar en el código de documentos escrituras a disco, galería, registros y estado guardado |
+| Expected result | Los archivos de la app se borran siempre y uno fuera de la app no; si una página posterior falla, las ya leídas quedan en cero; la carpeta `mlkit_docscan_ui_client` se borra sin tocar otros archivos, al arrancar y al cerrar la pantalla; la miniatura se decodifica reducida y su bitmap se recicla; ninguna coincidencia; el escáner tiene la galería apagada y salida JPEG |
 | Tool or method | JUnit con Robolectric |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"lee las paginas a memoria, las recodifica y borra los archivos"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"si una pagina no se puede recodificar falla y borra todas"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"un archivo que no existe falla sin romper la app"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"al cancelar se borran las paginas y nunca un archivo fuera de la app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"las paginas nunca se escriben en disco ni se toman de otra app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"no registra ni usa el estado guardado"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"el escaner de Google no importa de la galeria" |
+| Evidence | movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"lee las paginas a memoria, las recodifica y borra los archivos"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"si una pagina no se puede recodificar falla y borra todas"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"un archivo que no existe falla sin romper la app"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"al cancelar se borran las paginas y nunca un archivo fuera de la app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"las paginas nunca se escriben en disco ni se toman de otra app"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"no registra ni usa el estado guardado"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsPrivacyTest.kt::"el escaner de Google no importa de la galeria"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"si una pagina posterior falla las ya leidas quedan en cero"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"si un archivo posterior no se puede abrir las ya leidas quedan en cero"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"limpiar la cache del escaner borra su carpeta y nada mas"; movil/app/src/test/java/com/solventa/app/data/claims/ScannedPageReaderTest.kt::"al arrancar la app borra las paginas que el escaner dejo si el proceso murio"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"al cerrar la pantalla de documentos se limpia la cache del escaner"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"la miniatura se reduce y se recicla al quitar la pagina" |
 | Status | PASS |
 
 ### TC-13 · Nada personal en los registros
@@ -289,6 +289,40 @@
 | Automation | AUTOMATED |
 | Environment | LOCAL |
 | Evidence | movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el detalle del siniestro abierto ofrece agregar documentos y el decidido no"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el siniestro decidido no ofrece agregar documentos"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"cada pagina se anuncia con su vista previa y su boton de quitar de 48 dp"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el boton de enviar dice cuantas paginas y escanear abre el escaner"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"sin paginas no se puede enviar y con 10 no se puede agregar"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"sin paginas el boton de enviar esta deshabilitado"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"sin red el aviso se anuncia y las paginas siguen en pantalla"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"sin escaner ofrece fotografiar la pagina con la camara"; movil/app/src/test/java/com/solventa/app/ui/claims/ClaimDocumentsScreenTest.kt::"el obturador de la camara tiene nombre y mide al menos 48 dp" |
+| Status | PASS |
+
+### TC-17 · Tope del cuerpo antes del parser
+
+| Field | Value |
+|---|---|
+| Covers | AC-07, SR-02 |
+| Kind | SECURITY |
+| Risk covered | THR-02 |
+| Level | INTEGRATION |
+| Preconditions | PostgreSQL de pruebas, emulador de S3 y la aplicación completa con sus middlewares |
+| Procedure | 1. Enviar a la ruta de documentos un multipart de `DOCUMENTS_MAX_BODY_BYTES` + 1 bytes con `Content-Length`. 2. El mismo cuerpo en trozos, sin `Content-Length`. 3. En la prueba unitaria, el corte dentro de un grupo de tareas como el de `BaseHTTPMiddleware`. 4. Comprobar el tope |
+| Expected result | 413 en los dos casos; con `Content-Length` la ruta no lee el formulario y sin él el formulario nunca termina de armarse; S3 no se escribe; ni filas ni mensajes nuevos en el outbox; el corte envuelto también da 413; el tope está entre 50 000 000 y 50 000 000 + 1 MiB |
+| Tool or method | pytest |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_un_cuerpo_mayor_al_tope_responde_413_antes_de_leer_el_formulario; backend/tests/integration/test_claim_documents_api.py::test_el_tope_del_cuerpo_cubre_diez_paginas_de_5_mb_con_poco_margen; backend/tests/unit/test_body_size_limit.py::test_sin_content_length_responde_413_aunque_un_middleware_interno_envuelva_el_corte |
+| Status | PASS |
+
+### TC-18 · Recodificación sin EXIF
+
+| Field | Value |
+|---|---|
+| Covers | AC-04, SR-02, SR-05 |
+| Kind | SECURITY |
+| Risk covered | THR-02 |
+| Level | INTEGRATION |
+| Preconditions | PostgreSQL de pruebas y emulador de S3 |
+| Procedure | Enviar un JPEG con EXIF (fabricante y orientación) y un comentario, y leer lo guardado en S3 |
+| Expected result | 201; la imagen guardada no tiene EXIF ni el comentario y la orientación ya está aplicada |
+| Tool or method | pytest |
+| Automation | AUTOMATED |
+| Environment | LOCAL |
+| Evidence | backend/tests/integration/test_claim_documents_api.py::test_el_servidor_guarda_la_pagina_sin_exif_ni_comentarios |
 | Status | PASS |
 
 ### TC-16 · Documentos de punta a punta en un teléfono

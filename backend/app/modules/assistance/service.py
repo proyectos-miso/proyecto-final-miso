@@ -1,20 +1,23 @@
 """Prestadores cercanos y solicitudes de asistencia del asegurado (mejora FE-MOV-07).
 
-Las coordenadas del asegurado solo sirven para ordenar y asignar dentro de la petición; no se guardan ni salen en
-eventos ni registros. La distancia se calcula con haversine en memoria porque el catálogo es pequeño.
+Las coordenadas del asegurado solo sirven para ordenar y sugerir el prestador dentro de la petición; no se guardan ni
+salen en eventos ni registros. La distancia se calcula con haversine en memoria porque el catálogo es pequeño. Nadie
+despacha al prestador todavía: la solicitud queda RECEIVED y el asegurado lo llama para coordinar (RISK-05).
 """
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox import OutboxMessageDB
 from app.modules.assistance.models import (
     AssistanceReceipt, AssistanceRequest, AssistanceRequestDB, Provider, ProviderDB,
 )
+from app.modules.identity.db_models import InsuredAccountDB
 from app.modules.policy.models import PolicyDB
 
 MAX_PROVIDERS = 20
@@ -22,6 +25,10 @@ SPEED_KMH = 30
 DISPATCH_MINUTES = 15
 ETA_WITHOUT_LOCATION = 45
 MAX_REQUESTS_PER_HOUR = 5
+REQUEST_WINDOW = timedelta(hours=1)
+# Más lejos que esto el prestador no sirve en una emergencia: se responde que no hay en la zona (AC-10).
+MAX_DISTANCE_KM = 50
+RECEIVED = "RECEIVED"
 EARTH_RADIUS_KM = 6371.0
 
 # Catálogo de demostración: nombres, direcciones y teléfonos ficticios (rango 555), solo fuera de producción.
@@ -56,7 +63,9 @@ class NoProviderError(Exception):
 
 
 class TooManyRequestsError(Exception):
-    pass
+    def __init__(self, retry_after: int):
+        super().__init__()
+        self.retry_after = retry_after
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -98,20 +107,32 @@ class AssistanceService:
         self, session: AsyncSession, lat: Optional[float], lng: Optional[float], city: Optional[str],
         service: Optional[str], limit: int = MAX_PROVIDERS,
     ) -> List[Tuple[ProviderDB, Optional[float]]]:
-        """Por distancia si hay coordenadas; si no, los de la ciudad por nombre. Solo activos y con el servicio."""
+        """Con coordenadas, los que están a 50 km o menos, por distancia; si no, los de la ciudad por nombre. Solo
+        activos y con el servicio, filtrado en la consulta."""
         stmt = select(ProviderDB).where(ProviderDB.active.is_(True))
         if city:
             stmt = stmt.where(ProviderDB.city_code == city)
-        rows = [p for p in await session.scalars(stmt.order_by(ProviderDB.name)) if service is None or service in p.services]
+        if service:
+            stmt = stmt.where(cast(ProviderDB.services, JSONB).contains([service]))
         if lat is None or lng is None:
-            return [(p, None) for p in rows[:limit]]
-        ranked = sorted(((p, haversine_km(lat, lng, p.lat, p.lng)) for p in rows), key=lambda pair: pair[1])
+            return [(p, None) for p in await session.scalars(stmt.order_by(ProviderDB.name).limit(limit))]
+        distances = ((p, haversine_km(lat, lng, p.lat, p.lng)) for p in await session.scalars(stmt))
+        ranked = sorted((pair for pair in distances if pair[1] <= MAX_DISTANCE_KM), key=lambda pair: pair[1])
         return ranked[:limit]
+
+    @staticmethod
+    async def lock_account(session: AsyncSession, user_id: str) -> None:
+        """Bloquea la cuenta hasta el commit: dos solicitudes simultáneas cuentan el tope una después de la otra."""
+        await session.execute(
+            select(InsuredAccountDB.user_id).where(InsuredAccountDB.user_id == user_id).with_for_update()
+        )
 
     async def request(
         self, session: AsyncSession, user_id: str, document_number: str, request: AssistanceRequest
     ) -> AssistanceReceipt:
-        """Registra la solicitud con el prestador activo más cercano que ofrece el servicio; no hace commit."""
+        """Registra la solicitud RECEIVED con el prestador activo más cercano que ofrece el servicio como sugerencia y su
+        tiempo estimado; no lo despacha ni hace commit."""
+        await self.lock_account(session, user_id)
         now = self.now()
         policy = await session.scalar(select(PolicyDB).where(
             PolicyDB.policy_number == request.policy_number,
@@ -121,11 +142,15 @@ class AssistanceService:
         ))
         if policy is None:
             raise PolicyNotAvailableError()
-        recent = await session.scalar(select(func.count()).select_from(AssistanceRequestDB).where(
-            AssistanceRequestDB.user_id == user_id, AssistanceRequestDB.created_at > now - timedelta(hours=1)
+        recent = list(await session.scalars(
+            select(AssistanceRequestDB.created_at)
+            .where(AssistanceRequestDB.user_id == user_id, AssistanceRequestDB.created_at > now - REQUEST_WINDOW)
+            .order_by(AssistanceRequestDB.created_at.desc())
         ))
-        if recent >= MAX_REQUESTS_PER_HOUR:
-            raise TooManyRequestsError()
+        if len(recent) >= MAX_REQUESTS_PER_HOUR:
+            # Se libera un cupo cuando la más antigua de las últimas cinco sale de la ventana de una hora.
+            freed_at = recent[MAX_REQUESTS_PER_HOUR - 1] + REQUEST_WINDOW
+            raise TooManyRequestsError(max(1, math.ceil((freed_at - now).total_seconds())))
         city = None if request.lat is not None else request.city
         candidates = await self.nearby(session, request.lat, request.lng, city, request.service, limit=1)
         if not candidates:
@@ -135,7 +160,7 @@ class AssistanceService:
             request_id=str(uuid.uuid4()), user_id=user_id, policy_number=policy.policy_number, service=request.service,
             provider_id=provider.provider_id, city_code=provider.city_code, description=request.description,
             distance_km=None if distance is None else round(distance, 1), eta_minutes=eta_minutes(distance),
-            status="ASSIGNED", created_at=now,
+            status=RECEIVED, created_at=now,
         )
         session.add(row)
         # Solo identificadores: ni ubicación, ni descripción, ni datos del asegurado.

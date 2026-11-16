@@ -132,6 +132,7 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
         sendCode(
             "auth/register/otp",
             JSONObject().put("document_type", documentType.name).put("document_number", documentNumber).put("phone", phone),
+            disabledWhenNotFound = true,
         )
 
     /** Un multipart con los datos y las dos fotos, armado en memoria: las fotos nunca pasan por un archivo. */
@@ -219,7 +220,7 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
 
     private suspend fun sendCode(path: String, email: String): OtpResult = sendCode(path, JSONObject().put("email", email))
 
-    private suspend fun sendCode(path: String, body: JSONObject): OtpResult = withContext(Dispatchers.IO) {
+    private suspend fun sendCode(path: String, body: JSONObject, disabledWhenNotFound: Boolean = false): OtpResult = withContext(Dispatchers.IO) {
         try {
             val response = request("POST", path, body)
             when (response.code) {
@@ -229,6 +230,7 @@ class HttpAuthApi(private val baseUrl: String) : AuthApi {
                 }
                 HTTP_TOO_MANY_REQUESTS -> OtpResult.TooManyRequests(response.retryAfter)
                 HttpURLConnection.HTTP_UNAVAILABLE -> OtpResult.SendFailed
+                HttpURLConnection.HTTP_NOT_FOUND -> if (disabledWhenNotFound) OtpResult.Disabled else OtpResult.Failed
                 else -> OtpResult.Failed
             }
         } catch (e: IOException) {

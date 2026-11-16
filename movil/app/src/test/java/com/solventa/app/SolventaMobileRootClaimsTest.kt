@@ -49,6 +49,14 @@ import com.solventa.app.domain.policies.PushPreferences
 import com.solventa.app.domain.policies.SyncOutcome
 import com.solventa.app.ui.auth.AuthViewModel
 import com.solventa.app.ui.claims.ClaimsViewModel
+import com.solventa.app.ui.claims.ClaimDocumentsViewModel
+import com.solventa.app.ui.claims.RecordingUploader
+import com.solventa.app.domain.claims.ScanResult
+import com.solventa.app.ui.assistance.AssistanceViewModel
+import com.solventa.app.data.assistance.FakeAssistance
+import com.solventa.app.data.assistance.FakeLocator
+import com.solventa.app.data.assistance.InMemoryProvidersCopy
+import com.solventa.app.data.assistance.RecordingContact
 import com.solventa.app.ui.settings.NotificationPreferencesViewModel
 import com.solventa.app.ui.wallet.WalletViewModel
 import com.solventa.app.ui.wallet.formatDate
@@ -116,11 +124,19 @@ class SolventaMobileRootClaimsTest {
     private val notificationPreferences = InMemoryNotificationPreferences()
     private val preferences = NotificationPreferencesViewModel(actions, notificationPreferences)
 
+    private val documents = ClaimDocumentsViewModel(RecordingUploader())
+    private var assistanceLine = "+576015550100"
+    private var withAssistance = false
+
     private fun start() {
         policyStore.claims[EMAIL] = ClaimsCopy(listOf(claim), Instant.parse("2026-11-08T09:00:00Z"))
         val claims = ClaimsViewModel(claimsSync, policyStore)
+        val assistance = if (withAssistance) AssistanceViewModel(FakeAssistance(), InMemoryProvidersCopy(), FakeLocator(), RecordingContact()) else null
         compose.setContent {
             SolventaMobileRoot(
+                documentsViewModel = documents,
+                assistanceViewModel = assistance,
+                assistanceLine = assistanceLine,
                 viewModel = auth,
                 walletViewModel = wallet,
                 biometricAuthenticator = authenticator,
@@ -165,6 +181,40 @@ class SolventaMobileRootClaimsTest {
 
         assertEquals(false, claimsOpen)
         compose.onNodeWithText(s(R.string.home_title_named, "María")).assertIsDisplayed()
+    }
+
+    @Test
+    fun `salir del siniestro pone en cero las paginas escaneadas que no se enviaron`() {
+        start()
+        val scanned = ByteArray(16) { 5 }
+        compose.onNodeWithText(s(R.string.claims_open_button)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(row).performClick()
+        documents.open(claim.claimNumber, scannerAvailable = true)
+        documents.onScan(ScanResult.Pages(listOf(scanned)))
+        assertEquals(1, documents.uiState.value.pages.size)
+
+        compose.onNodeWithContentDescription(s(R.string.claim_back)).performClick()
+
+        assertNull(selectedClaim)
+        assertTrue(documents.uiState.value.pages.isEmpty())
+        assertTrue(scanned.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun `sin la linea de Solventa la billetera no ofrece Asistencia`() {
+        withAssistance = true
+        assistanceLine = ""
+        start()
+
+        compose.onNodeWithText(s(R.string.assistance_open_button)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `con la linea de Solventa la billetera ofrece Asistencia`() {
+        withAssistance = true
+        start()
+
+        compose.onNodeWithText(s(R.string.assistance_open_button)).performScrollTo().assertIsDisplayed()
     }
 
     @Test

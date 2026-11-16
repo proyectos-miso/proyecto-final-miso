@@ -4,7 +4,7 @@ envío del reporte del siniestro (HU-MOV-09), documentos del siniestro abierto (
 from typing import Any, Dict, List, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
@@ -18,7 +18,7 @@ from app.core.database import get_db_session
 from app.core.idempotency import IdempotencyConflictError, find_response, save_response
 from app.core.security import decode_access_token, require_roles, security_bearer
 from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
-from app.modules.assistance.models import CITY_CODE, AssistanceReceipt, AssistanceRequest, AssistanceRequests, Providers, Service
+from app.modules.assistance.models import AssistanceReceipt, AssistanceRequest, AssistanceRequests, Providers, ProviderSearch
 from app.modules.assistance.service import (
     NoProviderError, PolicyNotAvailableError as AssistancePolicyError, TooManyRequestsError, assistance_service, provider_view,
 )
@@ -80,13 +80,25 @@ async def session_account(
         )
 
 
-IDENTITY_IN_REVIEW = HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Estamos verificando su identidad.")
+class IdentityInReview(HTTPException):
+    """403 con el código `IDENTITY_IN_REVIEW`, para que la app no lo confunda con falta de red (mejora FE-MOV-01)."""
+
+    code = "IDENTITY_IN_REVIEW"
+
+    def __init__(self):
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail="Estamos verificando su identidad.")
+
+
+async def identity_in_review_handler(request: Request, exc: IdentityInReview) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "code": exc.code})
+
+
 
 
 def require_verified(account: InsuredAccountDB) -> InsuredAccountDB:
     """Con la identidad en verificación no se ven pólizas ni siniestros del documento (mejora FE-MOV-01)."""
     if account.verification_status != VERIFICATION_APPROVED:
-        raise IDENTITY_IN_REVIEW
+        raise IdentityInReview()
     return account
 
 
@@ -307,7 +319,7 @@ async def add_claim_documents(
     db: AsyncSession = Depends(get_db_session),
     storage: DocumentStorage = Depends(get_document_storage),
 ):
-    """Agrega de 1 a 10 páginas JPEG o PDF al siniestro abierto del titular, una vez por `upload_id` (mejora FE-MOV-05)."""
+    """Agrega de 1 a 10 páginas JPEG al siniestro abierto del titular, una vez por `upload_id` (mejora FE-MOV-05)."""
     try:
         manifest, files = await read_pages(request)
         upload = DocumentsUploadRequest.model_validate_json(manifest)
@@ -357,26 +369,35 @@ async def assistance_cities(account: InsuredAccountDB = Depends(insured_account)
     return await profile_service.get_active_cities(db)
 
 
-@router.get("/providers", response_model=Providers)
+@router.post("/providers/search", response_model=Providers)
 async def nearby_providers(
+    search: ProviderSearch,
     response: Response,
-    lat: Optional[float] = Query(None, ge=-90, le=90),
-    lng: Optional[float] = Query(None, ge=-180, le=180),
-    city: Optional[str] = Query(None, pattern=CITY_CODE),
-    service: Optional[Service] = Query(None),
     account: InsuredAccountDB = Depends(insured_account),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Hasta 20 prestadores activos, por distancia o por ciudad; la ubicación no se guarda (mejora FE-MOV-07)."""
-    if (lat is None) != (lng is None) or (lat is None and city is None):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Indique su ubicación o una ciudad.")
+    """Hasta 20 prestadores activos, a 50 km o en la ciudad; la ubicación va en el cuerpo para que no quede en los
+    registros de acceso y no se guarda (mejora FE-MOV-07)."""
     response.headers["Cache-Control"] = "no-store"
-    found = await assistance_service.nearby(db, lat, lng, city, service)
+    found = await assistance_service.nearby(db, search.lat, search.lng, search.city, search.service)
     return Providers(providers=[provider_view(p, d) for p, d in found])
+
+
+# La huella de la llave de idempotencia no lleva la ubicación: con el resto del cuerpo se podría recuperar.
+ASSISTANCE_HASH_EXCLUDE = frozenset({"lat", "lng"})
 
 
 def saved_assistance(record) -> JSONResponse:
     return JSONResponse(status_code=record.response_status, content=record.response_body)
+
+
+def coded(status_code: int, code: str, detail: str, headers: Optional[Dict[str, str]] = None) -> JSONResponse:
+    """Error con un código estable para la app, como el registro (mejora FE-MOV-01)."""
+    return JSONResponse(status_code=status_code, content={"detail": detail, "code": code}, headers=headers)
+
+
+def key_reused() -> JSONResponse:
+    return coded(status.HTTP_409_CONFLICT, "IDEMPOTENCY_KEY_REUSED", "La llave ya se usó con otra solicitud.")
 
 
 @router.post("/assistance", response_model=AssistanceReceipt, status_code=status.HTTP_201_CREATED)
@@ -386,41 +407,40 @@ async def request_assistance(
     account: InsuredAccountDB = Depends(insured_account),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Pide asistencia con el prestador más cercano; la misma llave repite la respuesta sin crear otra (mejora FE-MOV-07)."""
+    """Registra la solicitud con el prestador sugerido más cercano y un tiempo estimado; nadie lo despacha todavía y el
+    asegurado lo llama para coordinar. La misma llave repite la respuesta sin crear otra (mejora FE-MOV-07)."""
     scope = f"insured:{account.user_id}"
-    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La llave ya se usó con otra solicitud.")
     try:
-        saved = await find_response(db, scope, idempotency_key, request)
+        saved = await find_response(db, scope, idempotency_key, request, exclude=ASSISTANCE_HASH_EXCLUDE)
     except IdempotencyConflictError:
-        raise conflict
+        return key_reused()
     if saved is not None:
         return saved_assistance(saved)
     try:
         receipt = await assistance_service.request(db, account.user_id, account.document_number, request)
     except AssistancePolicyError:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos una póliza vigente para esta solicitud.")
-    except TooManyRequestsError:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Ya pidió varias asistencias en la última hora. Llame a la línea de Solventa.",
-            headers={"Retry-After": "600"},
+    except TooManyRequestsError as exc:
+        await db.rollback()
+        return coded(
+            status.HTTP_429_TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", "Ya pidió varias asistencias en la última hora.",
+            headers={"Retry-After": str(exc.retry_after)},
         )
     except NoProviderError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No hay prestadores de ese servicio en su zona. Llame a la línea de Solventa.",
-        )
+        await db.rollback()
+        return coded(status.HTTP_409_CONFLICT, "NO_PROVIDER", "No hay prestadores de ese servicio en su zona.")
     body = receipt.model_dump(mode="json")
-    save_response(db, scope, idempotency_key, request, status.HTTP_201_CREATED, body)
+    save_response(db, scope, idempotency_key, request, status.HTTP_201_CREATED, body, exclude=ASSISTANCE_HASH_EXCLUDE)
     try:
         await db.commit()
     except IntegrityError:
         # Dos envíos simultáneos con la misma llave: gana el primero y este devuelve su respuesta.
         await db.rollback()
         try:
-            saved = await find_response(db, scope, idempotency_key, request)
+            saved = await find_response(db, scope, idempotency_key, request, exclude=ASSISTANCE_HASH_EXCLUDE)
         except IdempotencyConflictError:
-            raise conflict
+            return key_reused()
         if saved is None:
             raise
         return saved_assistance(saved)

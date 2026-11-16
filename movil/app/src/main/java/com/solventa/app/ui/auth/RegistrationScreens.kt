@@ -545,6 +545,7 @@ private fun errorMessage(error: RegistrationError): Int = when (error) {
     RegistrationError.TOO_MANY_REQUESTS -> R.string.auth_error_too_many
     RegistrationError.SMS_UNAVAILABLE -> R.string.auth_error_sms
     RegistrationError.NETWORK -> R.string.auth_error_network
+    RegistrationError.REGISTRATION_DISABLED -> R.string.register_error_disabled
     RegistrationError.CAPTURE_FAILED -> R.string.register_error_capture
     RegistrationError.CAMERA_UNAVAILABLE -> R.string.register_camera_missing_front
 }

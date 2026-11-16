@@ -25,9 +25,9 @@ import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
-enum class AssistanceNotice { LOCATION_UNAVAILABLE, OFFLINE, SESSION, CANNOT_OPEN }
+enum class AssistanceNotice { LOCATION_UNAVAILABLE, OFFLINE, SESSION, CANNOT_OPEN, REJECTED, IDENTITY }
 
-enum class RequestNotice { OFFLINE, POLICY, NO_PROVIDER, TOO_MANY, SESSION, REJECTED }
+enum class RequestNotice { OFFLINE, POLICY, NO_PROVIDER, KEY_REUSED, TOO_MANY, SESSION, REJECTED, IDENTITY }
 
 data class RequestFormState(
     val policies: List<String>,
@@ -35,7 +35,7 @@ data class RequestFormState(
     val service: AssistanceService,
     val description: String = "",
     val sending: Boolean = false,
-    val assigned: AssistanceResult.Assigned? = null,
+    val received: AssistanceResult.Received? = null,
     val notice: RequestNotice? = null,
 )
 
@@ -54,7 +54,7 @@ data class AssistanceUiState(
 ) {
     val hasPlace: Boolean get() = nearMe || cityCode != null
     val canSubmit: Boolean
-        get() = form != null && form.policyNumber != null && !form.sending && form.assigned == null && hasPlace
+        get() = form != null && form.policyNumber != null && !form.sending && form.received == null && hasPlace
 }
 
 /**
@@ -167,10 +167,13 @@ class AssistanceViewModel(
             val result = assistance.request(key, request)
             val current = _uiState.value.form ?: return@launch
             val next = when (result) {
-                is AssistanceResult.Assigned -> current.copy(sending = false, assigned = result)
+                is AssistanceResult.Received -> current.copy(sending = false, received = result)
                 AssistanceResult.Offline -> current.copy(sending = false, notice = RequestNotice.OFFLINE)
                 AssistanceResult.PolicyNotAvailable -> current.copy(sending = false, notice = RequestNotice.POLICY)
                 AssistanceResult.NoProvider -> current.copy(sending = false, notice = RequestNotice.NO_PROVIDER)
+                // La llave ya se usó con otro cuerpo: el próximo envío lleva una nueva.
+                AssistanceResult.KeyReused -> current.copy(sending = false, notice = RequestNotice.KEY_REUSED).also { idempotencyKey = null }
+                AssistanceResult.IdentityInReview -> current.copy(sending = false, notice = RequestNotice.IDENTITY)
                 AssistanceResult.TooMany -> current.copy(sending = false, notice = RequestNotice.TOO_MANY)
                 AssistanceResult.Unauthorized -> current.copy(sending = false, notice = RequestNotice.SESSION)
                 AssistanceResult.Rejected -> current.copy(sending = false, notice = RequestNotice.REJECTED)
@@ -197,7 +200,7 @@ class AssistanceViewModel(
 
     private fun edit(change: (RequestFormState) -> RequestFormState) {
         val form = _uiState.value.form ?: return
-        if (form.sending || form.assigned != null) return
+        if (form.sending || form.received != null) return
         idempotencyKey = null
         _uiState.value = _uiState.value.copy(form = change(form).copy(notice = null))
     }
@@ -223,6 +226,7 @@ class AssistanceViewModel(
             is CitiesResult.Loaded -> _uiState.value.copy(loading = false, cities = result.cities)
             CitiesResult.Offline -> offline()
             CitiesResult.Unauthorized -> _uiState.value.copy(loading = false, notice = AssistanceNotice.SESSION)
+            CitiesResult.IdentityInReview -> _uiState.value.copy(loading = false, notice = AssistanceNotice.IDENTITY)
         }
     }
 
@@ -237,6 +241,8 @@ class AssistanceViewModel(
             }
             ProvidersResult.Offline -> offline()
             ProvidersResult.Unauthorized -> _uiState.value.copy(loading = false, notice = AssistanceNotice.SESSION)
+            ProvidersResult.Rejected -> _uiState.value.copy(loading = false, providers = emptyList(), copySavedAt = null, notice = AssistanceNotice.REJECTED)
+            ProvidersResult.IdentityInReview -> _uiState.value.copy(loading = false, providers = emptyList(), notice = AssistanceNotice.IDENTITY)
         }
     }
 

@@ -1,5 +1,5 @@
 """Prestadores y solicitudes de asistencia (mejora FE-MOV-07). La ubicación del asegurado no se guarda: solo la
-distancia al prestador asignado, para explicar el tiempo estimado."""
+distancia al prestador sugerido, para explicar el tiempo estimado."""
 from datetime import datetime
 from typing import List, Literal, Optional
 
@@ -61,6 +61,29 @@ class Providers(BaseModel):
     providers: List[Provider]
 
 
+def location_or_city(lat: Optional[float], lng: Optional[float], city: Optional[str]) -> None:
+    if (lat is None) != (lng is None):
+        raise ValueError("La ubicación necesita latitud y longitud.")
+    if lat is None and city is None:
+        raise ValueError("Indique su ubicación o una ciudad.")
+
+
+class ProviderSearch(BaseModel):
+    """Búsqueda de prestadores; va en el cuerpo de un POST para que la ubicación no quede en la URL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
+    city: Optional[str] = Field(None, pattern=CITY_CODE)
+    service: Optional[Service] = None
+
+    @model_validator(mode="after")
+    def location_or_city(self) -> "ProviderSearch":
+        location_or_city(self.lat, self.lng, self.city)
+        return self
+
+
 class AssistanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -73,14 +96,14 @@ class AssistanceRequest(BaseModel):
 
     @model_validator(mode="after")
     def location_or_city(self) -> "AssistanceRequest":
-        if (self.lat is None) != (self.lng is None):
-            raise ValueError("La ubicación necesita latitud y longitud.")
-        if self.lat is None and self.city is None:
-            raise ValueError("Indique su ubicación o una ciudad.")
+        location_or_city(self.lat, self.lng, self.city)
         return self
 
 
 class AssistanceReceipt(BaseModel):
+    """Constancia de la solicitud: `provider` es el prestador sugerido y `eta_minutes` un tiempo estimado si el
+    asegurado lo contacta; nadie lo despacha todavía (RISK-05)."""
+
     request_id: str
     policy_number: str
     service: str

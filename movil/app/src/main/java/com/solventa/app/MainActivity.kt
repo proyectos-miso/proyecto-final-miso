@@ -34,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -298,10 +299,17 @@ fun SolventaMobileRoot(
     assistanceViewModel: AssistanceViewModel? = null,
     assistanceOpen: Boolean = false,
     onAssistanceOpenChange: (Boolean) -> Unit = {},
+    assistanceLine: String = stringResource(R.string.assistance_line_phone),
+    registrationInApp: Boolean = BuildConfig.REGISTRATION_IN_APP,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val openRegistration: (() -> Unit)? = if (registrationViewModel != null && camera != null && selfieCamera != null) {
+    // Cambiar de siniestro o salir de él suelta las páginas escaneadas del anterior (mejora FE-MOV-05).
+    val selectClaim: (String?) -> Unit = { claim ->
+        if (claim != selectedClaim) documentsViewModel?.close()
+        onSelectedClaimChange(claim)
+    }
+    val openRegistration: (() -> Unit)? = if (registrationInApp && registrationViewModel != null && camera != null && selfieCamera != null) {
         {
             registrationViewModel.open()
             viewModel.openRegistration()
@@ -315,7 +323,7 @@ fun SolventaMobileRoot(
         if (!uiState.isAuthenticated) {
             onClaimOpenChange(false)
             onClaimsOpenChange(false)
-            onSelectedClaimChange(null)
+            selectClaim(null)
             onNoticesOpenChange(false)
             onDocumentsOpenChange(false)
             onAssistanceOpenChange(false)
@@ -329,7 +337,7 @@ fun SolventaMobileRoot(
         if (uiState.isAuthenticated && pendingClaim != null && claimsViewModel != null) {
             onClaimOpenChange(false)
             onClaimsOpenChange(true)
-            onSelectedClaimChange(pendingClaim)
+            selectClaim(pendingClaim)
             onPendingClaimConsumed()
         }
     }
@@ -356,7 +364,7 @@ fun SolventaMobileRoot(
                 onDocumentsOpenChange(false)
                 onClaimOpenChange(false)
                 onClaimsOpenChange(false)
-                onSelectedClaimChange(null)
+                selectClaim(null)
                 onNoticesOpenChange(false)
                 onLoggedOut()
                 viewModel.confirmLogout()
@@ -401,6 +409,8 @@ fun SolventaMobileRoot(
                 val activePolicies = walletState.policies.filter { !it.expired }.map { it.policy.policyNumber }
                 LaunchedEffect(email, activePolicies) { assistanceViewModel.open(email, activePolicies) }
                 val assistanceState by assistanceViewModel.uiState.collectAsState()
+                // Prestadores con distancias y la descripción de la solicitud: sin capturas ni vista en recientes.
+                SecureWindow(secureScreens)
                 // Basta la ubicación aproximada; si el asegurado la niega, elige su ciudad.
                 val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     assistanceViewModel.onLocationPermission(granted)
@@ -469,7 +479,7 @@ fun SolventaMobileRoot(
                 } else if (selectedClaim != null) {
                     ClaimDetailScreen(
                         claimsState.claim(selectedClaim),
-                        onBack = { onSelectedClaimChange(null) },
+                        onBack = { selectClaim(null) },
                         modifier = modifier,
                         onAddDocuments = if (documentsReady) {
                             { onDocumentsOpenChange(true) }
@@ -482,7 +492,7 @@ fun SolventaMobileRoot(
                     ClaimsListScreen(
                         state = claimsState,
                         onBack = { onClaimsOpenChange(false) },
-                        onOpen = onSelectedClaimChange,
+                        onOpen = selectClaim,
                         onReport = if (canReport) {
                             {
                                 onClaimsOpenChange(false)
@@ -526,7 +536,7 @@ fun SolventaMobileRoot(
                     onOpenReceipt = if (claimsViewModel != null) {
                         { claimNumber ->
                             onClaimsOpenChange(true)
-                            onSelectedClaimChange(claimNumber)
+                            selectClaim(claimNumber)
                         }
                     } else {
                         null
@@ -537,7 +547,8 @@ fun SolventaMobileRoot(
                     } else {
                         null
                     },
-                    onOpenAssistance = if (assistanceViewModel != null) {
+                    // Sin la línea de Solventa configurada (release) no hay catálogo real: «Asistencia» no aparece (RISK-02).
+                    onOpenAssistance = if (assistanceViewModel != null && assistanceLine.isNotBlank()) {
                         { onAssistanceOpenChange(true) }
                     } else {
                         null
