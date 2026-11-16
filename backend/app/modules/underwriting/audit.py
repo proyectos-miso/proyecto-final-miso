@@ -66,20 +66,28 @@ class RejectionInputs(BaseModel):
 
 
 class TierOutcome(BaseModel):
-    """Con el consentimiento revocado no lleva `breakdown`: sus etiquetas dicen la edad y el multiplicador
-    de historial de pago delata la franja del puntaje."""
     tier: str
     monthly_premium: float
     annual_premium: Optional[float] = None
     coverages: List[Coverage] = []
-    breakdown: Optional[List[PremiumFactor]] = None
+    breakdown: List[PremiumFactor] = []
 
-    @model_serializer(mode="wrap")
-    def _without_empty_breakdown(self, handler):
-        data = handler(self)
-        if self.breakdown is None:
-            data.pop("breakdown", None)
-        return data
+
+class CoverageName(BaseModel):
+    id: str
+    name: str
+
+
+class RevokedTierOutcome(BaseModel):
+    """Con el consentimiento revocado, un plan solo lleva su nombre y los de sus coberturas: las primas, los
+    límites y los deducibles dejan deducir la franja de edad y la del buró (RISK-11)."""
+    tier: str
+    coverages: List[CoverageName] = []
+
+
+class RevokedQuoteInputs(BaseModel):
+    """Con el consentimiento revocado, una cotización no muestra ninguna entrada: la suma asegurada y el riesgo de
+    ocupación, junto con las primas, permiten deducir la edad y el puntaje (RISK-11)."""
 
 
 REJECTION_FIELDS = ("rule_id", "reason", "max_approvable_amount")
@@ -90,7 +98,7 @@ class DecisionOutcome(BaseModel):
     el cupo máximo sale de la franja del buró o de la edad."""
     status: str
     degradation_reason: Optional[str] = None
-    tiers: List[TierOutcome] = []
+    tiers: List[Union[TierOutcome, RevokedTierOutcome]] = []
     rule_id: Optional[str] = None
     reason: Optional[str] = None
     max_approvable_amount: Optional[float] = None
@@ -111,7 +119,7 @@ class DecisionDetail(BaseModel):
     rules_version: Optional[str]
     consent_revoked: bool
     replayable: bool
-    inputs: Union[DecisionInputs, RejectionInputs]
+    inputs: Union[DecisionInputs, RejectionInputs, RevokedQuoteInputs]
     outcome: DecisionOutcome
 
 
@@ -185,13 +193,29 @@ async def detail(session: AsyncSession, decision_id: str, operator: str) -> Deci
         session, row.document_number, row.consent_id if is_quote else None
     )
     log_audit_event("DECISION_VIEWED", operator, decision_id=decision_id, consent_revoked=revoked)
-    if is_quote:
+    if is_quote and revoked:
+        inputs = RevokedQuoteInputs()
+        outcome = DecisionOutcome(
+            status=row.status,
+            degradation_reason=row.degradation_reason,
+            tiers=[
+                RevokedTierOutcome(
+                    tier=tier["tier"],
+                    coverages=[
+                        CoverageName(id=coverage["id"], name=coverage["name"]) for coverage in tier.get("coverages", [])
+                    ],
+                )
+                for tier in row.tiers
+            ],
+        )
+        replayable = False
+    elif is_quote:
         inputs = DecisionInputs(
-            document_masked=None if revoked else mask_document(row.document_number),
-            birth_date=None if revoked else _day(row.birth_date),
+            document_masked=mask_document(row.document_number),
+            birth_date=_day(row.birth_date),
             insured_amount=row.insured_amount,
             occupation_risk=row.occupation_risk,
-            score=None if revoked else row.score_applied,
+            score=row.score_applied,
         )
         outcome = DecisionOutcome(
             status=row.status,
@@ -202,7 +226,7 @@ async def detail(session: AsyncSession, decision_id: str, operator: str) -> Deci
                     monthly_premium=tier["monthly_premium"],
                     annual_premium=tier.get("annual_premium"),
                     coverages=tier.get("coverages", []),
-                    breakdown=None if revoked else tier.get("breakdown", []),
+                    breakdown=tier.get("breakdown", []),
                 )
                 for tier in row.tiers
             ],

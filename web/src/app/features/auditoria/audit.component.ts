@@ -11,13 +11,12 @@ import { extractErrorMessage } from '../../core/utils/http-error';
 const DOCUMENT = /^[A-Za-z0-9]{4,20}$/;
 const MULTIPLIER = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const COUNT = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
-const REVOKED_INPUT = 'Omitido: consentimiento revocado';
 export const REJECTION_NOT_REPLAYABLE =
   'Los rechazos no guardan el puntaje del buró (HU-WEB-07), así que no se pueden recalcular.';
 export const CONSENT_REVOKED_NOT_REPLAYABLE =
   'El consentimiento del titular fue revocado: no se recalcula con sus datos personales.';
 export const RELOAD_FAILED = 'La revocación quedó registrada. Busque la decisión de nuevo.';
-export const REVOKED_REJECTION = 'Se omiten los datos personales y los montos derivados de ellos.';
+export const REVOKED_NOTICE = 'Se omiten los datos personales y los montos derivados de ellos.';
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Cotización activa',
@@ -72,16 +71,8 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
             <dd data-testid="decision-status">{{ statusLabel(decision.outcome.status) }}</dd>
           </dl>
           @if (decision.consent_revoked) {
-            <p class="notice info" data-testid="consent-revoked">
-              @if (decision.kind === 'quote') {
-                El titular revocó su consentimiento: se omiten el documento, la fecha de nacimiento, el puntaje y el desglose de la prima.
-              } @else {
-                {{ revokedRejection }}
-              }
-            </p>
-          }
-
-          @if (decision.kind === 'quote' || !decision.consent_revoked) {
+            <p class="notice info" data-testid="consent-revoked">{{ revokedNotice }}</p>
+          } @else {
             <div class="table-wrap">
               <table>
                 <caption>Entradas de la decisión</caption>
@@ -89,12 +80,12 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
                   <tr><th scope="col">Entrada</th><th scope="col">Valor</th></tr>
                 </thead>
                 <tbody>
-                  <tr><th scope="row">Documento</th><td data-testid="input-document">{{ personal(decision, decision.inputs.document_masked) }}</td></tr>
+                  <tr><th scope="row">Documento</th><td data-testid="input-document">{{ personal(decision.inputs.document_masked) }}</td></tr>
                   @if (decision.kind === 'quote') {
-                    <tr><th scope="row">Fecha de nacimiento</th><td data-testid="input-birth-date">{{ personal(decision, decision.inputs.birth_date) }}</td></tr>
+                    <tr><th scope="row">Fecha de nacimiento</th><td data-testid="input-birth-date">{{ personal(decision.inputs.birth_date) }}</td></tr>
                     <tr><th scope="row">Suma asegurada</th><td>{{ money(decision.inputs.insured_amount) }}</td></tr>
                     <tr><th scope="row">Riesgo de ocupación</th><td>{{ decision.inputs.occupation_risk ?? 'No registrado' }}</td></tr>
-                    <tr><th scope="row">Puntaje del buró</th><td data-testid="input-score">{{ personal(decision, decision.inputs.score) }}</td></tr>
+                    <tr><th scope="row">Puntaje del buró</th><td data-testid="input-score">{{ personal(decision.inputs.score) }}</td></tr>
                   } @else {
                     <tr><th scope="row">Monto solicitado</th><td data-testid="input-requested">{{ money(decision.inputs.insured_amount) }}</td></tr>
                   }
@@ -115,23 +106,20 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
           }
 
           @if (decision.consent_revoked && decision.outcome.tiers.length) {
-            <div class="table-wrap">
-              <table data-testid="tier-summary">
-                <caption>Primas por plan</caption>
-                <thead>
-                  <tr><th scope="col">Plan</th><th scope="col">Prima mensual</th><th scope="col">Prima anual</th></tr>
-                </thead>
-                <tbody>
-                  @for (tier of decision.outcome.tiers; track tier.tier) {
-                    <tr>
-                      <th scope="row">{{ tierLabel(tier.tier) }}</th>
-                      <td>{{ money(tier.monthly_premium) }}</td>
-                      <td>{{ money(tier.annual_premium ?? null) }}</td>
-                    </tr>
+            <ul class="plans" aria-label="Planes y coberturas" data-testid="revoked-plans">
+              @for (tier of decision.outcome.tiers; track tier.tier) {
+                <li>
+                  <span class="plan">{{ tierLabel(tier.tier) }}</span>
+                  @if (tier.coverages?.length) {
+                    <ul>
+                      @for (coverage of tier.coverages; track coverage.id) {
+                        <li>{{ coverage.name }}</li>
+                      }
+                    </ul>
                   }
-                </tbody>
-              </table>
-            </div>
+                </li>
+              }
+            </ul>
           }
 
           @for (tier of decision.consent_revoked ? [] : decision.outcome.tiers; track tier.tier) {
@@ -255,6 +243,8 @@ const TIER_LABEL: Record<string, string> = { basic: 'Básico', standard: 'Están
     th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--borde); }
     thead th { background: var(--n-50); color: var(--n-600); font-weight: 600; }
     tbody th, tfoot th { font-weight: 600; }
+    .plans { margin: 0 0 16px; padding-left: 20px; }
+    .plans .plan { font-weight: 600; }
     .result { border-left: 4px solid #15803d; padding: 8px 16px; margin: 16px 0 0; }
     .result.differs { border-left-color: #b91c1c; }
     .row { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -288,7 +278,7 @@ export class AuditComponent {
   readonly maskedDocument = computed(() => mask(this.documentNumber().trim()));
   readonly rejectionNotReplayable = REJECTION_NOT_REPLAYABLE;
   readonly consentRevokedNotReplayable = CONSENT_REVOKED_NOT_REPLAYABLE;
-  readonly revokedRejection = REVOKED_REJECTION;
+  readonly revokedNotice = REVOKED_NOTICE;
 
   search(): void {
     const id = this.decisionId().trim().toUpperCase();
@@ -401,9 +391,8 @@ export class AuditComponent {
     return MULTIPLIER.format(value);
   }
 
-  personal(decision: DecisionDetail, value: string | number | null | undefined): string {
-    if (value !== null && value !== undefined) return String(value);
-    return decision.consent_revoked ? REVOKED_INPUT : 'No registrado';
+  personal(value: string | number | null | undefined): string {
+    return value === null || value === undefined ? 'No registrado' : String(value);
   }
 
   shown(value: unknown): string {

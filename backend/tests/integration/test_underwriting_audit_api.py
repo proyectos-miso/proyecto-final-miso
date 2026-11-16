@@ -321,7 +321,7 @@ async def test_la_revocacion_oculta_las_entradas_personales_e_impide_cotizar_con
         detail = await async_client.get(f"{DECISIONS}/{decision['quote_id']}", headers=headers(ANALISTA))
         body = detail.json()
         assert body["consent_revoked"] is True
-        assert body["inputs"]["document_masked"] is None
+        assert body["inputs"].get("document_masked") is None
         assert body["inputs"].get("birth_date") is None
         assert body["inputs"].get("score") is None
         assert "1990-05-15" not in detail.text and "*4050" not in detail.text and DOCUMENT not in detail.text
@@ -378,7 +378,7 @@ async def test_la_revocacion_y_la_consulta_dejan_un_evento_sin_datos_personales(
         assert personal not in logged
 
 
-async def test_con_el_consentimiento_revocado_el_detalle_no_revela_la_edad_ni_la_franja_del_buro_y_no_se_recalcula(
+async def test_con_el_consentimiento_revocado_el_detalle_de_una_cotizacion_solo_trae_planes_y_coberturas_sin_montos_y_no_se_recalcula(
     async_client: AsyncClient, seeded, caplog
 ):
     caplog.set_level("INFO", logger="solventa.audit")
@@ -389,19 +389,30 @@ async def test_con_el_consentimiento_revocado_el_detalle_no_revela_la_edad_ni_la
     blocked = await replay(async_client, created["quote_id"])
 
     assert detail.status_code == 200
-    tiers = detail.json()["outcome"]["tiers"]
+    body = detail.json()
+    assert set(body) == {"decision_id", "kind", "created_at", "rules_version", "consent_revoked", "replayable",
+                         "inputs", "outcome"}
+    assert body["consent_revoked"] is True and body["replayable"] is False
+    assert body["inputs"] == {}
+    assert set(body["outcome"]) == {"status", "degradation_reason", "tiers"}
+    tiers = body["outcome"]["tiers"]
     assert [tier["tier"] for tier in tiers] == ["basic", "standard", "premium"]
-    assert all(set(tier) == {"tier", "monthly_premium", "annual_premium", "coverages"} for tier in tiers)
-    assert tiers[1]["annual_premium"] == created["tiers"][1]["annual_premium"]
-    assert tiers[1]["coverages"] == created["tiers"][1]["coverages"]
-    for revealing in ("años", "payment_history", "breakdown"):
-        assert revealing not in detail.text
+    assert all(set(tier) == {"tier", "coverages"} for tier in tiers)
+    assert tiers[1]["coverages"] == [
+        {"id": coverage["id"], "name": coverage["name"]} for coverage in created["tiers"][1]["coverages"]
+    ]
+    serialized = json.dumps(body, ensure_ascii=False)
+    for revealing in ("monthly_premium", "annual_premium", "limit", "deductible", "insured_amount", "occupation_risk",
+                      "birth_date", "score", "document_masked", "años", "payment_history", "breakdown"):
+        assert revealing not in serialized
+    for amount in ("100000000", "100000000.0"):
+        assert amount not in serialized
     assert blocked.status_code == 409
     assert blocked.headers["cache-control"] == "no-store"
     assert blocked.json()["detail"] == (
         "El consentimiento del titular fue revocado: no se recalcula con sus datos personales."
     )
-    for revealing in ("años", "payment_history", "breakdown"):
+    for revealing in ("años", "payment_history", "breakdown", "monthly_premium", "limit"):
         assert revealing not in blocked.text
     assert "DECISION_REPLAYED" not in [event["event_code"] for event in audit_events(caplog)]
 
@@ -478,7 +489,7 @@ async def test_una_cotizacion_con_un_consentimiento_ajeno_oculta_los_datos_si_el
 
     assert before["consent_revoked"] is False
     assert after.json()["consent_revoked"] is True
-    assert after.json()["inputs"]["birth_date"] is None and after.json()["inputs"]["score"] is None
+    assert after.json()["inputs"] == {} and after.json()["replayable"] is False
     assert "1990-05-15" not in after.text and "*4050" not in after.text
     assert (await replay(async_client, "QUO-0000000000BB")).status_code == 409
 

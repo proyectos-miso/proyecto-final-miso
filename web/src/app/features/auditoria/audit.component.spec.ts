@@ -7,7 +7,7 @@ import {
   CONSENT_REVOKED_NOT_REPLAYABLE,
   RELOAD_FAILED,
   REJECTION_NOT_REPLAYABLE,
-  REVOKED_REJECTION,
+  REVOKED_NOTICE,
 } from './audit.component';
 
 // Auditoría de suscripción (HOTFIX-auditoria-de-suscripcion, FE-WEB-08).
@@ -169,8 +169,8 @@ describe('AuditComponent (FE-WEB-08)', () => {
     fixture.detectChanges();
 
     const notice = page().querySelector('[data-testid="consent-revoked"]')?.textContent?.trim();
-    expect(notice).toBe(REVOKED_REJECTION);
-    expect(REVOKED_REJECTION).toBe('Se omiten los datos personales y los montos derivados de ellos.');
+    expect(notice).toBe(REVOKED_NOTICE);
+    expect(REVOKED_NOTICE).toBe('Se omiten los datos personales y los montos derivados de ellos.');
     expect(page().querySelectorAll('[data-testid="consent-revoked"]').length).toBe(1);
     for (const testid of ['input-document', 'input-requested', 'rejection-rule', 'rejection-reason', 'rejection-max']) {
       expect(page().querySelector(`[data-testid="${testid}"]`)).toBeNull();
@@ -223,26 +223,39 @@ describe('AuditComponent (FE-WEB-08)', () => {
     expect(input.getAttribute('aria-errormessage')).toBe('consentDocumentError');
   });
 
-  it('con el consentimiento revocado no muestra el desglose ni Recalcular y explica por qué', () => {
+  it('con el consentimiento revocado una cotización solo muestra la nota, los planes y los nombres de las coberturas, sin primas ni montos', () => {
     submitSearch('QUO-1A2B3C4D5E6F');
     http.expectOne((req) => req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush({
-      ...QUOTE,
-      consent_revoked: true,
-      inputs: { ...QUOTE.inputs, document_masked: null, birth_date: null, score: null },
-      outcome: { ...QUOTE.outcome, tiers: [{ tier: 'standard', monthly_premium: 30096, annual_premium: 361152, coverages: [] }] },
+      decision_id: QUOTE.decision_id, kind: 'quote', created_at: QUOTE.created_at, rules_version: '2026.11',
+      consent_revoked: true, replayable: false, inputs: {},
+      outcome: { status: 'active', degradation_reason: null, tiers: [
+        { tier: 'basic', coverages: [{ id: 'death', name: 'Muerte por cualquier causa' }] },
+        { tier: 'standard', coverages: [{ id: 'death', name: 'Muerte por cualquier causa' }, { id: 'disability', name: 'Incapacidad total y permanente' }] },
+      ] },
     });
     fixture.detectChanges();
 
+    const notices = page().querySelectorAll('[data-testid="consent-revoked"]');
+    expect(notices.length).toBe(1);
+    expect(notices[0].textContent?.trim()).toBe(REVOKED_NOTICE);
+    expect(REVOKED_NOTICE).toBe('Se omiten los datos personales y los montos derivados de ellos.');
+    const plans = page().querySelector('[data-testid="revoked-plans"]') as HTMLElement;
+    expect(Array.from(plans.querySelectorAll('.plan')).map((plan) => plan.textContent?.trim())).toEqual(['Básico', 'Estándar']);
+    expect(plans.textContent).toContain('Incapacidad total y permanente');
+    expect(page().querySelector('[data-testid="tier-summary"]')).toBeNull();
+    expect(page().querySelector('[data-testid="tier-table"]')).toBeNull();
+    for (const testid of ['input-document', 'input-birth-date', 'input-score']) {
+      expect(page().querySelector(`[data-testid="${testid}"]`)).toBeNull();
+    }
+    const text = page().textContent ?? '';
+    for (const hidden of ['Primas por plan', 'Prima mensual', 'Prima anual', 'Suma asegurada', 'Riesgo de ocupación',
+      'Desglose del plan', 'Multiplicador', 'Límite', 'Deducible', 'COP', '$']) {
+      expect(text).not.toContain(hidden);
+    }
+    expect(text).not.toMatch(/\d{1,3}(\.\d{3})+/);
     expect(button('Recalcular')).toBeUndefined();
     expect(page().querySelector('[data-testid="consent-not-replayable"]')?.textContent).toBe(CONSENT_REVOKED_NOT_REPLAYABLE);
     expect(CONSENT_REVOKED_NOT_REPLAYABLE).toBe('El consentimiento del titular fue revocado: no se recalcula con sus datos personales.');
-    expect(page().querySelector('[data-testid="tier-table"]')).toBeNull();
-    expect(page().textContent).not.toContain('Desglose del plan');
-    expect(page().textContent).not.toContain('Multiplicador');
-    const summary = page().querySelector('[data-testid="tier-summary"]') as HTMLTableElement;
-    expect(summary.querySelector('caption')?.textContent).toContain('Primas por plan');
-    expect(summary.querySelector('tbody th[scope="row"]')?.textContent).toBe('Estándar');
-    expect(summary.textContent).toContain('361.152');
   });
 
   it('buscar otro identificador limpia el resultado del recálculo anterior', () => {
@@ -313,12 +326,14 @@ describe('AuditComponent (FE-WEB-08)', () => {
     await fixture.whenStable();
     button('Confirmar: registrar revocación').click();
     http.expectOne((req) => req.url.endsWith('/consents/revoke')).flush({ document_masked: '******4050', revoked: 1 });
-    const revoked = { ...QUOTE, consent_revoked: true, inputs: { ...QUOTE.inputs, document_masked: null, birth_date: null, score: null } };
+    const revoked = { ...QUOTE, consent_revoked: true, replayable: false, inputs: {},
+      outcome: { status: 'active', degradation_reason: null, tiers: [{ tier: 'standard', coverages: [] }] } };
     http.expectOne((req) => req.method === 'GET' && req.url.endsWith('/decisions/QUO-1A2B3C4D5E6F')).flush(revoked);
     fixture.detectChanges();
 
-    expect(page().querySelector('[data-testid="consent-revoked"]')).toBeTruthy();
-    expect(page().querySelector('[data-testid="input-document"]')?.textContent).toContain('consentimiento revocado');
+    expect(page().querySelector('[data-testid="consent-revoked"]')?.textContent?.trim()).toBe(REVOKED_NOTICE);
+    expect(page().querySelector('[data-testid="input-document"]')).toBeNull();
+    expect(page().textContent).not.toContain('1990-05-15');
   });
 
   it('tras revocar limpia el recálculo anterior y, si la recarga falla, vacía el detalle y avisa', async () => {

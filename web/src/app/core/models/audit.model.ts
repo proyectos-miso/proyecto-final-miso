@@ -9,29 +9,32 @@ export interface PremiumFactor {
 }
 
 /**
- * Con el consentimiento revocado, el documento, la fecha de nacimiento y el puntaje llegan en null.
  * Un rechazo solo trae el documento y el monto solicitado: no guarda el puntaje ni la fecha de nacimiento (HU-WEB-07).
- * Un rechazo con el consentimiento revocado no trae el monto solicitado.
+ * Con el consentimiento revocado, una cotización no trae ninguna entrada y un rechazo solo el documento en null (RISK-11).
  */
 export interface DecisionInputs {
-  document_masked: string | null;
+  document_masked?: string | null;
   insured_amount?: number | null;
   birth_date?: string | null;
   occupation_risk?: number | null;
   score?: number | null;
 }
 
+/** Con el consentimiento revocado, una cobertura solo trae su id y su nombre. */
 export interface Coverage {
   id: string;
   name: string;
-  limit: number;
-  deductible: number;
+  limit?: number;
+  deductible?: number;
 }
 
-/** Con el consentimiento revocado no llega `breakdown`: sus etiquetas dicen la edad y la franja del buró. */
+/**
+ * Con el consentimiento revocado, un plan solo trae su nombre y sus coberturas: sin primas ni desglose, porque
+ * los montos dejan deducir la franja de edad y la del buró (RISK-11).
+ */
 export interface TierOutcome {
   tier: string;
-  monthly_premium: number;
+  monthly_premium?: number;
   annual_premium?: number | null;
   coverages?: Coverage[];
   breakdown?: PremiumFactor[];
