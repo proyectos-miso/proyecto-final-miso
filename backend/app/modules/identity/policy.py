@@ -80,3 +80,14 @@ def registration_retry_after(previous_attempts: Iterable[datetime], now: datetim
     if len(recent) < REGISTRATION_MAX_PER_HOUR:
         return None
     return seconds_until(recent[-REGISTRATION_MAX_PER_HOUR] + timedelta(hours=1), now)
+
+
+REGISTRATION_OTP_MAX_PER_PHONE = 3
+
+
+def registration_phone_retry_after(previous_requests: Iterable[datetime], now: datetime) -> Optional[int]:
+    """Códigos de registro por teléfono en la última hora: el SMS tiene costo y molesta al dueño del número."""
+    recent = sorted(t for t in previous_requests if now - t < timedelta(hours=1))
+    if len(recent) < REGISTRATION_OTP_MAX_PER_PHONE:
+        return None
+    return seconds_until(recent[-REGISTRATION_OTP_MAX_PER_PHONE] + timedelta(hours=1), now)

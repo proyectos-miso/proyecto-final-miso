@@ -1,6 +1,9 @@
 package com.solventa.app.ui.settings
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -13,6 +16,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.PHONE
@@ -108,5 +112,36 @@ class NotificationPreferencesScreenTest {
         compose.onNodeWithContentDescription(s(R.string.claim_back)).performClick()
 
         assertTrue(closed)
+    }
+
+    @Test
+    fun `FE-MOV-01 revocar la autorizacion biometrica pide confirmacion en un dialogo`() {
+        var asked = false
+        var confirmed = false
+        var cancelled = false
+        var state by mutableStateOf(NotificationPreferencesUiState(loading = false))
+        compose.setContent {
+            SolventaTheme {
+                NotificationPreferencesScreen(
+                    state = state, onBack = {}, onToggle = { _, _ -> }, onRetry = {},
+                    onAskRevocation = { asked = true }, onConfirmRevocation = { confirmed = true },
+                    onCancelRevocation = { cancelled = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText(s(R.string.biometric_consent_title)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.biometric_consent_revoke)).performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
+        assertTrue(asked)
+
+        state = state.copy(revocation = BiometricRevocation.CONFIRMING)
+        compose.onNodeWithText(s(R.string.biometric_consent_confirm_title)).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.biometric_consent_cancel)).performClick()
+        compose.onNodeWithText(s(R.string.biometric_consent_confirm)).performClick()
+        assertTrue(cancelled && confirmed)
+
+        state = state.copy(revocation = BiometricRevocation.REVOKED)
+        compose.onNodeWithText(s(R.string.biometric_consent_revoked)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.biometric_consent_revoke)).assertDoesNotExist()
     }
 }

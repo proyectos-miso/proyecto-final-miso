@@ -51,14 +51,21 @@ class CameraXEvidenceCamera(
     @Composable
     override fun Preview(modifier: Modifier, onUnavailable: () -> Unit) {
         val lifecycleOwner = LocalLifecycleOwner.current
-        val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
-        DisposableEffect(lifecycleOwner) {
+        // Con `this` como llave, otra cámara en el mismo lugar de la composición (documento y selfie) crea su propia
+        // vista y vuelve a enlazar CameraX; sin ella se reusaría la vista y el enlace de la cámara anterior.
+        val previewView = remember(this) { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+        DisposableEffect(lifecycleOwner, this) {
             val future = ProcessCameraProvider.getInstance(context)
             var provider: ProcessCameraProvider? = null
             val preview = Preview.Builder().build()
             future.addListener({
                 try {
-                    provider = future.get().also { cameras ->
+                    val cameras = future.get()
+                    provider = cameras
+                    // Un teléfono sin cámara frontal no puede tomar la selfie: se avisa en lugar de reintentar.
+                    if (!cameras.hasCamera(selector)) {
+                        onUnavailable()
+                    } else {
                         preview.setSurfaceProvider(previewView.surfaceProvider)
                         cameras.unbindAll()
                         cameras.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)

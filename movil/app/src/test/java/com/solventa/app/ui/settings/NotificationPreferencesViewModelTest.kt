@@ -2,6 +2,7 @@ package com.solventa.app.ui.settings
 
 import com.solventa.app.data.policies.FakePolicyActions
 import com.solventa.app.data.policies.InMemoryNotificationPreferences
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.NoticeCategory
 import com.solventa.app.domain.policies.PreferencesResult
 import com.solventa.app.domain.policies.PushPreferences
@@ -136,6 +137,40 @@ class NotificationPreferencesViewModelTest {
 
         assertTrue(actions.saved.isEmpty())
         assertTrue(viewModel.uiState.value.loading)
+    }
+
+    @Test
+    fun `FE-MOV-01 revocar la autorizacion biometrica pide confirmacion y llama al servidor`() {
+        viewModel.open(EMAIL)
+
+        viewModel.askRevocation()
+        assertEquals(BiometricRevocation.CONFIRMING, viewModel.uiState.value.revocation)
+        viewModel.cancelRevocation()
+        assertNull(viewModel.uiState.value.revocation)
+        assertEquals(0, actions.revocations)
+
+        viewModel.askRevocation()
+        viewModel.revokeBiometricConsent()
+
+        assertEquals(1, actions.revocations)
+        assertEquals(BiometricRevocation.REVOKED, viewModel.uiState.value.revocation)
+    }
+
+    @Test
+    fun `FE-MOV-01 la revocacion fallida o con la sesion vencida se avisa`() {
+        viewModel.open(EMAIL)
+
+        actions.revocation = ConsentRevocationResult.Unavailable
+        viewModel.revokeBiometricConsent()
+        assertEquals(BiometricRevocation.FAILED, viewModel.uiState.value.revocation)
+
+        actions.revocation = ConsentRevocationResult.Unauthorized
+        viewModel.revokeBiometricConsent()
+        assertEquals(BiometricRevocation.SESSION, viewModel.uiState.value.revocation)
+
+        viewModel.close()
+        viewModel.revokeBiometricConsent()
+        assertEquals(2, actions.revocations)
     }
 
     private companion object {

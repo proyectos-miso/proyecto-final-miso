@@ -48,3 +48,79 @@ run "el_rol_de_la_tarea_borra_solo_las_imagenes_de_identidad" {
     error_message = "Solo las imágenes de identidad se pueden borrar: las carátulas y las fotos de siniestros no."
   }
 }
+
+run "el_rol_borra_las_versiones_y_lista_solo_bajo_identidad" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  assert {
+    condition = contains(one([
+      for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement : s if s.Sid == "ImagenesDeIdentidad"
+    ]).Action, "s3:DeleteObjectVersion")
+    error_message = "Sin s3:DeleteObjectVersion el borrado solo agrega un marcador y la imagen sigue en el bucket versionado."
+  }
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement :
+      s.Sid == "ImagenesDeIdentidad" if contains(s.Action, "s3:DeleteObjectVersion")
+    ])
+    error_message = "Solo las imágenes de identidad pueden perder versiones."
+  }
+
+  assert {
+    condition = one([
+      for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement : s if s.Sid == "VersionesDeIdentidad"
+      ]).Resource == var.s3_bucket_arn && one([
+      for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement : s if s.Sid == "VersionesDeIdentidad"
+    ]).Condition.StringLike["s3:prefix"] == ["identidad/", "identidad/*"]
+    error_message = "Listar versiones debe limitarse con s3:prefix a identidad/."
+  }
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_iam_role_policy.task_documents.policy).Statement :
+      s.Sid == "VersionesDeIdentidad" if contains(s.Action, "s3:ListBucketVersions")
+    ])
+    error_message = "Ninguna otra sentencia puede listar versiones del bucket."
+  }
+}
+
+run "el_bucket_vence_las_imagenes_de_identidad_y_sus_versiones" {
+  command = plan
+
+  module {
+    source = "./modules/storage_events"
+  }
+
+  assert {
+    condition = alltrue([
+      for r in aws_s3_bucket_lifecycle_configuration.documents.rule : one(r.filter).prefix == "identidad/"
+    ])
+    error_message = "Las reglas de ciclo de vida deben limitarse a identidad/."
+  }
+
+  assert {
+    condition = one([
+      for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-vence"
+    ]).noncurrent_version_expiration[0].noncurrent_days == 1
+    error_message = "Las versiones no actuales de las imágenes deben vencer al día siguiente."
+  }
+
+  assert {
+    condition = one([
+      for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-vence"
+    ]).expiration[0].days == 30
+    error_message = "Una imagen actual no puede durar más que una verificación pendiente (30 días)."
+  }
+
+  assert {
+    condition = one([
+      for r in aws_s3_bucket_lifecycle_configuration.documents.rule : r if r.id == "identidad-marcadores"
+    ]).expiration[0].expired_object_delete_marker == true
+    error_message = "Los marcadores de borrado vencidos deben limpiarse."
+  }
+}

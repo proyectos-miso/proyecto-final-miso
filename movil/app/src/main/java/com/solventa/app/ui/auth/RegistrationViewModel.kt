@@ -29,6 +29,8 @@ enum class RegistrationError {
     SMS_UNAVAILABLE,
     NETWORK,
     CAPTURE_FAILED,
+    /** El teléfono no tiene la cámara del paso (la frontal para la selfie) o no se pudo abrir. */
+    CAMERA_UNAVAILABLE,
 }
 
 /** Lo que escribe la persona; vive solo en memoria, nunca en el estado que guarda el sistema. */
@@ -128,7 +130,8 @@ class RegistrationViewModel(private val authApi: AuthApi) : ViewModel() {
     /** Toma la foto del paso actual con la cámara de la app; el resultado queda solo en memoria. */
     fun capture(shoot: suspend () -> ByteArray?) {
         val step = _uiState.value.step
-        if (_uiState.value.busy || (step != RegistrationStep.DOCUMENT && step != RegistrationStep.SELFIE)) return
+        if (_uiState.value.busy || _uiState.value.error == RegistrationError.CAMERA_UNAVAILABLE) return
+        if (step != RegistrationStep.DOCUMENT && step != RegistrationStep.SELFIE) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             val jpeg = shoot()
@@ -146,6 +149,13 @@ class RegistrationViewModel(private val authApi: AuthApi) : ViewModel() {
             val next = if (step == RegistrationStep.DOCUMENT) RegistrationStep.SELFIE else RegistrationStep.CONSENT
             _uiState.update { it.copy(busy = false, step = next) }
         }
+    }
+
+    /** La cámara del paso no existe o no abrió: se avisa con una salida, no se ofrece un obturador que siempre falla. */
+    fun cameraUnavailable() {
+        val step = _uiState.value.step
+        if (step != RegistrationStep.DOCUMENT && step != RegistrationStep.SELFIE) return
+        _uiState.update { it.copy(busy = false, error = RegistrationError.CAMERA_UNAVAILABLE) }
     }
 
     fun setConsent(accepted: Boolean) {
@@ -207,7 +217,8 @@ class RegistrationViewModel(private val authApi: AuthApi) : ViewModel() {
     /** La sesión del registro aprobado o pendiente; se entrega una sola vez. */
     fun takeSession(): RegisteredSession? = session.also { session = null }
 
-    /** false cuando no hay paso anterior y hay que cerrar el registro. */
+    /** false cuando no hay paso anterior y hay que cerrar el registro. En el resultado, «Atrás» lo decide la
+     *  pantalla: con la cuenta creada continúa como «Entrar a la app», nunca descarta la sesión. */
     fun back(): Boolean {
         val previous = when (_uiState.value.step) {
             RegistrationStep.DATA, RegistrationStep.RESULT -> null

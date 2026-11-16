@@ -1,6 +1,7 @@
 package com.solventa.app.data.policies
 
 import com.solventa.app.domain.policies.CaratulaResult
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.PreferencesResult
 import com.solventa.app.domain.policies.PushPreferences
 import com.solventa.app.domain.policies.RenewalResult
@@ -123,5 +124,20 @@ class HttpPolicyActionsApiTest {
         assertEquals(PreferencesResult.Unavailable, api.savePushPreferences("t", PushPreferences()))
         assertEquals(PreferencesResult.Unavailable, api.pushPreferences("t"))
         assertEquals(PreferencesResult.Unauthorized, api.pushPreferences("t"))
+    }
+
+    @Test
+    fun `FE-MOV-01 la revocacion biometrica es un POST con el token y entiende 200, 401 y error`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"message": "Revocada"}"""))
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        assertEquals(ConsentRevocationResult.Revoked, api.revokeBiometricConsent("t"))
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/insured/consents/biometric/revoke", request.path)
+        assertEquals("Bearer t", request.getHeader("Authorization"))
+        assertEquals(ConsentRevocationResult.Unauthorized, api.revokeBiometricConsent("t"))
+        assertEquals(ConsentRevocationResult.Unavailable, api.revokeBiometricConsent("t"))
     }
 }

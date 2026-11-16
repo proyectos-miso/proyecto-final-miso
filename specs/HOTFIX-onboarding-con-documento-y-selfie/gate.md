@@ -39,9 +39,9 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas de integración y unitarias del backend | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-07, CTL-08, CTL-09, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-09, TC-10, TC-11, TC-13 | backend/tests/integration/test_insured_registration_api.py; backend/tests/unit/test_identity_verifier.py | AVAILABLE |
-| EV-02 | Prueba de Terraform del permiso | SR-05, CTL-05, TC-12 | terraform/tests/imagenes_de_identidad.tftest.hcl | AVAILABLE |
-| EV-03 | Pruebas de la app | SR-08, CTL-10, TC-14, TC-15, TC-16 | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationViewModelTest.kt; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationPrivacyTest.kt | AVAILABLE |
+| EV-01 | Pruebas de integración, unitarias y de la migración del backend | SR-01, SR-02, SR-03, SR-04, SR-05, SR-06, SR-07, SR-09, SR-10, SR-11, CTL-01, CTL-02, CTL-03, CTL-04, CTL-05, CTL-06, CTL-07, CTL-08, CTL-09, CTL-11, CTL-12, CTL-13, CTL-14, TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-09, TC-10, TC-11, TC-13, TC-18, TC-19, TC-20, TC-21, TC-22, TC-23, TC-24, TC-25, TC-26, TC-27, TC-28 | backend/tests/integration/test_insured_registration_api.py; backend/tests/unit/test_identity_verifier.py; backend/tests/integration/test_migrations.py | AVAILABLE |
+| EV-02 | Pruebas de Terraform del permiso y del ciclo de vida | SR-05, CTL-05, TC-12, TC-18 | terraform/tests/imagenes_de_identidad.tftest.hcl | AVAILABLE |
+| EV-03 | Pruebas de la app | SR-06, SR-08, CTL-06, CTL-10, TC-14, TC-15, TC-16, TC-29, TC-30 | movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationViewModelTest.kt; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationPrivacyTest.kt; movil/app/src/test/java/com/solventa/app/ui/auth/RegistrationCameraTest.kt; movil/app/src/test/java/com/solventa/app/ui/settings/NotificationPreferencesScreenTest.kt | AVAILABLE |
 | EV-04 | Prueba manual de punta a punta | TC-17 | DEV | PENDING |
 
 ## Closeout

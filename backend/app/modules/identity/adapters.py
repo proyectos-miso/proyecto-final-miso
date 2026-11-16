@@ -1,7 +1,6 @@
 """Proveedor de verificación de identidad simulado: no hay contrato con uno real (mejora FE-MOV-01, ADR 0031)."""
 import asyncio
 import uuid
-from functools import lru_cache
 
 from app.core.config import settings
 from app.modules.identity.ports import APPROVED, PENDING, REJECTED, VerificationResult
@@ -9,7 +8,7 @@ from app.modules.identity.ports import APPROVED, PENDING, REJECTED, Verification
 
 class SimulatedIdentityVerifier:
     """Determinístico para pruebas y demo: documento terminado en 9 se rechaza, en 8 queda pendiente.
-    Fuera de desarrollo nunca aprueba ni rechaza: todo queda pendiente hasta tener un proveedor real."""
+    Solo decide en development, local y test; en cualquier otro ambiente todo queda pendiente hasta tener un proveedor real."""
 
     def __init__(self, decides: bool = True, delay_seconds: float = 0.0):
         self._decides = decides
@@ -31,6 +30,6 @@ class SimulatedIdentityVerifier:
         return VerificationResult(APPROVED if self._decides else PENDING, reference)
 
 
-@lru_cache
 def get_identity_verifier() -> SimulatedIdentityVerifier:
-    return SimulatedIdentityVerifier(decides=settings.debug_enabled)
+    """Lista de ambientes permitidos, no «todo menos production»: staging, prod o un nombre mal escrito nunca aprueban."""
+    return SimulatedIdentityVerifier(decides=settings.simulated_identity_decides)

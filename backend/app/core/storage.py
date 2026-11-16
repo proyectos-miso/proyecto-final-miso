@@ -25,7 +25,7 @@ class DocumentStorage(Protocol):
 
     async def view_url(self, key: str, content_type: str, expires_in: int) -> str: ...
 
-    async def delete(self, key: str) -> None: ...
+    async def purge(self, prefix: str) -> int: ...
 
 
 class S3DocumentStorage:
@@ -121,12 +121,25 @@ class S3DocumentStorage:
         except (BotoCoreError, ClientError) as exc:
             raise StorageUnavailableError("No se pudo guardar el documento.") from exc
 
-    async def delete(self, key: str) -> None:
-        """Borra la clave; borrar una que no existe no falla. Lo usa el registro para las imágenes (mejora FE-MOV-01)."""
+    async def purge(self, prefix: str) -> int:
+        """Borra todas las versiones y marcadores de borrado bajo el prefijo; devuelve cuántas borró.
+        El bucket tiene versionado: `delete_object` sin `VersionId` solo agrega un marcador y deja la imagen
+        (mejora FE-MOV-01). El rol solo puede listar y borrar versiones bajo identidad/ (Terraform)."""
+        if not prefix.endswith("/"):
+            raise ValueError("El prefijo debe terminar en «/» para no alcanzar otras claves.")
         try:
-            await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket, Key=key)
+            return await asyncio.to_thread(self._purge, prefix)
         except (BotoCoreError, ClientError) as exc:
             raise StorageUnavailableError("No se pudo borrar el documento.") from exc
+
+    def _purge(self, prefix: str) -> int:
+        deleted = 0
+        paginator = self.client.get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
+                self.client.delete_object(Bucket=self.bucket, Key=item["Key"], VersionId=item["VersionId"])
+                deleted += 1
+        return deleted
 
 
 @lru_cache

@@ -51,6 +51,14 @@ class RegistrationPrivacyTest {
     }
 
     @Test
+    fun `las pantallas del registro usan los colores del tema`() {
+        val screens = File(main, "ui/auth/RegistrationScreens.kt").code()
+
+        assertTrue(!Regex("""Color\.(White|Black)""").containsMatchIn(screens))
+        assertTrue(screens.contains("SolventaTheme.colors.camera"))
+    }
+
+    @Test
     fun `el registro no escribe registros ni usa el estado guardado`() {
         val forbidden = Regex("""\bLog\.[vdiwe]\(|android\.util\.Log|println\(|printStackTrace\(|rememberSaveable|SavedStateHandle""")
         sources.forEach { assertTrue("${it.name} registra o guarda estado", !forbidden.containsMatchIn(it.code())) }

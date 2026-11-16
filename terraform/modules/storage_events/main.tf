@@ -27,6 +27,44 @@ resource "aws_s3_bucket_versioning" "documents" {
   }
 }
 
+# Imágenes de identidad del registro (mejora FE-MOV-01): el backend borra todas sus versiones al decidir, revocar o
+# vencer; esta regla es la defensa si un borrado falla. Una verificación pendiente dura a lo sumo 30 días.
+resource "aws_s3_bucket_lifecycle_configuration" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  rule {
+    id     = "identidad-vence"
+    status = "Enabled"
+
+    filter {
+      prefix = "identidad/"
+    }
+
+    expiration {
+      days = 30
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  rule {
+    id     = "identidad-marcadores"
+    status = "Enabled"
+
+    filter {
+      prefix = "identidad/"
+    }
+
+    expiration {
+      expired_object_delete_marker = true
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.documents]
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "documents" {
   bucket = aws_s3_bucket.documents.id
 

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.metrics import LatencyMiddleware
-from app.core.middleware import TenantContextMiddleware
+from app.core.middleware import BodySizeLimitMiddleware, TenantContextMiddleware
 from app.core.storage import ensure_emulator_bucket, get_document_storage
 from app.bff.experience.router import router as experience_router
 from app.bff.experience.operations_router import router as operations_router
@@ -36,7 +36,7 @@ from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
 from app.modules.identity.adapters import get_identity_verifier
-from app.modules.identity.service_registration import insured_registration_service
+from app.modules.identity.service_registration import REGISTRATION_MAX_BODY_BYTES, insured_registration_service
 from app.modules.policy.search import create_search_indexes
 
 
@@ -48,9 +48,11 @@ async def run_policy_lifecycle() -> None:
 
 
 async def run_identity_verifications() -> None:
-    """Pide la decisión de las verificaciones de identidad pendientes y borra sus imágenes (mejora FE-MOV-01)."""
+    """Vence las verificaciones pendientes de más de 30 días, pide la decisión de las demás y borra sus imágenes (mejora FE-MOV-01)."""
     async with AsyncSessionLocal() as session:
-        await insured_registration_service.decide_pending(session, get_document_storage(), get_identity_verifier())
+        storage = get_document_storage()
+        await insured_registration_service.expire_pending(session, storage)
+        await insured_registration_service.decide_pending(session, storage, get_identity_verifier())
 
 
 async def publish_outbox() -> None:
@@ -158,6 +160,11 @@ app.add_middleware(TenantContextMiddleware)
 
 # Latencia de las rutas críticas para el tablero operativo (FE-WEB-07); el más externo, mide de punta a punta.
 app.add_middleware(LatencyMiddleware)
+
+# El registro con fotos de identidad se corta antes de leer el multipart (mejora FE-MOV-01).
+app.add_middleware(
+    BodySizeLimitMiddleware, limits={f"{settings.API_V1_STR}/auth/register": REGISTRATION_MAX_BODY_BYTES}
+)
 
 # 3. Endpoint de Sondeo de Salud para AWS ALB (HA-09: cada 5s, umbral 2)
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])

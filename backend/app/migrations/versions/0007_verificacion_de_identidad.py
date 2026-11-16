@@ -1,5 +1,11 @@
 """Registro desde la app con documento y selfie: estado de verificación de la cuenta (mejora FE-MOV-01).
 
+El downgrade no puede dejar cuentas sin identidad aprobada: el código anterior no conoce el estado y les mostraría
+las pólizas del documento. Por eso primero borra las cuentas que no estén APPROVED (con sus verificaciones, huellas y
+códigos, por la llave foránea), todas las autorizaciones biométricas, que el código anterior tomaría como
+consentimientos Open Finance, y los códigos de registro; después quita las columnas. Las imágenes que queden en S3
+bajo identidad/ las vence la regla de ciclo de vida del bucket.
+
 Revision ID: 0007
 Revises: 0006
 Create Date: 2026-11-15
@@ -19,6 +25,7 @@ def upgrade() -> None:
             ADD COLUMN IF NOT EXISTS verification_status VARCHAR(10) NOT NULL DEFAULT 'APPROVED',
             ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ
     """)
+    op.execute("ALTER TABLE document_otps ADD COLUMN IF NOT EXISTS binding_hash VARCHAR(64)")
     op.execute("""
         CREATE TABLE IF NOT EXISTS identity_verifications (
             verification_id VARCHAR(36) PRIMARY KEY,
@@ -34,6 +41,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DELETE FROM insured_accounts WHERE verification_status <> 'APPROVED'")
+    op.execute("DELETE FROM consents WHERE purpose = 'biometric_verification'")
+    op.execute("DELETE FROM document_otps WHERE purpose = 'registration'")
+    op.execute("ALTER TABLE document_otps DROP COLUMN IF EXISTS binding_hash")
     op.execute("DROP TABLE IF EXISTS identity_verifications")
     op.execute("""
         ALTER TABLE insured_accounts

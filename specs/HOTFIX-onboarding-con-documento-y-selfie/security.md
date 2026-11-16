@@ -22,9 +22,9 @@
 | How it is transmitted | HTTPS (CRY-01) |
 | Where it is stored | `insured_accounts` en PostgreSQL; en la app solo en la memoria del ViewModel |
 | Copies, caches and backups | Respaldos de RDS; nada en el `Bundle` ni en preferencias de la app |
-| How long it is kept | Mientras exista la cuenta; la cuenta rechazada en el momento no se crea |
-| How access is audited | `login_attempts` registra cada intento con un seudónimo HMAC del documento (CTL-08), sin el número |
-| How it is deleted or anonymized | Igual que las demás cuentas del asegurado; no hay borrado de cuentas en este cambio |
+| How long it is kept | Mientras exista la cuenta; la cuenta rechazada en el momento no se crea; una rechazada o vencida después queda cerrada (REJECTED o EXPIRED) sin acceso |
+| How access is audited | `login_attempts` registra cada intento con un seudónimo HMAC del documento y, en los códigos, otro del teléfono (CTL-08), sin los números |
+| How it is deleted or anonymized | Igual que las demás cuentas del asegurado; el downgrade de `0007` borra las cuentas que no estén APPROVED |
 | What happens if it leaks | Identifica a la persona: impacto medio |
 | Transfers to third parties | El celular y el código van a Twilio en el SMS, como en el ingreso; el nombre y el documento irían al proveedor de identidad, hoy simulado |
 
@@ -38,10 +38,10 @@
 | Where it is captured | `CameraXEvidenceCamera` en memoria (`OnImageCapturedCallback`), cámara trasera y frontal |
 | How it is transmitted | Multipart por HTTPS (CRY-01) |
 | Where it is stored | Solo con PENDING: S3 `identidad/{user_id}/{verification_id}/` cifrado con la llave KMS del bucket (CRY-02) |
-| Copies, caches and backups | En la app solo en memoria y se ponen en cero al terminar; en el backend, Starlette puede escribir una parte de más de 1 MB a un archivo temporal que borra al terminar la petición; las versiones del bucket, si están activas, conservan el objeto borrado (RISK-02) |
-| How long it is kept | APPROVED o REJECTED: no se guardan. PENDING: hasta la decisión diferida o la revocación |
+| Copies, caches and backups | En la app solo en memoria y se ponen en cero al terminar. En S3 el bucket tiene versionado (HA-08): cada borrado quita todas las versiones y marcadores del prefijo de la verificación (CTL-05), y una regla de ciclo de vida vence las versiones no actuales al día siguiente como respaldo. En el backend, Starlette puede escribir una parte de más de 1 MB a un archivo temporal del contenedor que borra al terminar la petición (RISK-08) |
+| How long it is kept | APPROVED o REJECTED en el momento: no se guardan. PENDING: hasta la decisión diferida, la revocación o el vencimiento a los 30 días; la regla de ciclo de vida vence a los 30 días cualquier objeto actual que haya quedado |
 | How access is audited | CloudTrail de S3 según la configuración del bucket; el registro de la aplicación dice solo el resultado |
-| How it is deleted or anonymized | `decide_pending` y `revoke_biometric_consent` borran las claves; la fila queda con `s3_keys` nulo |
+| How it is deleted or anonymized | `decide_pending`, `expire_pending` y `revoke_biometric_consent` llaman a `S3DocumentStorage.purge`, que lista y borra con `VersionId` cada versión y marcador bajo `identidad/{user}/{verificación}/`; la fila queda con `s3_keys` nulo |
 | What happens if it leaks | Datos biométricos: suplantación de identidad, impacto crítico |
 | Transfers to third parties | Al proveedor de identidad, hoy simulado (RISK-01) |
 
@@ -73,9 +73,9 @@
 | How it is transmitted | HTTPS dentro del registro |
 | Where it is stored | Tabla `consents` |
 | Copies, caches and backups | Respaldos de RDS |
-| How long it is kept | Sin purga definida, como los demás consentimientos (RISK-03) |
+| How long it is kept | Sin purga definida, como los demás consentimientos (RISK-03). Con APPROVED queda GRANTED como constancia; con REJECTED, EXPIRED o la revocación de la persona queda REVOKED |
 | How access is audited | Sin consulta por endpoint; la revocación cambia el estado |
-| How it is deleted or anonymized | No se borra: queda REVOKED |
+| How it is deleted or anonymized | No se borra: queda REVOKED; el downgrade de `0007` borra todas, porque el código anterior las tomaría como consentimientos Open Finance |
 | What happens if it leaks | Revela que una persona se registró en Solventa: impacto bajo |
 | Transfers to third parties | Ninguna |
 
@@ -84,7 +84,8 @@
 | Actor | Role | Trust level | What they can do |
 |---|---|---|---|
 | Persona sin cuenta | anónimo | No confiable | Pedir el código y registrarse |
-| Asegurado en verificación | insured, PENDING | Autenticado | Ver su sesión, activar la huella y revocar la autorización; no ve datos del documento |
+| Asegurado en verificación | insured, PENDING | Autenticado | Ver su sesión, activar la huella y revocar la autorización desde «Avisos»; no ve datos del documento |
+| Cuenta cerrada | insured, REJECTED o EXPIRED | Ninguno | Nada: sesiones y huellas revocadas; el ingreso, el código y la recuperación la tratan como inexistente |
 | Asegurado aprobado | insured, APPROVED | Autenticado | Todo lo de la app |
 | Backend | Sistema | Interno | Verificar, guardar, decidir y borrar |
 | Proveedor de identidad | Tercero (simulado) | Externo | Comparar las imágenes |
@@ -93,9 +94,9 @@
 
 | Boundary | Between | What is validated when crossing it |
 |---|---|---|
-| App → backend | Teléfono e internet | Esquema estricto, firma JPEG y tamaño, código atado al documento y teléfono, límites |
+| App → backend | Teléfono e internet | Registro encendido en el ambiente, cuerpo de máximo 7 MB, esquema estricto, firma JPEG y tamaño, código atado al documento y teléfono, límites por documento, teléfono e IP |
 | Backend → proveedor | Backend y tercero | Tiempo máximo de 400 ms; cualquier error deja PENDING |
-| Backend → S3 | Backend y AWS | Rol de la tarea limitado a `identidad/*`; cifrado del bucket |
+| Backend → S3 | Backend y AWS | Rol de la tarea limitado a `identidad/*` (incluidas las versiones) y a listar versiones con `s3:prefix` en `identidad/`; cifrado del bucket |
 
 ## 5. Data flows
 
@@ -117,9 +118,10 @@
 
 | Surface | Exposure | Inputs the attacker controls |
 |---|---|---|
-| POST /auth/register/otp | Pública | Tipo y número de documento, celular |
-| POST /auth/register | Pública | JSON de datos y tres archivos |
-| POST /insured/consents/biometric/revoke | Autenticada (insured) | Ninguno además del token |
+| POST /auth/register/otp | Pública (404 con el registro apagado) | Tipo y número de documento, celular; `X-Forwarded-For` |
+| POST /auth/register | Pública (404 con el registro apagado) | JSON de datos, tres archivos y el tamaño del cuerpo; `X-Forwarded-For` |
+| POST /insured/consents/biometric/revoke | Autenticada (insured), también desde «Avisos» | Ninguno además del token |
+| POST /experience/quotes | Autenticada (asesor) | Un `consent_id` que podría ser el de la autorización biométrica |
 | Rutas de datos de /insured | Autenticada (insured) | El token de una cuenta PENDING |
 
 ## 8. Threat model
@@ -127,27 +129,34 @@
 | ID | STRIDE | Asset | Threat | Actor | Likelihood | Impact | Risk | Controls |
 |---|---|---|---|---|---|---|---|---|
 | THR-01 | S | Pólizas y siniestros de un documento | Registrarse con un documento ajeno y ver sus datos, o seguir usando una cuenta rechazada | Persona maliciosa | MEDIUM | HIGH | HIGH | CTL-01, CTL-09 |
-| THR-02 | I | Existencia de cuentas | Enumerar correos o documentos registrados | Persona maliciosa | MEDIUM | LOW | LOW | CTL-02, CTL-03 |
+| THR-02 | I | Existencia de cuentas | Enumerar correos o documentos registrados; los intentos de registro duplicados o rechazados cuentan como fallos en el límite por IP | Persona maliciosa | MEDIUM | LOW | LOW | CTL-02, CTL-03 |
 | THR-03 | S | Celular y código | Adivinar el código o usar el de otro teléfono | Persona maliciosa | MEDIUM | HIGH | HIGH | CTL-03 |
-| THR-04 | D | Backend | Archivos enormes o que no son fotos, cuerpos malformados | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-04 |
-| THR-05 | I | DATA-02 | Leer o conservar las imágenes de identidad más de lo necesario | Persona maliciosa o interna | LOW | CRITICAL | HIGH | CTL-05, CTL-06 |
+| THR-04 | D | Backend | Archivos enormes o que no son fotos, cuerpos malformados o de muchos megas | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-04, CTL-12 |
+| THR-05 | I | DATA-02 | Leer o conservar las imágenes de identidad más de lo necesario, incluidas versiones anteriores del bucket o registros que nunca se deciden | Persona maliciosa o interna | LOW | CRITICAL | HIGH | CTL-05, CTL-06, CTL-11 |
 | THR-06 | I | DATA-01, DATA-02 | Datos personales en registros, auditoría o almacenamiento del teléfono | Interno o malware | LOW | HIGH | MEDIUM | CTL-08, CTL-10 |
-| THR-07 | E | Consentimiento Open Finance | La autorización biométrica habilita cotizar con el buró | Asesor | LOW | MEDIUM | LOW | CTL-07 |
+| THR-07 | E | Consentimiento Open Finance | La autorización biométrica habilita cotizar con el buró, por la consulta del documento o por su `consent_id` | Asesor | LOW | MEDIUM | LOW | CTL-07 |
+| THR-08 | D | Registro del titular | Ocupar el documento de otra persona con un registro que nunca se aprueba (pendiente, rechazado o revocado) para que el titular no pueda crear su cuenta | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-11, CTL-14 |
+| THR-09 | D | Celular y código | Mandar códigos sin fin a un teléfono (costo y molestia), o pedir un código con el documento de otra persona para borrar el que ella pidió; reintentar con un código que un rollback devolvió | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-03, CTL-13 |
+| THR-10 | S | Límites por IP | Falsear la IP con la entrada más a la izquierda de `X-Forwarded-For` para saltar el límite por IP (comportamiento previo de todo el backend) | Persona maliciosa | MEDIUM | MEDIUM | MEDIUM | CTL-03, CTL-13 |
 
 ## 9. Controls
 
 | ID | Control | Domain | Status | Mitigates | Tests | Tasks | References | Rationale |
 |---|---|---|---|---|---|---|---|---|
-| CTL-01 | `insured_account` y `reporting_account` exigen `verification_status=APPROVED` (403); el simulado fuera de desarrollo nunca aprueba | API | EXISTING | THR-01 | TC-03, TC-11 | T-02 | API1:2023, CWE-639 | — |
+| CTL-01 | `insured_account` y `reporting_account` exigen `verification_status=APPROVED` (403) en todas las rutas de datos; el simulado solo decide con `ENVIRONMENT` en development, local o test | API | EXISTING | THR-01 | TC-03, TC-11, TC-21 | T-02, T-07, T-08 | API1:2023, CWE-639 | — |
 | CTL-02 | Duplicado de correo o documento con el mismo 409 y mensaje; bloqueo por documento y unicidad del correo | API | EXISTING | THR-02 | TC-05 | T-01 | CWE-204 | — |
-| CTL-03 | Código HMAC atado a documento, tipo y celular, tres intentos, un código por minuto y cinco por hora por documento; cinco registros por hora por documento; límites por IP | BACKEND | EXISTING | THR-02, THR-03 | TC-01, TC-06, TC-07 | T-01 | CWE-307, ASVS 2.7 | — |
+| CTL-03 | Código HMAC atado a documento, tipo y celular, tres intentos, un código por minuto y cinco por hora por documento; cinco registros por hora por documento; límites por IP que cuentan también `duplicate` y `rejected`; tras un rollback por la base o S3 el código se consume y el intento se audita | BACKEND | EXISTING | THR-02, THR-03, THR-09, THR-10 | TC-01, TC-06, TC-07, TC-24 | T-01, T-09 | CWE-307, ASVS 2.7 | — |
 | CTL-04 | Pydantic con `extra="forbid"`, patrones y longitudes; JPEG por firma y hasta 2 MB leídos con tope | BACKEND | EXISTING | THR-04 | TC-01, TC-06 | T-02 | CWE-20, CWE-770 | — |
-| CTL-05 | Imágenes solo con PENDING, bajo `identidad/`, cifradas por el bucket, sin endpoint de lectura; el rol solo escribe, lee y borra en ese prefijo | INFRA | EXISTING | THR-05 | TC-02, TC-03, TC-04, TC-12 | T-01, T-03 | MASVS-STORAGE, CWE-359 | — |
-| CTL-06 | La decisión diferida y la revocación borran las imágenes; la revocación marca REVOKED la autorización y detiene la verificación | DATA | EXISTING | THR-05 | TC-08, TC-09 | T-01 | CWE-359 | — |
-| CTL-07 | Autorización biométrica con hash en `consents`, excluida de la consulta y de la revocación Open Finance | DATA | EXISTING | THR-07 | TC-08 | T-01 | — | — |
+| CTL-05 | Imágenes solo con PENDING, bajo `identidad/`, cifradas por el bucket, sin endpoint de lectura; el rol solo escribe, lee y borra (también versiones) en ese prefijo y lista versiones solo con `s3:prefix` en `identidad/`; el ciclo de vida del bucket vence en `identidad/` las versiones no actuales al día, las actuales a los 30 días y los marcadores vencidos | INFRA | EXISTING | THR-05 | TC-02, TC-03, TC-04, TC-12, TC-18 | T-01, T-03, T-06 | MASVS-STORAGE, CWE-359 | — |
+| CTL-06 | La decisión diferida, el vencimiento y la revocación (endpoint o «Avisos» en la app) borran todas las versiones y marcadores de las imágenes con `purge`; la revocación marca REVOKED la autorización y detiene la verificación; el rechazo y el vencimiento también la revocan | DATA | EXISTING | THR-05 | TC-08, TC-09, TC-10, TC-18, TC-20, TC-30 | T-01, T-06, T-10 | CWE-359 | — |
+| CTL-07 | Autorización biométrica con hash en `consents`, excluida de la consulta por documento, de la consulta por `consent_id` y de la revocación Open Finance | DATA | EXISTING | THR-07 | TC-08, TC-26 | T-01, T-09 | — | — |
 | CTL-08 | Registros con el resultado solamente; auditoría con un seudónimo HMAC del documento | BACKEND | EXISTING | THR-06 | TC-13 | T-01 | CWE-532 | — |
-| CTL-09 | Tiempo máximo de 400 ms y errores del proveedor como PENDING; rechazo diferido revoca sesiones y huellas; el ingreso trata REJECTED como inexistente | BACKEND | EXISTING | THR-01 | TC-04, TC-10 | T-01 | — | — |
+| CTL-09 | Tiempo máximo de 400 ms y errores del proveedor como PENDING; rechazo diferido revoca sesiones, huellas y autorización; el ingreso con clave o huella, el código y la recuperación tratan REJECTED y EXPIRED como inexistentes; la decisión va en lotes de 20 con `SKIP LOCKED`, cada uno en su transacción | BACKEND | EXISTING | THR-01 | TC-04, TC-10, TC-22, TC-27 | T-01, T-08, T-09 | — | — |
 | CTL-10 | Fotos y datos solo en memoria en la app (sin disco, registros ni estado guardado), puestas en cero al terminar; ventana segura en release | MOBILE | EXISTING | THR-06 | TC-14, TC-15 | T-04 | MASVS-STORAGE-2, MASVS-PLATFORM-3 | — |
+| CTL-11 | `REGISTRATION_ENABLED` encendido por defecto solo en development, local y test (404 si está apagado); las pendientes vencen a los 30 días: EXPIRED, imágenes borradas, cuenta cerrada y documento libre | BACKEND | EXISTING | THR-05, THR-08 | TC-19, TC-20 | T-07 | CWE-359 | — |
+| CTL-12 | `BodySizeLimitMiddleware` corta `POST /auth/register` en 7 MB por `Content-Length` o contando los bytes, antes de leer el multipart (413) | BACKEND | EXISTING | THR-04 | TC-25 | T-09 | CWE-770 | — |
+| CTL-13 | Tres códigos de registro por hora por teléfono con un seudónimo HMAC del número; `binding_hash` hace que pedir un código solo reemplace el de ese mismo teléfono | BACKEND | EXISTING | THR-09, THR-10 | TC-23 | T-09 | CWE-799 | — |
+| CTL-14 | El documento solo lo ocupa una cuenta APPROVED o una PENDING de menos de 30 días; REJECTED, EXPIRED o revocada no cuentan como tomadas | BACKEND | EXISTING | THR-08 | TC-20 | T-09 | — | — |
 
 ## 10. Cryptography
 
@@ -210,13 +219,13 @@
 | Secure authentication | YES | CTL-03 | Clave fuerte y código SMS |
 | Session management | YES | CTL-09 | La sesión del registro es la misma del ingreso |
 | Token expiration | NO | — | Sin cambio |
-| Revocation | YES | CTL-09 | El rechazo diferido sube `token_version` y revoca huellas |
+| Revocation | YES | CTL-09, CTL-11 | El rechazo diferido y el vencimiento suben `token_version` y revocan huellas |
 | Server-side permission checks | YES | CTL-01 | — |
 | Per-resource access (ownership) | YES | CTL-01 | Datos por el documento de la cuenta aprobada |
 | Roles | YES | CTL-01 | Solo el rol insured |
 | Privilege separation | YES | CTL-01 | PENDING frente a APPROVED |
 | Brute-force protection | YES | CTL-03 | — |
-| Rate limiting | YES | CTL-03 | — |
+| Rate limiting | YES | CTL-03, CTL-13 | Por documento, por teléfono y por IP (RISK-06) |
 | One-time code (OTP) handling | YES | CTL-03 | — |
 | User enumeration prevention | YES | CTL-02 | El 409 es igual para correo y documento; el código se envía exista o no la cuenta |
 | CSRF protection | NO | — | Endpoints sin cookies |
@@ -235,14 +244,18 @@ N/A: el asegurado no es un socio; el aislamiento lo cubre CTL-01.
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | No hay proveedor real: en desarrollo el simulado aprueba casi todo y fuera de desarrollo deja todo PENDING, así que en producción nadie llega a ver sus pólizas por esta vía; elegir un proveedor exige evaluar contrato, ubicación de los datos y transferencia internacional | THR-01, THR-05 | MEDIUM | HIGH | HIGH | MITIGATE | Alto hasta contratar un proveedor y evaluarlo; propuesta: dejar el registro deshabilitado en producción hasta entonces | OPEN |
-| RISK-02 | Si el bucket tiene versiones, borrar la clave deja una versión anterior de las imágenes; y Starlette puede escribir una parte grande del multipart a un archivo temporal del contenedor durante la petición | THR-05 | LOW | HIGH | MEDIUM | MITIGATE | Medio; propuesta: regla de ciclo de vida que expire versiones no actuales bajo `identidad/` y límite de memoria del parser | OPEN |
+| RISK-01 | No hay proveedor real: en development, local y test el simulado aprueba casi todo y en cualquier otro ambiente deja todo PENDING, así que un registro abierto allí guardaría datos biométricos que nadie decide; elegir un proveedor exige evaluar contrato, ubicación de los datos y transferencia internacional | THR-01, THR-05 | MEDIUM | HIGH | HIGH | MITIGATE | Bajo mientras `REGISTRATION_ENABLED` siga apagado fuera de la lista (CTL-11): las rutas responden 404 y no se guarda nada; si alguien la enciende, las pendientes vencen a los 30 días con sus imágenes borradas. Encenderla en producción es DEC-01 | MITIGATED |
+| RISK-02 | El bucket de documentos tiene versionado (HA-08): `delete_object` sin `VersionId` solo agregaba un marcador y las imágenes biométricas seguían en el bucket después de «borrarlas» | THR-05 | LOW | CRITICAL | HIGH | MITIGATE | Bajo: `purge` borra cada versión y marcador del prefijo (probado con el emulador versionado); si un borrado falla, la regla de ciclo de vida vence las versiones no actuales al día siguiente y las actuales a los 30 días | MITIGATED |
 | RISK-03 | La autorización biométrica y `login_attempts` no tienen retención ni purga definidas | THR-06 | LOW | MEDIUM | LOW | MITIGATE | Bajo; propuesta: definir la retención con el responsable de datos | OPEN |
-| RISK-04 | Una verificación pendiente sin respuesta del proveedor nunca vence; y la cuenta PENDING ve la billetera vacía con un aviso genérico de «sin conexión», no uno de verificación | THR-01 | MEDIUM | LOW | LOW | MITIGATE | Bajo; propuesta: vencimiento de las pendientes y un estado propio en la billetera | OPEN |
-| RISK-05 | La app no ofrece todavía la pantalla para revocar la autorización: solo existe el endpoint | THR-05 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio; propuesta: botón en ajustes de la app | OPEN |
+| RISK-04 | La cuenta PENDING ve la billetera vacía con un aviso genérico de «sin conexión», no uno de verificación (el vencimiento a 30 días ya está en CTL-11) | THR-01 | MEDIUM | LOW | LOW | MITIGATE | Bajo; propuesta: un estado propio en la billetera | OPEN |
+| RISK-05 | La app no ofrecía la pantalla para revocar la autorización: solo existía el endpoint | THR-05 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Bajo: «Avisos» tiene «Revocar autorización» con confirmación y el texto del consentimiento lo explica | MITIGATED |
+| RISK-06 | La IP de los límites se toma de la entrada más a la izquierda de `X-Forwarded-For` (comportamiento previo de todo el backend): quien la falsea esquiva el límite por IP | THR-10 | MEDIUM | MEDIUM | MEDIUM | MITIGATE | Medio; el registro conserva los límites por documento y por teléfono, que no dependen de la IP. Corregirlo en todo el backend (tomar la entrada que agrega el balanceador) queda fuera de alcance | OPEN |
+| RISK-07 | El correo de una cuenta rechazada o vencida sigue tomado por el índice único: la persona que reintenta con el mismo correo recibe 409 | THR-08 | LOW | LOW | LOW | MITIGATE | Bajo; puede usar otro correo o escribir a soporte. El documento sí queda libre (CTL-14) | OPEN |
+| RISK-08 | Starlette puede escribir una parte de más de 1 MB del multipart a un archivo temporal del contenedor mientras dura la petición | THR-05 | LOW | MEDIUM | LOW | MITIGATE | Bajo: el cuerpo tiene tope de 7 MB (CTL-12), el archivo vive solo durante la petición en el disco efímero de la tarea | OPEN |
+| RISK-09 | `POST /insured/claims` lee el multipart sin un tope previo del cuerpo, el patrón que CTL-12 corrige en el registro | THR-04 | LOW | MEDIUM | LOW | MITIGATE | Bajo; deuda: aplicar `BodySizeLimitMiddleware` a la ruta del siniestro en su historia | OPEN |
 
 ## 16. Pending decisions
 
 | ID | Decision | Options | Recommendation | Decider | Blocks gate | Status |
 |---|---|---|---|---|---|---|
-| DEC-01 | Proveedor real de verificación de identidad y su evaluación de privacidad (RISK-01) | Contratar uno; dejar el registro solo en desarrollo | Dejar el registro fuera de producción hasta contratar y evaluar un proveedor | Juan Camilo Peña | NO | PENDING |
+| DEC-01 | Proveedor real de verificación de identidad, su evaluación de privacidad y cuándo encender `REGISTRATION_ENABLED` fuera de development, local y test (RISK-01). Implementado: la bandera apagada por defecto fuera de esa lista (404) y el vencimiento a 30 días | Contratar uno y encender la bandera; dejar el registro solo en desarrollo | Mantener la bandera apagada en staging y producción hasta contratar y evaluar un proveedor | Juan Camilo Peña | NO | PENDING |

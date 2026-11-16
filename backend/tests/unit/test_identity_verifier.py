@@ -4,8 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.core.config import Settings, settings
 from app.modules.identity import policy
-from app.modules.identity.adapters import SimulatedIdentityVerifier
+from app.modules.identity.adapters import SimulatedIdentityVerifier, get_identity_verifier
 from app.modules.identity.ports import APPROVED, PENDING, REJECTED, VerificationResult
 from app.modules.identity.service_registration import InsuredRegistrationService
 
@@ -81,3 +82,47 @@ def test_el_seudonimo_del_documento_no_lleva_el_numero_y_es_estable():
     assert "1098765432" not in subject
     assert subject == InsuredRegistrationService._subject("CC", "1098765432")
     assert subject != InsuredRegistrationService._subject("CE", "1098765432")
+
+
+@pytest.mark.parametrize("environment", ["staging", "prod", "production", "dev", "Development"])
+async def test_get_identity_verifier_nunca_aprueba_fuera_de_la_lista_de_ambientes(environment, monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    verifier = get_identity_verifier()
+
+    results = [await verify(verifier, document) for document in ("1098765432", "1098765439", "AB12340")]
+    decided = await verifier.decide("sim-ref")
+
+    assert {result.status for result in results} == {PENDING}
+    assert decided.status == PENDING
+
+
+@pytest.mark.parametrize("environment", ["development", "local", "test"])
+async def test_get_identity_verifier_decide_solo_en_desarrollo_local_y_pruebas(environment, monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+
+    result = await verify(get_identity_verifier(), "1098765432")
+
+    assert result.status == APPROVED
+
+
+@pytest.mark.parametrize("environment, explicit, expected", [
+    ("development", None, True), ("local", None, True), ("test", None, True),
+    ("staging", None, False), ("prod", None, False), ("production", None, False),
+    ("production", True, True), ("development", False, False),
+])
+def test_el_registro_abre_por_defecto_solo_en_los_ambientes_del_simulado(environment, explicit, expected):
+    values = {"ENVIRONMENT": environment}
+    if explicit is not None:
+        values["REGISTRATION_ENABLED"] = explicit
+
+    assert Settings(_env_file=None, **values).registration_enabled is expected
+
+
+def test_el_codigo_de_registro_admite_tres_por_hora_por_telefono():
+    two = [NOW - timedelta(minutes=m) for m in (5, 30)]
+    three = two + [NOW - timedelta(minutes=50)]
+
+    assert policy.registration_phone_retry_after(two + [NOW - timedelta(minutes=61)], NOW) is None
+    assert policy.registration_phone_retry_after(three, NOW) == 10 * 60
+    assert InsuredRegistrationService._phone_subject("+573000000000").startswith("registro:tel:")
+    assert "3000000000" not in InsuredRegistrationService._phone_subject("+573000000000")
