@@ -4,6 +4,7 @@ El mensaje no lleva datos sensibles: solo el radicado o la póliza y un texto ge
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Dict, List, Literal, Optional, Protocol
@@ -90,8 +91,18 @@ class FirebaseSender:
         messaging.send_each_for_multicast(message, app=self.app)
 
 
-@lru_cache
+_sender_lock = threading.Lock()
+
+
 def get_sender() -> Optional[PushSender]:
+    """Un solo emisor por proceso: con el candado, dos hilos no inician Firebase a la vez (el segundo fallaría y
+    quedaría en caché sin push)."""
+    with _sender_lock:
+        return _start_sender()
+
+
+@lru_cache
+def _start_sender() -> Optional[PushSender]:
     """En local, la ruta del archivo; en AWS, el contenido llega como secreto en la variable de entorno."""
     if not settings.FIREBASE_CREDENTIALS_FILE and not settings.FIREBASE_CREDENTIALS_JSON:
         return None
@@ -100,6 +111,9 @@ def get_sender() -> Optional[PushSender]:
     except Exception as exc:  # credencial ausente o inválida: el resto del backend sigue
         logger.warning("Push desactivado: no se pudo iniciar Firebase (%s)", type(exc).__name__)
         return None
+
+
+get_sender.cache_clear = _start_sender.cache_clear  # type: ignore[attr-defined]
 
 
 class NotificationService:

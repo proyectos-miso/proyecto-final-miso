@@ -39,9 +39,9 @@
 
 | ID | Evidence | Supports | Location | Status |
 |---|---|---|---|---|
-| EV-01 | Pruebas de integración del tablero, de las dependencias y del middleware | SR-01, SR-02, SR-03, SR-04, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05 | backend/tests/integration/test_operations_dashboard_api.py | AVAILABLE |
-| EV-02 | Pruebas unitarias de percentiles, ventana, clasificación de rutas, periodos y costo del registro | SR-02, CTL-02, TC-01, TC-04, TC-05, TC-08 | backend/tests/unit/test_operations_metrics.py | AVAILABLE |
-| EV-03 | Pruebas del portal: servicio, pantalla, refresco y pestaña | SR-01, SR-04, CTL-05, TC-06, TC-07 | web/src/app/features/operacion/operations.component.spec.ts; web/src/app/core/operations/operations.service.spec.ts; web/src/app/app.component.spec.ts | AVAILABLE |
+| EV-01 | Pruebas de integración del tablero, de las dependencias, de la base caída, de los límites, del caché y del middleware | SR-01, SR-02, SR-03, SR-04, CTL-01, CTL-02, CTL-03, CTL-04, TC-01, TC-02, TC-03, TC-04, TC-05, TC-10 | backend/tests/integration/test_operations_dashboard_api.py | AVAILABLE |
+| EV-02 | Pruebas unitarias de percentiles, ventana, clasificación de rutas, filtro por estado, hilos y clientes de las sondas, periodos, costo del registro e inicio de Firebase | SR-02, SR-04, CTL-02, CTL-04, TC-01, TC-03, TC-04, TC-05, TC-08, TC-10 | backend/tests/unit/test_operations_metrics.py; backend/tests/unit/test_notifications.py | AVAILABLE |
+| EV-03 | Pruebas del portal: servicio, pantalla, refresco, datos desactualizados, anuncios, pestaña y ruta | SR-01, SR-04, CTL-05, TC-06, TC-07 | web/src/app/features/operacion/operations.component.spec.ts; web/src/app/core/operations/operations.service.spec.ts; web/src/app/app.component.spec.ts; web/src/app/app.routes.spec.ts | AVAILABLE |
 
 ## Closeout
 

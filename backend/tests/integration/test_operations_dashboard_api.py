@@ -1,12 +1,13 @@
 """Tablero operativo del portal de Solventa (HOTFIX-tablero-operativo, FE-WEB-07)."""
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import insert
+from sqlalchemy import insert, text
 
-from app.bff.experience.operations_router import Operator, solventa_operator
+from app.bff.experience import operations_router
 from app.core.database import get_db_session
 from app.core.metrics import latency_window
 from app.core.outbox import OutboxMessageDB
@@ -34,9 +35,11 @@ def dependencies_ok():
     """S3, SQS y Firebase simulados: ninguna prueba sale a la red."""
     app.dependency_overrides[dashboard.get_dependency_checks] = lambda: {"s3": ok, "sqs": ok, "firebase": ok}
     latency_window.clear()
+    dashboard.clear_cache()
     yield
     app.dependency_overrides.pop(dashboard.get_dependency_checks, None)
     latency_window.clear()
+    dashboard.clear_cache()
 
 
 @pytest.fixture
@@ -184,41 +187,123 @@ async def test_firebase_sin_credenciales_queda_como_no_configurado(async_client:
     assert states["firebase"] == {"name": "firebase", "status": "not_configured", "latency_ms": None}
 
 
-async def test_con_la_base_caida_responde_sin_conteos_y_la_marca_caida(async_client: AsyncClient, seeded):
-    class BrokenSession:
-        async def execute(self, *args, **kwargs):
-            raise ConnectionError(FAKE_SECRET)
+@pytest.mark.parametrize("probe", ["SELECT pg_sleep(5)", "SELECT * FROM tabla_que_no_existe"], ids=["colgada", "falla"])
+async def test_si_la_base_falla_despues_de_validar_al_analista_responde_sin_conteos_y_la_marca_caida(
+    async_client: AsyncClient, seeded, monkeypatch, probe
+):
+    """Caso (a): el analista se valida con la base real; después la base se cuelga o falla."""
+    monkeypatch.setattr(dashboard, "CHECK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(dashboard, "DATABASE_PROBE", probe)
 
-        async def rollback(self):
-            return None
+    started = time.perf_counter()
+    response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
 
-    async def broken_db():
-        yield BrokenSession()
-
-    async def solventa():
-        return Operator(username=ANALISTA, partner_id=None)
-
-    # El analista se valida con la base; aquí solo se rompe la sesión que usa el tablero.
-    real_db = app.dependency_overrides[get_db_session]
-    app.dependency_overrides[solventa_operator] = solventa
-    app.dependency_overrides[get_db_session] = broken_db
-    try:
-        response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
-    finally:
-        app.dependency_overrides[get_db_session] = real_db
-        app.dependency_overrides.pop(solventa_operator, None)
-
+    assert time.perf_counter() - started < 2
     assert response.status_code == 200
     body = response.json()
     assert body["dependencies"][0]["name"] == "database"
     assert body["dependencies"][0]["status"] == "down"
     assert body["quotes"] is None and body["conversion"] is None and body["outbox_pending"] is None
+    assert "tabla_que_no_existe" not in response.text and "pg_sleep" not in response.text
+
+
+class BrokenSession:
+    """Sesión de una base caída del todo: cada lectura falla con un texto interno."""
+
+    async def execute(self, *args, **kwargs):
+        raise ConnectionError(FAKE_SECRET)
+
+    async def rollback(self):
+        return None
+
+    async def close(self):
+        return None
+
+
+class HungSession(BrokenSession):
+    async def execute(self, *args, **kwargs):
+        await asyncio.sleep(30)
+
+
+@pytest.mark.parametrize("session", [BrokenSession(), HungSession()], ids=["falla", "colgada"])
+async def test_con_la_base_caida_del_todo_responde_503_generico_y_rapido(
+    async_client: AsyncClient, seeded, monkeypatch, session
+):
+    """Caso (b): la lectura del analista no llega a la base; 503 genérico antes del límite más un margen."""
+    monkeypatch.setattr(operations_router, "OPERATOR_TIMEOUT_SECONDS", 0.3)
+
+    async def down_db():
+        yield session
+
+    real_db = app.dependency_overrides[get_db_session]
+    app.dependency_overrides[get_db_session] = down_db
+    try:
+        started = time.perf_counter()
+        response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+        elapsed = time.perf_counter() - started
+    finally:
+        app.dependency_overrides[get_db_session] = real_db
+
+    assert elapsed < 1.5
+    assert response.status_code == 503
+    assert response.json() == {"detail": operations_router.DASHBOARD_UNAVAILABLE}
     assert FAKE_SECRET not in response.text
+    assert "ConnectionError" not in response.text and "Timeout" not in response.text
+
+
+async def test_el_limite_de_la_base_deja_la_sesion_del_pedido_usable_y_cerrable(postgres_session, monkeypatch):
+    """La sonda usa su propia conexión: cortar un `pg_sleep(2)` no deja la sesión con otra operación en curso."""
+    monkeypatch.setattr(dashboard, "CHECK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(dashboard, "DATABASE_PROBE", "SELECT pg_sleep(2)")
+
+    status = await dashboard.run_check("database", dashboard.database_check(postgres_session))
+
+    assert status.status == "down"
+    assert status.latency_ms < 1000
+    assert (await postgres_session.execute(text("SELECT 1"))).scalar() == 1
+    monkeypatch.setattr(dashboard, "DATABASE_PROBE", "SELECT 1")
+    assert (await dashboard.run_check("database", dashboard.database_check(postgres_session))).status in ("ok", "degraded")
+    await postgres_session.close()
+
+
+async def test_un_conteo_lento_da_null_sin_colgar(async_client: AsyncClient, seeded, monkeypatch):
+    monkeypatch.setattr(dashboard, "COUNTS_TIMEOUT_MS", 100)
+    monkeypatch.setattr(dashboard, "counts_statement", lambda start, now: text("SELECT pg_sleep(2)"))
+
+    started = time.perf_counter()
+    response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+
+    assert time.perf_counter() - started < 1.5
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dependencies"][0]["status"] in ("ok", "degraded")
+    assert body["quotes"] is None and body["open_claims"] is None
+    assert "statement" not in response.text and "pg_sleep" not in response.text
+
+
+async def test_dos_llamadas_seguidas_hacen_una_sola_comprobacion(async_client: AsyncClient, seeded):
+    calls = []
+
+    async def counted() -> None:
+        calls.append(1)
+
+    app.dependency_overrides[dashboard.get_dependency_checks] = lambda: {"s3": counted}
+
+    first = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+    second = await async_client.get(INDICATORS, headers=headers(ANALISTA))
+
+    assert first.status_code == second.status_code == 200
+    assert len(calls) == 1
+    assert first.json()["generated_at"] == second.json()["generated_at"]
+    assert (await async_client.get(INDICATORS, params={"period": "7d"}, headers=headers(ANALISTA))).status_code == 200
+    assert len(calls) == 2
+    # El caché no salta la autorización: el analista de un socio sigue recibiendo 403.
+    assert (await async_client.get(INDICATORS, headers=headers(DEL_ALIADO))).status_code == 403
 
 
 async def test_la_latencia_por_grupo_se_compara_con_su_meta(async_client: AsyncClient, seeded):
-    for _ in range(3):
-        await async_client.post("/api/v1/quote-edge/quotes", json={})
+    for value in (120.0, 250.0, 380.0):
+        latency_window.record("quote", value)
 
     response = await async_client.get(INDICATORS, headers=headers(ANALISTA))
 
@@ -226,26 +311,29 @@ async def test_la_latencia_por_grupo_se_compara_con_su_meta(async_client: AsyncC
     assert set(groups) == {"quote", "issue", "payment", "claim"}
     assert groups["quote"]["samples"] == 3
     assert groups["quote"]["target_ms"] == 400
-    assert groups["quote"]["p50_ms"] <= groups["quote"]["p95_ms"] <= groups["quote"]["p99_ms"]
-    assert isinstance(groups["quote"]["within_target"], bool)
+    assert (groups["quote"]["p50_ms"], groups["quote"]["p95_ms"], groups["quote"]["p99_ms"]) == (250.0, 380.0, 380.0)
+    assert groups["quote"]["within_target"] is True
     assert groups["claim"] == {"group": "claim", "samples": 0, "p50_ms": None, "p95_ms": None, "p99_ms": None,
                                "target_ms": 1000, "within_target": None}
 
 
-async def test_el_middleware_solo_guarda_duraciones_de_las_rutas_criticas(async_client: AsyncClient, seeded):
-    await async_client.post("/api/v1/quote-edge/quotes", json={"document_number": "1020304050"})
-    await async_client.post("/api/v1/experience/policies", json={}, headers=headers("asesor@solventa.example", "advisor"))
-    await async_client.post("/api/v1/experience/payments/charge", json={})
-    await async_client.post("/api/v1/insured/claims", json={})
+async def test_el_middleware_no_guarda_respuestas_de_error_ni_identificadores(async_client: AsyncClient, seeded):
+    """Las rutas críticas sin sesión o con el cuerpo inválido responden 4xx y no cuentan; las demás nunca cuentan."""
+    responses = [
+        await async_client.post("/api/v1/quote-edge/quotes", json={"document_number": "1020304050"}),
+        await async_client.post("/api/v1/experience/policies", json={}, headers=headers("asesor@solventa.example", "advisor")),
+        await async_client.post("/api/v1/experience/payments/charge", json={}),
+        await async_client.post("/api/v1/insured/claims", json={}),
+    ]
     await async_client.get("/api/v1/experience/claims/SIN-2026-00001", headers=headers(ANALISTA))
     await async_client.post("/api/v1/experience/policies/POL-2026-00001/renewal", headers=headers(ANALISTA))
     await async_client.get("/health")
 
     snapshot = latency_window.snapshot()
 
+    assert all(response.status_code >= 400 for response in responses)
     assert set(snapshot) == {"quote", "issue", "payment", "claim"}
-    assert {group: len(samples) for group, samples in snapshot.items()} == {"quote": 1, "issue": 1, "payment": 1, "claim": 1}
-    assert all(isinstance(value, float) for samples in snapshot.values() for value in samples)
+    assert {group: len(samples) for group, samples in snapshot.items()} == {"quote": 0, "issue": 0, "payment": 0, "claim": 0}
     stored = repr(latency_window.__dict__)
     for leaked in ("1020304050", "SIN-2026-00001", "POL-2026-00001", "/api/v1", "asesor"):
         assert leaked not in stored

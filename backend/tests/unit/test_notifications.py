@@ -1,5 +1,7 @@
 """Push, línea de tiempo del asegurado y tarea diaria de pólizas (HU-MOV-11, SR-04, SR-05 y SR-06)."""
 import asyncio
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -39,6 +41,33 @@ def test_la_credencial_json_llega_a_firebase_como_diccionario(monkeypatch):
 
     assert service.get_sender() == "emisor"
     assert received == [{"type": "service_account"}]
+
+
+def test_dos_hilos_a_la_vez_inician_firebase_una_sola_vez(monkeypatch):
+    started = []
+    barrier = threading.Barrier(2)
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", '{"type": "service_account"}')
+
+    def slow_sender(source):
+        started.append(source)
+        time.sleep(0.05)
+        return object()
+
+    monkeypatch.setattr(service, "FirebaseSender", slow_sender)
+    results = []
+
+    def call():
+        barrier.wait()
+        results.append(service.get_sender())
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(started) == 1
+    assert results[0] is not None and results[0] is results[1]
 
 
 def test_el_emisor_de_firebase_manda_el_texto_general_con_prioridad_alta(monkeypatch):

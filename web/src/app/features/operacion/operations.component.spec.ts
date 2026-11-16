@@ -1,8 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { formatDate } from '@angular/common';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { DependencyStatus, OperationsIndicators } from '../../core/models/operations.model';
-import { OperationsComponent, REFRESH_MS } from './operations.component';
+import { ANNOUNCE_DELAY_MS, OperationsComponent, REFRESH_MS } from './operations.component';
 
 // Tablero operativo (HOTFIX-tablero-operativo, FE-WEB-07).
 describe('OperationsComponent (FE-WEB-07)', () => {
@@ -15,6 +16,11 @@ describe('OperationsComponent (FE-WEB-07)', () => {
     const calls = pending();
     expect(calls.length).toBe(1);
     return calls[0];
+  };
+  const status = () => page().querySelector('[role="status"]') as HTMLElement;
+  const settle = () => {
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    fixture.detectChanges();
   };
   const setVisibility = (state: DocumentVisibilityState) => {
     visibility = state;
@@ -110,21 +116,20 @@ describe('OperationsComponent (FE-WEB-07)', () => {
 
   it('se actualiza cada 30 segundos sin anunciar cada refresco', () => {
     one().flush(indicators());
-    fixture.detectChanges();
-    const status = page().querySelector('[role="status"]') as HTMLElement;
-    expect(status.getAttribute('aria-live')).toBe('polite');
-    expect(status.textContent).toContain('Indicadores de hoy actualizados.');
+    settle();
+    expect(status().getAttribute('aria-live')).toBe('polite');
+    expect(status().textContent).toContain('Indicadores de hoy actualizados.');
 
-    vi.advanceTimersByTime(REFRESH_MS - 1);
+    vi.advanceTimersByTime(REFRESH_MS - 1 - ANNOUNCE_DELAY_MS);
     expect(pending().length).toBe(0);
     vi.advanceTimersByTime(1);
     one().flush(indicators());
     fixture.detectChanges();
     vi.advanceTimersByTime(REFRESH_MS);
     one().flush(indicators());
-    fixture.detectChanges();
+    settle();
 
-    expect(status.textContent).toContain('Indicadores de hoy actualizados.');
+    expect(status().textContent).toContain('Indicadores de hoy actualizados.');
   });
 
   it('anuncia solo las dependencias que cambiaron de estado en un refresco', () => {
@@ -133,9 +138,9 @@ describe('OperationsComponent (FE-WEB-07)', () => {
 
     vi.advanceTimersByTime(REFRESH_MS);
     one().flush(indicators({ dependencies: DEPENDENCIES.map((item) => (item.name === 'sqs' ? { ...item, status: 'ok' } : item)) }));
-    fixture.detectChanges();
+    settle();
 
-    expect(page().querySelector('[role="status"]')?.textContent?.trim()).toBe('Cambió el estado de: Cola SQS (Operativa).');
+    expect(status().textContent?.trim()).toBe('Cambió el estado de: Cola SQS (Operativa).');
   });
 
   it('no consulta mientras la pestaña está oculta y se pone al día al volver', () => {
@@ -154,8 +159,8 @@ describe('OperationsComponent (FE-WEB-07)', () => {
 
   it('al destruir el componente detiene el temporizador y deja de escuchar la visibilidad', () => {
     one().flush(indicators());
-    // Deja correr las tareas internas de Angular: solo queda el refresco de 30 s.
-    vi.advanceTimersByTime(1);
+    // Deja correr el aviso y las tareas internas de Angular: solo queda el refresco de 30 s.
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
     expect(vi.getTimerCount()).toBe(1);
 
     fixture.destroy();
@@ -181,8 +186,8 @@ describe('OperationsComponent (FE-WEB-07)', () => {
     const call = one();
     expect(call.request.params.get('period')).toBe('7d');
     call.flush(indicators({ period: '7d' }));
-    fixture.detectChanges();
-    expect(page().querySelector('[role="status"]')?.textContent).toContain('Indicadores de últimos 7 días actualizados.');
+    settle();
+    expect(status().textContent).toContain('Indicadores de últimos 7 días actualizados.');
   });
 
   it('un error muestra un aviso genérico y conserva los últimos datos', () => {
@@ -197,5 +202,63 @@ describe('OperationsComponent (FE-WEB-07)', () => {
     expect(alert?.textContent).toContain('No se pudieron cargar los indicadores');
     expect(alert?.textContent).not.toContain('detalle interno');
     expect(page().querySelectorAll('table').length).toBe(2);
+  });
+
+  it('un refresco fallido marca el semáforo y las tarjetas como desactualizados', () => {
+    one().flush(indicators());
+    settle();
+    const since = formatDate('2026-11-15T15:00:00Z', 'HH:mm:ss', 'en-US');
+
+    vi.advanceTimersByTime(REFRESH_MS);
+    one().flush({ detail: 'detalle interno' }, { status: 503, statusText: 'Service Unavailable' });
+    fixture.detectChanges();
+
+    expect(page().querySelector('[data-testid="updated"]')?.textContent).toContain(`Sin datos desde ${since}`);
+    expect(page().querySelector('[data-testid="stale-cards"]')?.textContent).toContain(`Sin datos desde ${since}`);
+    expect(page().querySelector('.cards')?.classList).toContain('stale');
+    const semaphore = page().querySelectorAll('table')[1];
+    expect(semaphore.querySelector('caption')?.textContent).toContain(`Sin datos desde ${since}`);
+    const states = Array.from(semaphore.querySelectorAll('tbody .state'));
+    expect(states.every((state) => state.getAttribute('data-state') === 'stale')).toBe(true);
+    expect(states.every((state) => state.textContent?.includes(`Sin datos desde ${since}`))).toBe(true);
+    expect(semaphore.textContent).not.toContain('Operativa');
+    expect(page().querySelector('[role="alert"]')?.textContent).toContain(`Sin datos desde ${since}`);
+
+    vi.advanceTimersByTime(REFRESH_MS);
+    one().flush(indicators({ generated_at: '2026-11-15T15:01:00Z' }));
+    settle();
+    expect(page().querySelector('[data-testid="stale-cards"]')).toBeNull();
+    expect(page().querySelector('[role="alert"]')).toBeNull();
+    expect(page().querySelectorAll('table')[1].textContent).toContain('Operativa');
+    expect(status().textContent).toContain('Indicadores actualizados de nuevo.');
+  });
+
+  it('el refresco automático no cancela la carga pedida por el analista', () => {
+    const first = one();
+
+    // El tick se omite: no hay una consulta nueva y la del analista sigue viva.
+    vi.advanceTimersByTime(REFRESH_MS);
+    expect(pending().length).toBe(0);
+    expect(first.cancelled).toBe(false);
+    first.flush(indicators());
+    settle();
+    expect(status().textContent).toContain('Indicadores de hoy actualizados.');
+
+    vi.advanceTimersByTime(REFRESH_MS);
+    one().flush(indicators());
+  });
+
+  it('un aviso igual al anterior vacía la región viva y la vuelve a escribir', () => {
+    one().flush(indicators());
+    settle();
+    expect(status().textContent?.trim()).toBe('Indicadores de hoy actualizados.');
+
+    (page().querySelector('button') as HTMLButtonElement).click();
+    one().flush(indicators());
+    fixture.detectChanges();
+    expect(status().textContent?.trim()).toBe('');
+
+    settle();
+    expect(status().textContent?.trim()).toBe('Indicadores de hoy actualizados.');
   });
 });

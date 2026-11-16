@@ -5,8 +5,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI, HTTPException, Response
+from httpx import ASGITransport, AsyncClient
 
-from app.core.metrics import LatencyWindow, percentile, route_group
+from app.core.metrics import LatencyMiddleware, LatencyWindow, percentile, route_group
+from app.modules.reports import dashboard
 from app.modules.reports.dashboard import latency_groups, period_start, safe_ratio
 
 pytestmark = pytest.mark.unit
@@ -112,3 +115,68 @@ def test_clasificar_y_registrar_una_muestra_cuesta_menos_de_50_microsegundos():
     per_call_us = (time.perf_counter() - start) / rounds * 1_000_000
 
     assert per_call_us < 50
+
+
+def critical_routes_app(window: LatencyWindow) -> FastAPI:
+    app = FastAPI()
+    app.add_middleware(LatencyMiddleware, window=window)
+
+    @app.post("/api/v1/quote-edge/quotes")
+    async def quote():
+        return {"ok": True}
+
+    @app.post("/api/v1/insured/claims")
+    async def claim():
+        raise HTTPException(status_code=401, detail="Sesión inválida.")
+
+    @app.post("/api/v1/experience/policies")
+    async def issue():
+        return Response(status_code=500)
+
+    @app.post("/api/v1/experience/payments/charge")
+    async def charge():
+        return Response(status_code=400)
+
+    return app
+
+
+async def test_solo_se_registran_las_respuestas_por_debajo_de_400():
+    window = LatencyWindow()
+    transport = ASGITransport(app=critical_routes_app(window))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        assert (await client.post("/api/v1/quote-edge/quotes")).status_code == 200
+        assert (await client.post("/api/v1/insured/claims")).status_code == 401
+        assert (await client.post("/api/v1/experience/policies")).status_code == 500
+        assert (await client.post("/api/v1/experience/payments/charge")).status_code == 400
+
+    counts = {group: len(samples) for group, samples in window.snapshot().items()}
+    assert counts == {"quote": 1, "issue": 0, "payment": 0, "claim": 0}
+
+
+async def test_las_comprobaciones_corren_en_hilos_daemon_y_sin_hilos_libres_fallan_en_seguida(monkeypatch):
+    seen = []
+    check = dashboard._in_thread(lambda: seen.append(threading.current_thread().daemon))
+    await check()
+    assert seen == [True]
+
+    monkeypatch.setattr(dashboard, "_check_slots", threading.BoundedSemaphore(1))
+    dashboard._check_slots.acquire()
+    with pytest.raises(RuntimeError):
+        await dashboard._in_thread(lambda: None)()
+
+
+def test_las_sondas_tienen_clientes_propios_con_un_intento_y_un_segundo(monkeypatch):
+    monkeypatch.setattr(dashboard.settings, "AWS_ENDPOINT_URL", "http://floci.test:4566")
+    dashboard.s3_probe_client.cache_clear()
+    dashboard.sqs_probe_client.cache_clear()
+    try:
+        for client in (dashboard.s3_probe_client(), dashboard.sqs_probe_client()):
+            config = client.meta.config
+            assert (config.connect_timeout, config.read_timeout) == (1, 1)
+            assert config.retries["total_max_attempts"] == 1
+            assert client.meta.endpoint_url == "http://floci.test:4566"
+            assert client.meta.region_name == dashboard.settings.AWS_REGION
+        assert dashboard.s3_probe_client() is dashboard.s3_probe_client()
+    finally:
+        dashboard.s3_probe_client.cache_clear()
+        dashboard.sqs_probe_client.cache_clear()

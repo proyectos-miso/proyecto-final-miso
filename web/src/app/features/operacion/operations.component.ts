@@ -1,5 +1,5 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
-import { DOCUMENT, DatePipe } from '@angular/common';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { DOCUMENT, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { OperationsService } from '../../core/operations/operations.service';
@@ -14,6 +14,8 @@ import {
 } from '../../core/models/operations.model';
 
 export const REFRESH_MS = 30_000;
+// La región viva se vacía y se vuelve a escribir: así un aviso igual al anterior también se lee.
+export const ANNOUNCE_DELAY_MS = 100;
 
 const PERIOD_LABEL: Record<OperationsPeriod, string> = {
   today: 'Hoy',
@@ -49,11 +51,12 @@ const PERCENT = new Intl.NumberFormat('es-CO', { style: 'percent', maximumFracti
 const MS = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
 const NO_DATA = 'Sin datos';
 const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intentar en la siguiente actualización.';
+const STALE_STATE = { icon: '?', text: 'Sin datos' };
 
 /** Tablero operativo del equipo de Solventa (FE-WEB-07): se actualiza cada 30 s solo mientras la pestaña está visible. */
 @Component({
   selector: 'app-operations',
-  imports: [DatePipe, FormsModule],
+  imports: [FormsModule],
   template: `
     <section class="operations">
       <header>
@@ -71,8 +74,8 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
           </select>
         </div>
         <button type="button" class="btn" [disabled]="loading()" (click)="load(true)">Actualizar ahora</button>
-        @if (data(); as current) {
-          <span class="updated" data-testid="updated">Actualizado a las {{ current.generated_at | date: 'HH:mm:ss' }}</span>
+        @if (data()) {
+          <span class="updated" data-testid="updated">{{ stale() ? staleText() : 'Actualizado a las ' + lastUpdate() }}</span>
         }
       </div>
 
@@ -84,7 +87,10 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
 
       @if (data(); as current) {
         <h2 id="kpiTitle">Indicadores · {{ periodLabel[current.period] }}</h2>
-        <dl class="cards" aria-labelledby="kpiTitle">
+        @if (stale()) {
+          <p class="stale-note" data-testid="stale-cards">{{ staleText() }}: las cifras y los estados son de la última actualización.</p>
+        }
+        <dl class="cards" aria-labelledby="kpiTitle" [class.stale]="stale()">
           <div class="card"><dt>Cotizaciones</dt><dd>{{ count(current.quotes) }}</dd></div>
           <div class="card"><dt>Cotizaciones por minuto</dt><dd>{{ rate(current.quotes_per_minute) }}</dd></div>
           <div class="card">
@@ -98,7 +104,7 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
 
         <div class="table-wrap">
           <table>
-            <caption>Latencia de las rutas críticas frente a su meta (últimas 500 solicitudes por ruta en esta réplica; la meta se compara con p95)</caption>
+            <caption>Latencia de las rutas críticas frente a su meta (últimas 500 respuestas exitosas por ruta en esta réplica; la meta se compara con p95){{ stale() ? ' · ' + staleText() : '' }}</caption>
             <thead>
               <tr>
                 <th scope="col">Ruta</th>
@@ -132,7 +138,7 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
 
         <div class="table-wrap">
           <table>
-            <caption>Estado de las dependencias</caption>
+            <caption>Estado de las dependencias{{ stale() ? ' · ' + staleText() : '' }}</caption>
             <thead>
               <tr>
                 <th scope="col">Dependencia</th>
@@ -145,11 +151,17 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
                 <tr>
                   <th scope="row">{{ dependencyLabel[dependency.name] }}</th>
                   <td>
-                    <span class="state" [attr.data-state]="dependency.status">
-                      <span aria-hidden="true">{{ state[dependency.status].icon }}</span> {{ state[dependency.status].text }}
-                    </span>
+                    @if (stale()) {
+                      <span class="state" data-state="stale">
+                        <span aria-hidden="true">{{ staleState.icon }}</span> {{ staleText() }}
+                      </span>
+                    } @else {
+                      <span class="state" [attr.data-state]="dependency.status">
+                        <span aria-hidden="true">{{ state[dependency.status].icon }}</span> {{ state[dependency.status].text }}
+                      </span>
+                    }
                   </td>
-                  <td>{{ ms(dependency.latency_ms) }}</td>
+                  <td>{{ stale() ? noData : ms(dependency.latency_ms) }}</td>
                 </tr>
               }
             </tbody>
@@ -174,6 +186,9 @@ const LOAD_ERROR = 'No se pudieron cargar los indicadores. Se volverá a intenta
     button:focus-visible, select:focus { outline: 3px solid #0f6d94; outline-offset: 2px; }
     .updated, .empty { color: var(--texto-sec); font-size: var(--t-sm); }
     .status { color: var(--texto-sec); font-size: var(--t-sm); margin: 0 0 12px; min-height: 1em; }
+    .stale-note { color: #92400e; font-weight: 600; margin: 0 0 12px; }
+    .cards.stale .card { border-style: dashed; }
+    .cards.stale dd { color: var(--texto-sec); }
     .notice { padding: 12px 16px; border-radius: 8px; background: #fdeeee; color: #991b1b; }
     .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin: 0 0 24px; }
     .card { border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); padding: 14px 16px; }
@@ -196,18 +211,29 @@ export class OperationsComponent implements OnInit, OnDestroy {
   private readonly document = inject(DOCUMENT);
   private timer: ReturnType<typeof setInterval> | null = null;
   private request: Subscription | null = null;
+  private analystRequest = false;
+  private announceTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly periods: OperationsPeriod[] = ['today', '7d', '30d'];
   readonly periodLabel = PERIOD_LABEL;
   readonly groupLabel = GROUP_LABEL;
   readonly dependencyLabel = DEPENDENCY_LABEL;
   readonly state = STATE;
+  readonly staleState = STALE_STATE;
+  readonly noData = NO_DATA;
 
   readonly period = signal<OperationsPeriod>('today');
   readonly data = signal<OperationsIndicators | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly announcement = signal('');
+  /** Falló la última actualización: lo que se ve es de antes y se marca así. */
+  readonly stale = signal(false);
+  readonly lastUpdate = computed(() => {
+    const current = this.data();
+    return current ? formatDate(current.generated_at, 'HH:mm:ss', 'en-US') : '';
+  });
+  readonly staleText = computed(() => `Sin datos desde ${this.lastUpdate()}`);
 
   private readonly onVisibilityChange = () => {
     if (this.visible()) {
@@ -228,6 +254,7 @@ export class OperationsComponent implements OnInit, OnDestroy {
     this.stopTimer();
     this.document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.request?.unsubscribe();
+    if (this.announceTimer !== null) clearTimeout(this.announceTimer);
   }
 
   changePeriod(period: OperationsPeriod): void {
@@ -235,26 +262,40 @@ export class OperationsComponent implements OnInit, OnDestroy {
     this.load(true);
   }
 
-  /** `announce` marca una carga pedida por el analista; el refresco automático solo anuncia lo que cambió. */
+  /**
+   * `announce` marca una carga pedida por el analista; el refresco automático solo anuncia lo que cambió y se omite
+   * mientras la del analista está en curso, para no cancelarla.
+   */
   load(announce: boolean): void {
+    if (!announce && this.analystRequest) return;
     this.request?.unsubscribe();
+    this.analystRequest = announce;
     this.loading.set(true);
     const period = this.period();
     this.request = this.operations.indicators(period).subscribe({
       next: (indicators) => {
+        const recovered = this.stale();
         const changed = this.changedDependencies(indicators.dependencies);
         this.data.set(indicators);
+        this.stale.set(false);
         this.error.set(null);
-        this.loading.set(false);
+        this.finish();
         if (announce) {
-          this.announcement.set(`Indicadores de ${PERIOD_LABEL[period].toLowerCase()} actualizados.`);
-        } else if (changed.length > 0) {
-          this.announcement.set(`Cambió el estado de: ${changed.join(', ')}.`);
+          this.announce(`Indicadores de ${PERIOD_LABEL[period].toLowerCase()} actualizados.`);
+        } else if (recovered || changed.length > 0) {
+          const parts = recovered ? ['Indicadores actualizados de nuevo.'] : [];
+          if (changed.length > 0) parts.push(`Cambió el estado de: ${changed.join(', ')}.`);
+          this.announce(parts.join(' '));
         }
       },
       error: () => {
-        this.loading.set(false);
-        this.error.set(LOAD_ERROR);
+        this.finish();
+        if (this.data() === null) {
+          this.error.set(LOAD_ERROR);
+          return;
+        }
+        this.stale.set(true);
+        this.error.set(`No se pudieron cargar los indicadores. ${this.staleText()}; se volverá a intentar en la siguiente actualización.`);
       },
     });
   }
@@ -285,6 +326,20 @@ export class OperationsComponent implements OnInit, OnDestroy {
 
   latencyText(row: LatencyGroup): string {
     return { ok: 'Dentro de la meta', over: 'Sobre la meta', none: NO_DATA }[this.latencyState(row)];
+  }
+
+  private finish(): void {
+    this.loading.set(false);
+    this.analystRequest = false;
+  }
+
+  private announce(text: string): void {
+    if (this.announceTimer !== null) clearTimeout(this.announceTimer);
+    this.announcement.set('');
+    this.announceTimer = setTimeout(() => {
+      this.announceTimer = null;
+      this.announcement.set(text);
+    }, ANNOUNCE_DELAY_MS);
   }
 
   private changedDependencies(next: DependencyStatus[]): string[] {

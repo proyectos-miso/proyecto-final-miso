@@ -1,5 +1,7 @@
 """Back office de operaciones: siniestros, operaciones sobre la póliza, auditoría y reportes (HU-WEB-15).
 Mismo acceso que la búsqueda: rol analyst y, si el usuario es de un socio, solo lo de su socio."""
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -43,6 +45,8 @@ from app.modules.policy.operations import (
 from app.modules.rating import partners
 from app.modules.reports import dashboard
 from app.modules.reports.service import build_report, to_csv, to_pdf
+
+logger = logging.getLogger("solventa.operations")
 
 router = APIRouter(prefix="/experience", tags=["Operaciones"])
 
@@ -319,17 +323,38 @@ async def approve_partner_production(
 # -- Tablero operativo (FE-WEB-07): solo el equipo de Solventa -------------------------------------
 
 
+OPERATOR_TIMEOUT_SECONDS = 2.0
+DASHBOARD_UNAVAILABLE = "El tablero no está disponible en este momento. Intente de nuevo en unos segundos."
+
+
+async def dashboard_operator(
+    claims: Dict[str, Any] = Depends(require_roles(["analyst"])),
+    db: AsyncSession = Depends(get_db_session),
+) -> Operator:
+    """Como `solventa_operator`, con un límite a la lectura del analista: con la base caída del todo responde un
+    503 genérico en unos 2 s en lugar de esperar la conexión."""
+    try:
+        partner_id = await asyncio.wait_for(operations_scope(claims, db), OPERATOR_TIMEOUT_SECONDS)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Tablero sin base para validar al analista (%s)", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DASHBOARD_UNAVAILABLE)
+    return await solventa_operator(Operator(username=claims["sub"], partner_id=partner_id))
+
+
 @router.get("/operations/indicators", response_model=dashboard.OperationsIndicators)
 async def operations_indicators(
     response: Response,
     period: dashboard.Period = Query("today"),
-    user: Operator = Depends(solventa_operator),
+    user: Operator = Depends(dashboard_operator),
     db: AsyncSession = Depends(get_db_session),
     checks: Dict[str, dashboard.Check] = Depends(dashboard.get_dependency_checks),
 ):
-    """Indicadores del periodo en hora de Colombia, latencia contra la meta y estado de cada dependencia."""
+    """Indicadores del periodo en hora de Colombia, latencia contra la meta y estado de cada dependencia.
+    Si la base falla después de validar al analista, responde 200 con los conteos en null y la base caída."""
     response.headers["Cache-Control"] = "no-store"
-    return await dashboard.build_indicators(db, period, checks)
+    return await dashboard.cached_indicators(db, period, checks)
 
 
 @router.get("/policies/{policy_number}/audit", response_model=PolicyAudit)

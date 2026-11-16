@@ -74,7 +74,7 @@ latency_window = LatencyWindow()
 
 
 class LatencyMiddleware:
-    """Middleware ASGI puro: mide de punta a punta y, si la ruta es crítica, guarda la duración."""
+    """Middleware ASGI puro: mide de punta a punta y, si la ruta es crítica y respondió por debajo de 400, guarda la duración."""
 
     def __init__(self, app, window: LatencyWindow = latency_window):
         self.app = app
@@ -85,14 +85,24 @@ class LatencyMiddleware:
             await self.app(scope, receive, send)
             return
         start = time.perf_counter()
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            self._observe(scope, start)
+        response: Dict[str, int] = {}
 
-    def _observe(self, scope: dict, start: float) -> None:
+        async def send_status(message) -> None:
+            if message["type"] == "http.response.start":
+                response["status"] = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_status)
+        finally:
+            self._observe(scope, start, response.get("status"))
+
+    def _observe(self, scope: dict, start: float, status: Optional[int]) -> None:
+        # Solo respuestas exitosas: un 401 o un 422 rápidos bajarían el percentil sin decir nada de la ruta.
         # La medición nunca rompe el pedido.
         try:
+            if status is None or status >= 400:
+                return
             group = route_group(scope)
             if group is not None:
                 self.window.record(group, (time.perf_counter() - start) * 1000)

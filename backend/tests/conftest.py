@@ -24,12 +24,12 @@ from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401
 from app.modules.policy.models import PolicyDB, PolicyEventDB, PolicySignatureDB  # noqa: F401
 from app.modules.claims.models import ClaimDB, ClaimPhotoDB, ClaimEventDB, ExpertDB  # noqa: F401
 from app.core.outbox import OutboxMessageDB  # noqa: F401
-from tests.db_name import TEST_DATABASE
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401
 from app.modules.payments.models import PaymentTransactionDB, PayoutDB  # noqa: F401
 from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401
 from app.modules.identity import db_models as identity_db_models  # noqa: F401
 from app.modules.underwriting.models import UnderwritingRejectionDB  # noqa: F401
+from tests.db_name import TEST_DATABASE
 
 
 class InMemorySessionTestDouble:

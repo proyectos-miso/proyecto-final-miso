@@ -91,7 +91,7 @@ describe('AppComponent (HU-WEB-13)', () => {
     expect(authServiceSpy.logout).toHaveBeenCalled();
   });
 
-  it('FE-WEB-05 la pestaña Socios solo aparece para el analista de Solventa', () => {
+  it('FE-WEB-05 y FE-WEB-07 las pestañas Socios y Operación solo aparecen para el analista de Solventa', () => {
     const analyst: UserSession = {
       accessToken: 'token',
       refreshToken: 'refresh',

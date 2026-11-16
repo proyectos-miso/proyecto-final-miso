@@ -11,7 +11,8 @@
 ## 2. Data lifecycle
 
 N/A: no hay datos CONFIDENTIAL ni RESTRICTED. Los conteos se calculan en cada consulta y no se guardan. Las duraciones
-viven en la memoria de la réplica (500 por grupo) y se pierden al reiniciar. Los estados no se guardan.
+viven en la memoria de la réplica (500 por grupo) y se pierden al reiniciar. La respuesta completa, que solo lleva
+DATA-01 a DATA-03, se guarda 15 s por periodo en la memoria de la réplica; los estados no se guardan en otro lugar.
 
 ## 3. Actors and roles
 
@@ -26,7 +27,7 @@ viven en la memoria de la réplica (500 por grupo) y se pierden al reiniciar. Lo
 | Boundary | Between | What is validated when crossing it |
 |---|---|---|
 | Portal → backend | Navegador del analista e internet | Token del analista, rol `analyst`, usuario activo y sin socio (leído de la base), `period` en `today`, `7d` o `30d` |
-| Backend → AWS y Firebase | Tarea de ECS y servicios gestionados | Rol de la tarea con permisos existentes; solo lecturas de metadatos (`HeadBucket`, `GetQueueUrl`); nada del resultado sale al cliente salvo el estado |
+| Backend → AWS y Firebase | Tarea de ECS y servicios gestionados | Rol de la tarea con permisos existentes; solo lecturas de metadatos (`HeadBucket`, `GetQueueUrl`) con clientes propios de 1 s y un intento; nada del resultado sale al cliente salvo el estado |
 
 ## 5. Data flows
 
@@ -61,6 +62,7 @@ viven en la memoria de la réplica (500 por grupo) y se pierden al reiniciar. Lo
 | THR-03 | I | Datos del pedido | La ventana de latencia guarda URLs con radicados, números de póliza o documentos | Quien lea un volcado de memoria | LOW | MEDIUM | LOW | CTL-02 |
 | THR-04 | D | Backend y base | Una dependencia colgada o muchas pestañas abiertas agotan hilos, conexiones o la base | Dependencia caída, analistas | MEDIUM | MEDIUM | MEDIUM | CTL-04, CTL-05 |
 | THR-05 | D | Rutas críticas | Una falla o el costo de la medición rompe o frena una cotización, una emisión, un cobro o un reporte | Falla interna | LOW | HIGH | MEDIUM | CTL-02 |
+| THR-06 | T | DATA-03 | El semáforo muestra una dependencia como operativa sin que lo esté (un 403 de S3 que no prueba el bucket ni los permisos, o un estado viejo que parece actual) y el equipo no actúa | Falla de configuración, dependencia caída | LOW | MEDIUM | LOW | CTL-05 |
 
 ## 9. Controls
 
@@ -69,8 +71,8 @@ viven en la memoria de la réplica (500 por grupo) y se pierden al reiniciar. Lo
 | CTL-01 | `solventa_operator`: rol `analyst`, usuario activo y `partner_id` nulo leído de la base en cada pedido | API | EXISTING | THR-01 | TC-02 | T-03 | API5:2023, ASVS V4.1 | Reutilizado de HOTFIX-gestion-de-socios |
 | CTL-02 | `LatencyMiddleware` ASGI puro: clasifica por método y plantilla de ruta en un conjunto cerrado de cuatro grupos, guarda solo la duración en un `deque(maxlen=500)` con candado y aísla toda falla de la medición | BACKEND | EXISTING | THR-03, THR-05 | TC-04, TC-05 | T-01 | CWE-532, CWE-359 | Nuevo en este cambio (implementado y probado) |
 | CTL-03 | La respuesta solo trae números y, por dependencia, `name`, `status` y `latency_ms`; el registro guarda el tipo de excepción sin el mensaje; `Cache-Control: no-store` | API | EXISTING | THR-02 | TC-03 | T-02 | CWE-209, ASVS V7.4 | Nuevo en este cambio (implementado y probado) |
-| CTL-04 | Cada comprobación con `asyncio.wait_for` de 1 s, todas en paralelo, S3, SQS y Firebase en un pool propio de 4 hilos; con la base caída no se calculan los conteos y el endpoint responde | BACKEND | EXISTING | THR-04 | TC-03 | T-02 | CWE-400 | Nuevo en este cambio (implementado y probado) |
-| CTL-05 | El portal refresca cada 30 s solo con la pestaña visible, detiene el temporizador al ocultarse o al salir y cancela la petición anterior; la pestaña y `solventaGuard` solo ocultan; el error es genérico | WEB | EXISTING | THR-01, THR-04 | TC-06 | T-04 | CWE-400 | Nuevo en este cambio (implementado y probado) |
+| CTL-04 | Cada comprobación con `asyncio.wait_for` de 1 s, todas en paralelo; S3, SQS y Firebase en hilos daemon propios (a lo sumo 4) con clientes de sonda de 1 s por conexión y lectura y un intento; la base con su propia conexión del pool; los conteos en una sentencia con `statement_timeout` de 2 s; la lectura del analista con 2 s de límite y 503 genérico; la respuesta guardada 15 s por periodo después de autorizar | BACKEND | EXISTING | THR-04 | TC-03, TC-10 | T-02, T-07 | CWE-400 | Nuevo en este cambio (implementado y probado) |
+| CTL-05 | El portal refresca cada 30 s solo con la pestaña visible, detiene el temporizador al ocultarse o al salir y no cancela la carga pedida por el analista; ante un error marca las tarjetas, la latencia y el semáforo «Sin datos desde HH:mm:ss»; la pestaña y `solventaGuard` solo ocultan; el error es genérico | WEB | EXISTING | THR-01, THR-04, THR-06 | TC-06 | T-04, T-07 | CWE-400 | Nuevo en este cambio (implementado y probado) |
 
 ## 10. Cryptography
 
@@ -142,9 +144,9 @@ Sin secretos nuevos; ninguna credencial sale en la respuesta ni en el registro.
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
 | RISK-01 | La latencia es por réplica: con varias tareas de ECS, cada consulta muestra la ventana de la tarea que la atendió y los percentiles no representan el total | THR-05 | HIGH | LOW | MEDIUM | MITIGATE | Bajo: el portal lo dice en la tabla; propuesta: publicar las duraciones en CloudWatch (EMF) y leer el agregado | OPEN |
-| RISK-02 | En AWS el rol no tiene `s3:ListBucket`, así que `head_bucket` da 403 y el tablero lo cuenta como «S3 responde»: no detecta que el rol perdió los permisos de escritura o lectura | THR-04 | LOW | MEDIUM | LOW | MITIGATE | Bajo: la carátula y las fotos fallan con su propio aviso; propuesta: un `GetObject` de un objeto testigo o `s3:ListBucket` con ADR | OPEN |
-| RISK-03 | Una comprobación colgada sigue ocupando un hilo del pool propio después del segundo de límite, hasta el timeout de boto3 (S3: 2 s por intento y 2 intentos; SQS: los valores por omisión de botocore, hasta 60 s); con los 4 hilos ocupados, las comprobaciones siguientes dan `down` aunque la dependencia ya responda | THR-04 | LOW | LOW | LOW | MITIGATE | Bajo: el resto del backend no comparte esos hilos; propuesta: clientes propios de las comprobaciones con timeouts de 1 s y sin reintentos | OPEN |
-| RISK-04 | Sin réplica de lectura, cada tablero visible hace 5 conteos cada 30 s en la base principal; `quotes.created_at` no tiene índice y el conteo de 30 días crece con el volumen | THR-04 | MEDIUM | LOW | LOW | MITIGATE | Bajo: los analistas de Solventa son pocos; propuesta: índice en `quotes.created_at` y `policies.issued_at` en una migración propia | OPEN |
+| RISK-02 | En AWS el rol no tiene `s3:ListBucket`, así que `head_bucket` da 403 y el tablero lo cuenta como «S3 responde». Como `HeadBucket` no trae cuerpo, el mismo 403 sale con credenciales inválidas o vencidas, con una firma mala o con un bucket de otra cuenta: en la práctica la comprobación solo prueba que el DNS y el TLS de S3 responden, no que el bucket sea el correcto ni que el rol pueda leer o escribir | THR-06 | LOW | MEDIUM | LOW | MITIGATE | Bajo: la carátula y las fotos fallan con su propio aviso y el registro; propuesta: un `HeadObject` sobre un objeto testigo que Terraform cree en un prefijo que el rol ya lee, que distingue 200 (todo bien), 404 (bucket o prefijo equivocado) y 403 (credenciales o permisos) sin ampliar permisos | OPEN |
+| RISK-03 | Una comprobación colgada sigue ocupando un hilo después del segundo de límite. Con los clientes de sonda (1 s de conexión, 1 s por lectura, un intento) el hilo se libera en unos 2 s; mientras tanto cuenta para el tope de 4 y, sin hilos libres, las comprobaciones siguientes dan `down` en seguida. Los hilos son daemon y no retrasan el apagado | THR-04 | LOW | LOW | LOW | MITIGATE | Remanente: el `read_timeout` es por lectura del socket, así que un servidor que responde byte a byte podría alargar un hilo más de 2 s; con el caché de 15 s y el tope de 4, a lo sumo 4 hilos quedan ocupados y el resto del backend no los comparte | MITIGATED |
+| RISK-04 | Sin réplica de lectura, el tablero cuenta en la base principal; `quotes.created_at` no tiene índice y el conteo de 30 días crece con el volumen | THR-04 | MEDIUM | LOW | LOW | MITIGATE | Bajo: una sentencia con `statement_timeout` de 2 s, a lo sumo una vez cada 15 s por periodo y réplica gracias al caché; propuesta: índice en `quotes.created_at` y `policies.issued_at` en una migración propia | OPEN |
 | RISK-05 | El 403 del analista de un socio reutiliza el texto de `solventa_operator`, que habla de «gestionar socios» | THR-01 | LOW | LOW | LOW | MITIGATE | Bajo: el acceso se niega igual; propuesta: un texto común para las pantallas de Solventa al integrar «Auditoría» | OPEN |
 
 ## 16. Pending decisions
