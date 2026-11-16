@@ -183,8 +183,8 @@
 | Tool or method | pytest: backend/tests/unit/test_config.py::test_oraculo_con_llave_vacia_o_en_blanco_queda_sin_configurar, backend/tests/unit/test_config.py::test_oraculo_con_llave_conserva_su_valor, backend/tests/integration/test_oracle_events_api.py::test_sin_llave_configurada_el_canal_esta_cerrado, backend/tests/integration/test_oracle_events_api.py::test_una_llave_vacia_cierra_el_canal_y_no_valida_firmas |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | PENDING: las pruebas se movieron entre archivos en la corrección de la revisión y falta correr pytest |
-| Status | PENDING |
+| Evidence | backend/tests/integration/test_oracle_events_api.py::test_una_llave_vacia_cierra_el_canal_y_no_valida_firmas; backend/tests/unit/test_config.py::test_oraculo_con_llave_vacia_o_en_blanco_queda_sin_configurar |
+| Status | PASS |
 
 ## Security test coverage
 
