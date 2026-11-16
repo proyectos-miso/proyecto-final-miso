@@ -37,6 +37,7 @@ describe('ClaimFileComponent (HU-WEB-15)', () => {
       { photo_id: 'f2', position: 2, url: null, latitude: 4.61, longitude: -74.08, accuracy_m: 30,
         mock_location: true, captured_at: '2026-10-27T10:05:00Z', trusted_time: false, integrity: 'ALTERED' },
     ],
+    documents: [],
     events: [{ kind: 'REPORTED', actor: 'App del asegurado', justification: null, amount: null, created_at: '2026-10-27T12:00:00Z' }],
     payouts: [],
   };
@@ -203,5 +204,37 @@ describe('ClaimFileComponent (HU-WEB-15)', () => {
 
     expect(page().querySelectorAll('img').length).toBe(1);
     expect(text()).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('FE-MOV-05 lista los documentos del asegurado con enlace firmado y avisa el que no tiene enlace', async () => {
+    await open({
+      ...claim,
+      documents: [
+        { document_id: 'd1', upload_id: 'u1', position: 1, content_type: 'image/jpeg', size_bytes: 204_800,
+          uploaded_at: '2026-10-28T09:00:00Z', url: 'https://s3.example/d1?X-Amz-Expires=900' },
+        { document_id: 'd2', upload_id: 'u1', position: 2, content_type: 'application/pdf', size_bytes: 512_000,
+          uploaded_at: '2026-10-28T09:00:00Z', url: null },
+      ],
+      events: [...claim.events, { kind: 'DOCUMENTS_ADDED', actor: 'App del asegurado', justification: null, amount: null,
+        created_at: '2026-10-28T09:00:00Z' }],
+    });
+
+    const list = page().querySelector('[data-testid="documents"]')!;
+    const links = list.querySelectorAll('a');
+    expect(text()).toContain('Documentos del asegurado (2)');
+    expect(links.length).toBe(1);
+    expect(links[0].getAttribute('href')).toBe('https://s3.example/d1?X-Amz-Expires=900');
+    expect(links[0].getAttribute('rel')).toBe('noopener noreferrer');
+    expect(links[0].textContent).toContain('Página 1 (imagen)');
+    expect(list.textContent).toContain('Página 2 (PDF) · enlace no disponible');
+    expect(list.textContent).toContain('200 KB');
+    expect(text()).toContain('Documentos agregados');
+  });
+
+  it('FE-MOV-05 sin documentos lo dice en lugar de una lista vacía', async () => {
+    await open();
+
+    expect(page().querySelector('[data-testid="documents"]')).toBeNull();
+    expect(text()).toContain('El asegurado no ha agregado documentos.');
   });
 });

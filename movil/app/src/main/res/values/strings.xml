@@ -376,4 +376,36 @@
     <string name="register_error_code">El código no es válido o venció. Pida uno nuevo.</string>
     <string name="register_error_duplicate">No pudimos crear la cuenta con esos datos. Si ya tiene cuenta, ingrese o recupere su contraseña.</string>
     <string name="register_error_capture">No se pudo tomar la foto. Intente de nuevo.</string>
+    <!-- Documentos del siniestro abierto (mejora FE-MOV-05) -->
+    <string name="documents_add_button">Agregar documentos</string>
+    <string name="documents_title">Agregar documentos</string>
+    <string name="documents_subtitle">Siniestro %1$s</string>
+    <string name="documents_intro">Escanee facturas, fórmulas, denuncias u otros soportes del siniestro. Hasta 10 páginas por envío.</string>
+    <string name="documents_scan">Escanear documento</string>
+    <string name="documents_photo">Fotografiar una página</string>
+    <string name="documents_camera_mode">Este teléfono no tiene el escáner de Google. Fotografíe cada página con la cámara, sobre una superficie plana y con buena luz.</string>
+    <string name="documents_pages_title">Páginas (%1$d de 10)</string>
+    <string name="documents_page">Página %1$d</string>
+    <string name="documents_page_preview">Vista previa de la página %1$d</string>
+    <string name="documents_remove_page">Quitar la página %1$d</string>
+    <string name="documents_empty">Aún no ha agregado páginas.</string>
+    <string name="documents_limit">Llegó al máximo de 10 páginas. Envíelas o quite alguna.</string>
+    <string name="documents_send">Enviar %1$d páginas</string>
+    <string name="documents_send_one">Enviar 1 página</string>
+    <string name="documents_sending">Enviando los documentos</string>
+    <string name="documents_sent">Recibimos %1$d páginas. El analista las verá en su expediente.</string>
+    <string name="documents_memory_note">Las páginas solo quedan en la memoria del teléfono hasta enviarlas; si sale de esta pantalla se descartan.</string>
+    <string name="documents_camera_title">Página %1$d</string>
+    <string name="documents_camera_hint">Encuadre la página completa</string>
+    <string name="documents_shutter">Tomar la foto de la página</string>
+    <string name="documents_close_camera">Cerrar la cámara</string>
+    <string name="documents_dismiss">Entendido</string>
+    <string name="documents_notice_scanner_unavailable">El escáner no está disponible en este teléfono. Puede fotografiar cada página con la cámara.</string>
+    <string name="documents_notice_scan_failed">No se pudieron leer las páginas escaneadas. Intente de nuevo.</string>
+    <string name="documents_notice_capture_failed">No se pudo tomar la foto. Intente de nuevo.</string>
+    <string name="documents_notice_camera_denied">Para fotografiar las páginas, permita el uso de la cámara en los ajustes del teléfono.</string>
+    <string name="documents_notice_offline">Sin conexión, intente de nuevo. Las páginas siguen aquí mientras no salga de esta pantalla.</string>
+    <string name="documents_notice_not_found">No encontramos este siniestro.</string>
+    <string name="documents_notice_closed">El siniestro ya fue decidido y no recibe documentos.</string>
+    <string name="documents_notice_session">Su sesión venció. Ingrese de nuevo y vuelva a escanear las páginas.</string>
 </resources>

@@ -17,6 +17,8 @@ from app.modules.claims.models import (
     ClaimDB,
     ClaimDecisionRequest,
     ClaimDetail,
+    ClaimDocument,
+    ClaimDocumentDB,
     ClaimEvent,
     ClaimEventDB,
     ClaimList,
@@ -133,6 +135,10 @@ class ClaimService:
         photos = await session.scalars(
             select(ClaimPhotoDB).where(ClaimPhotoDB.claim_number == claim_number).order_by(ClaimPhotoDB.position)
         )
+        documents = await session.scalars(
+            select(ClaimDocumentDB).where(ClaimDocumentDB.claim_number == claim_number)
+            .order_by(ClaimDocumentDB.uploaded_at, ClaimDocumentDB.position)
+        )
         events = await session.scalars(
             select(ClaimEventDB).where(ClaimEventDB.claim_number == claim_number).order_by(ClaimEventDB.id)
         )
@@ -157,6 +163,7 @@ class ClaimService:
             expert=Expert(expert_id=expert.expert_id, name=expert.name, city=expert.city) if expert else None,
             settled_amount=claim.settled_amount,
             photos=[await self.verified(storage, photo) for photo in photos],
+            documents=[await self.linked(storage, document) for document in documents],
             events=[
                 ClaimEvent(kind=e.kind, actor=e.actor, justification=e.justification, amount=e.amount,
                            created_at=e.created_at)
@@ -181,6 +188,19 @@ class ClaimService:
             photo_id=photo.photo_id, position=photo.position, url=url, latitude=photo.latitude,
             longitude=photo.longitude, accuracy_m=photo.accuracy_m, mock_location=photo.mock_location,
             captured_at=photo.captured_at, trusted_time=photo.trusted_time_source is not None, integrity=integrity,
+        )
+
+    @staticmethod
+    async def linked(storage: DocumentStorage, document: ClaimDocumentDB) -> ClaimDocument:
+        """Documento agregado desde la app con un enlace de 15 minutos; sin S3 queda sin enlace (mejora FE-MOV-05)."""
+        try:
+            url = await storage.view_url(document.s3_key, document.content_type, PHOTO_LINK_SECONDS)
+        except StorageUnavailableError:
+            url = None
+        return ClaimDocument(
+            document_id=document.document_id, upload_id=document.upload_id, position=document.position,
+            content_type=document.content_type, size_bytes=document.size_bytes, uploaded_at=document.uploaded_at,
+            url=url,
         )
 
     async def seed_experts(self, session: AsyncSession) -> None:

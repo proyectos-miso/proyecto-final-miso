@@ -1,17 +1,28 @@
 """Router BFF del asegurado en la app móvil: billetera (HU-MOV-04), siniestros, carátula, renovación y avisos (HU-MOV-11),
-y envío del reporte del siniestro (HU-MOV-09)."""
+envío del reporte del siniestro (HU-MOV-09) y documentos del siniestro abierto (mejora FE-MOV-05)."""
 from typing import Any, Dict, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Request, Response, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import UploadFile as FormFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.database import get_db_session
 from app.core.security import decode_access_token, require_roles, security_bearer
 from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
+from app.modules.claims.documents import (
+    MAX_PAGE_BYTES,
+    MAX_PAGES,
+    DocumentRejectedError,
+    DocumentsReceipt,
+    DocumentsUploadRequest,
+    PageTooLargeError,
+    claim_documents,
+)
 from app.modules.claims.insured import InsuredClaims, claims_of
 from app.modules.claims.intake import (
     MAX_PHOTO_BYTES,
@@ -23,6 +34,7 @@ from app.modules.claims.intake import (
     PolicyNotAvailableError,
     claim_intake,
 )
+from app.modules.claims.service import ClaimClosedError, ClaimNotFoundError
 from app.modules.identity.db_models import InsuredAccountDB
 from app.modules.identity.models import MessageResponse
 from app.modules.identity.service import VERIFICATION_APPROVED, InvalidTokenError, insured_auth_service
@@ -40,6 +52,7 @@ router = APIRouter(prefix="/insured", tags=["Asegurado"])
 
 require_insured = require_roles(["insured"])
 POLICY_NUMBER = r"^POL-\d{4}-\d{5}$"
+CLAIM_NUMBER = r"^SIN-\d{4}-\d{5}$"
 NOT_FOUND = "No encontramos la póliza."
 
 
@@ -240,6 +253,69 @@ async def report_claim(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="No pudimos guardar las fotos. El envío se reintentará solo.",
+            headers={"Retry-After": "30"},
+        )
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return result
+
+
+INVALID_DOCUMENTS = "Envíe de 1 a 10 páginas con el formato esperado."
+
+
+async def read_pages(request: Request) -> tuple:
+    """El manifiesto y las páginas `page_N`; el parser no acepta más de 10 archivos ni otros campos (mejora FE-MOV-05)."""
+    try:
+        async with request.form(max_files=MAX_PAGES, max_fields=1) as form:
+            manifest = form.get("manifest")
+            if not isinstance(manifest, str) or len(manifest) > 4_000:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=INVALID_DOCUMENTS)
+            files = {}
+            for name, upload in form.multi_items():
+                if name == "manifest":
+                    continue
+                position = name.removeprefix("page_")
+                if not isinstance(upload, FormFile) or not position.isdigit() or int(position) in files:
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=INVALID_DOCUMENTS)
+                content = await upload.read(MAX_PAGE_BYTES + 1)
+                if len(content) > MAX_PAGE_BYTES:
+                    raise PageTooLargeError()
+                files[int(position)] = content
+            return manifest, files
+    except StarletteHTTPException as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=INVALID_DOCUMENTS)
+
+
+@router.post("/claims/{claim_number}/documents", response_model=DocumentsReceipt, status_code=status.HTTP_201_CREATED)
+async def add_claim_documents(
+    request: Request,
+    response: Response,
+    claim_number: str = Path(..., pattern=CLAIM_NUMBER),
+    account: InsuredAccountDB = Depends(insured_account),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+):
+    """Agrega de 1 a 10 páginas JPEG o PDF al siniestro abierto del titular, una vez por `upload_id` (mejora FE-MOV-05)."""
+    try:
+        manifest, files = await read_pages(request)
+        upload = DocumentsUploadRequest.model_validate_json(manifest)
+        result, created = await claim_documents.receive(db, storage, account.document_number, claim_number, upload, files)
+    except ValidationError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=INVALID_DOCUMENTS)
+    except ClaimNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontramos el siniestro.")
+    except ClaimClosedError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El siniestro ya fue decidido y no recibe documentos.")
+    except PageTooLargeError:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Cada página puede pesar máximo 5 MB.")
+    except DocumentRejectedError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message)
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No pudimos guardar los documentos. Intente de nuevo en unos minutos.",
             headers={"Retry-After": "30"},
         )
     if not created:

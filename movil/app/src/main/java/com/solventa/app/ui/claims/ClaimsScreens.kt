@@ -92,9 +92,17 @@ fun ClaimsListScreen(
     }
 }
 
-/** Línea de tiempo del siniestro con fecha y explicación; el rechazo dice el motivo y cómo pedir revisión (AC-02, AC-07). */
+/**
+ * Línea de tiempo del siniestro con fecha y explicación; el rechazo dice el motivo y cómo pedir revisión (AC-02, AC-07).
+ * Con el siniestro abierto ofrece «Agregar documentos» (mejora FE-MOV-05).
+ */
 @Composable
-fun ClaimDetailScreen(claim: InsuredClaim?, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun ClaimDetailScreen(
+    claim: InsuredClaim?,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onAddDocuments: (() -> Unit)? = null,
+) {
     BackHandler(onBack = onBack)
     Column(modifier.fillMaxSize()) {
         ClaimTopBar(
@@ -120,6 +128,11 @@ fun ClaimDetailScreen(claim: InsuredClaim?, onBack: () -> Unit, modifier: Modifi
             }
             if (claim.rejected) {
                 item(key = "rejection") { Rejection(claim) }
+            }
+            if (onAddDocuments != null && claim.status in OPEN_CLAIM_STATUSES) {
+                item(key = "documents") {
+                    PrimaryButton(stringResource(R.string.documents_add_button), onAddDocuments, Modifier.fillMaxWidth().padding(bottom = 16.dp))
+                }
             }
             item(key = "timelineTitle") { SectionLabel(stringResource(R.string.claims_timeline_title), Modifier.padding(bottom = 8.dp).semantics { heading() }) }
             itemsIndexed(claim.timeline, key = { i, step -> "${step.step}-$i" }) { i, step ->
@@ -271,6 +284,9 @@ private fun Loading() {
         CircularProgressIndicator(Modifier.semantics { contentDescription = description })
     }
 }
+
+/** Estados en los que el servidor acepta documentos (mejora FE-MOV-05). */
+internal val OPEN_CLAIM_STATUSES = setOf("REPORTED", "IN_REVIEW")
 
 private fun tone(status: String) = when (status) {
     "REJECTED" -> ChipTone.ERROR

@@ -6,7 +6,10 @@ import com.solventa.app.data.auth.HttpAuthApi
 import com.solventa.app.data.claims.ClaimSendHost
 import com.solventa.app.data.claims.ClaimSender
 import com.solventa.app.data.claims.EncryptedClaimStore
+import com.solventa.app.data.claims.HttpClaimDocumentsApi
 import com.solventa.app.data.claims.HttpClaimSubmitApi
+import com.solventa.app.data.claims.SessionClaimDocuments
+import com.solventa.app.domain.claims.ClaimDocumentUploader
 import com.solventa.app.data.claims.OpenSessionSubmitter
 import com.solventa.app.data.claims.WorkManagerClaimSendScheduler
 import com.solventa.app.data.session.ReportTokenStore
@@ -120,6 +123,9 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
     private val policyActionsApi by lazy { HttpPolicyActionsApi(BuildConfig.API_BASE_URL) }
 
     val policyActions: PolicyActions by lazy { SessionPolicyActions(sessionSync, policyActionsApi) }
+
+    // Documentos del siniestro abierto con la sesión abierta; sin cola en disco (mejora FE-MOV-05, DEC-02).
+    val claimDocuments: ClaimDocumentUploader by lazy { SessionClaimDocuments(sessionSync, HttpClaimDocumentsApi(BuildConfig.API_BASE_URL)) }
 
     /** Registra el token de avisos para la cuenta con sesión; sin sesión no hace nada (HU-MOV-11). */
     fun registerPushToken(token: String) {

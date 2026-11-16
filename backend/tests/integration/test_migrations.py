@@ -49,7 +49,7 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
@@ -73,7 +73,7 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0008"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
 
@@ -170,3 +170,23 @@ async def test_la_migracion_de_verificacion_de_identidad_aprueba_las_cuentas_exi
     assert await scalar(empty_database, columns) == 0
     assert await scalar(empty_database, table) is None
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
+
+
+async def test_la_migracion_de_documentos_del_siniestro_crea_su_tabla_desde_0007_y_se_revierte(empty_database):
+    await upgrade(empty_database, "0007")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE claim_documents"))
+    await engine.dispose()
+    table = "SELECT to_regclass('claim_documents')::text"
+    unique = ("SELECT count(*) FROM information_schema.table_constraints WHERE table_name = 'claim_documents' "
+              "AND constraint_name = 'uq_claim_documents_upload_position'")
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+    created, constraint = await scalar(empty_database, table), await scalar(empty_database, unique)
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0007")
+
+    assert (created, constraint) == ("claim_documents", 1)
+    assert await scalar(empty_database, table) is None
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0007"

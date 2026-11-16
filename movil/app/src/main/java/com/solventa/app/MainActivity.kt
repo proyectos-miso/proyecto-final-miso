@@ -43,6 +43,10 @@ import com.solventa.app.data.notifications.AndroidNotificationPoster
 import com.solventa.app.data.notifications.SolventaMessagingService
 import com.solventa.app.domain.auth.BiometricAuthenticator
 import com.solventa.app.ui.claims.ClaimDetailScreen
+import com.solventa.app.ui.claims.ClaimDocumentsFlow
+import com.solventa.app.ui.claims.ClaimDocumentsViewModel
+import com.solventa.app.ui.claims.DocumentScanner
+import com.solventa.app.ui.claims.MlKitDocumentScanner
 import com.solventa.app.ui.claims.ClaimsListScreen
 import com.solventa.app.ui.claims.ClaimsViewModel
 import com.solventa.app.ui.auth.AlternativeLoginScreen
@@ -123,6 +127,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val documentsViewModel: ClaimDocumentsViewModel by viewModels {
+        viewModelFactory {
+            initializer { ClaimDocumentsViewModel((application as SolventaApplication).claimDocuments) }
+        }
+    }
+
     // Siniestro que pidió abrir un aviso tocado (HU-MOV-11, AC-08).
     private var pendingClaim by mutableStateOf<String?>(null)
 
@@ -154,6 +164,7 @@ class MainActivity : FragmentActivity() {
         val themeStore = (application as SolventaApplication).themeStore
         val camera = CameraXEvidenceCamera(applicationContext)
         val selfieCamera = CameraXEvidenceCamera(applicationContext, lens = CameraLens.FRONT)
+        val documentScanner = MlKitDocumentScanner(applicationContext)
         setContent {
             val systemDark = isSystemInDarkTheme()
             var darkTheme by rememberSaveable { mutableStateOf(themeStore.darkTheme() ?: systemDark) }
@@ -162,6 +173,8 @@ class MainActivity : FragmentActivity() {
             // Mis siniestros y el siniestro abierto: solo el número, que ya está en la copia cifrada (HU-MOV-11).
             var claimsOpen by rememberSaveable { mutableStateOf(false) }
             var selectedClaim by rememberSaveable { mutableStateOf<String?>(null) }
+            // «Agregar documentos» del siniestro abierto: solo la marca; las páginas no se guardan (mejora FE-MOV-05).
+            var documentsOpen by rememberSaveable { mutableStateOf(false) }
             // Preferencias de avisos abiertas (FE-MOV-04).
             var noticesOpen by rememberSaveable { mutableStateOf(false) }
             val authState = authViewModel.uiState.collectAsState().value
@@ -207,7 +220,10 @@ class MainActivity : FragmentActivity() {
                         claimsOpen = claimsOpen,
                         onClaimsOpenChange = { claimsOpen = it },
                         selectedClaim = selectedClaim,
-                        onSelectedClaimChange = { selectedClaim = it },
+                        onSelectedClaimChange = {
+                            selectedClaim = it
+                            documentsOpen = false
+                        },
                         pendingClaim = pendingClaim,
                         onPendingClaimConsumed = { pendingClaim = null },
                         walletActions = true,
@@ -217,6 +233,10 @@ class MainActivity : FragmentActivity() {
                         onNoticesOpenChange = { noticesOpen = it },
                         registrationViewModel = registrationViewModel,
                         selfieCamera = selfieCamera,
+                        documentsViewModel = documentsViewModel,
+                        documentScanner = documentScanner,
+                        documentsOpen = documentsOpen,
+                        onDocumentsOpenChange = { documentsOpen = it },
                     )
                 }
             }
@@ -249,6 +269,10 @@ fun SolventaMobileRoot(
     onNoticesOpenChange: (Boolean) -> Unit = {},
     registrationViewModel: RegistrationViewModel? = null,
     selfieCamera: EvidenceCamera? = null,
+    documentsViewModel: ClaimDocumentsViewModel? = null,
+    documentScanner: DocumentScanner? = null,
+    documentsOpen: Boolean = false,
+    onDocumentsOpenChange: (Boolean) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -268,8 +292,10 @@ fun SolventaMobileRoot(
             onClaimsOpenChange(false)
             onSelectedClaimChange(null)
             onNoticesOpenChange(false)
+            onDocumentsOpenChange(false)
             claimsViewModel?.close()
             preferencesViewModel?.close()
+            documentsViewModel?.close()
         }
     }
     LaunchedEffect(uiState.isAuthenticated, pendingClaim) {
@@ -297,6 +323,8 @@ fun SolventaMobileRoot(
                 claimViewModel?.close()
                 claimsViewModel?.close()
                 preferencesViewModel?.close()
+                documentsViewModel?.close()
+                onDocumentsOpenChange(false)
                 onClaimOpenChange(false)
                 onClaimsOpenChange(false)
                 onSelectedClaimChange(null)
@@ -353,8 +381,23 @@ fun SolventaMobileRoot(
             } else if (claimsOpen && claimsViewModel != null && email != null) {
                 LaunchedEffect(email) { claimsViewModel.open(email) }
                 val claimsState by claimsViewModel.uiState.collectAsState()
-                if (selectedClaim != null) {
-                    ClaimDetailScreen(claimsState.claim(selectedClaim), onBack = { onSelectedClaimChange(null) }, modifier = modifier)
+                val documentsReady = documentsViewModel != null && documentScanner != null && camera != null
+                if (selectedClaim != null && documentsOpen && documentsViewModel != null && documentScanner != null && camera != null) {
+                    LaunchedEffect(selectedClaim) { documentsViewModel.open(selectedClaim, documentScanner.available()) }
+                    // Páginas de documentos personales: sin capturas ni vista en recientes.
+                    SecureWindow(secureScreens)
+                    ClaimDocumentsFlow(documentsViewModel, documentScanner, camera, onClose = { onDocumentsOpenChange(false) }, modifier = modifier)
+                } else if (selectedClaim != null) {
+                    ClaimDetailScreen(
+                        claimsState.claim(selectedClaim),
+                        onBack = { onSelectedClaimChange(null) },
+                        modifier = modifier,
+                        onAddDocuments = if (documentsReady) {
+                            { onDocumentsOpenChange(true) }
+                        } else {
+                            null
+                        },
+                    )
                 } else {
                     val canReport = claimViewModel != null && camera != null && entry != ReportEntry.HIDDEN
                     ClaimsListScreen(

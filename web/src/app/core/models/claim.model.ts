@@ -30,6 +30,17 @@ export interface ClaimPhoto {
   integrity: PhotoIntegrity;
 }
 
+// Página que el asegurado agregó desde la app; el enlace firmado vence en 15 minutos (mejora FE-MOV-05).
+export interface ClaimDocument {
+  document_id: string;
+  upload_id: string;
+  position: number;
+  content_type: 'image/jpeg' | 'application/pdf';
+  size_bytes: number;
+  uploaded_at: string;
+  url: string | null;
+}
+
 export interface ClaimEvent {
   kind: string;
   actor: string;
@@ -78,6 +89,7 @@ export interface ClaimDetail {
   expert: Expert | null;
   settled_amount: number | null;
   photos: ClaimPhoto[];
+  documents: ClaimDocument[];
   events: ClaimEvent[];
   payouts: ClaimPayout[];
 }
