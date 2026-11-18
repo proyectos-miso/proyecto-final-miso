@@ -56,6 +56,11 @@ variable "oracle_secret" {
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = var.oracle_secret == "" || length(var.oracle_secret) >= 32
+    error_message = "oracle_secret debe estar vacía o tener al menos 32 caracteres."
+  }
 }
 
 variable "firebase_credentials_json" {

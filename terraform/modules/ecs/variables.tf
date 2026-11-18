@@ -50,7 +50,7 @@ variable "db_password_secret_arn" {
 }
 
 variable "db_kms_key_arn" {
-  description = "ARN de la llave KMS utilizada para cifrar el secreto de RDS (RC-33)"
+  description = "ARN de la llave KMS que cifra el secreto de RDS y los secretos del backend en Secrets Manager (RC-33)"
   type        = string
 }
 
@@ -87,6 +87,11 @@ variable "oracle_secret" {
   type        = string
   sensitive   = true
   default     = ""
+
+  validation {
+    condition     = var.oracle_secret == "" || length(var.oracle_secret) >= 32
+    error_message = "oracle_secret debe estar vacía o tener al menos 32 caracteres."
+  }
 }
 
 variable "s3_bucket_name" {

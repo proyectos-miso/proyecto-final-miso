@@ -64,11 +64,14 @@ Rules:
 2. One module per AWS component or concern. A new component gets a new module.
 3. Modules do not call each other. The root wires one module's outputs to another's variables.
 4. An external module needs `dependency-review`, an exact version and an ADR.
-5. Secrets never appear as a value, a default or a committed `.tfvars` entry. They are `sensitive`
-   variables without defaults that CI fills from its encrypted secrets (`TF_VAR_*`), and they reach the
-   container as environment variables. The team chose this over a secrets manager on 2026-10-23
+5. *Superseded by [ADR 0029](0029-terraform-backend-secrets.md) (Proposed).* Secrets never appear as a
+   value, a default or a committed `.tfvars` entry. They are `sensitive` variables without defaults that
+   CI fills from its encrypted secrets (`TF_VAR_*`), and they reach the container as environment
+   variables. The team chose this over a secrets manager on 2026-10-23
    (`specs/HOTFIX-configuracion-de-produccion`), accepting that the values are readable in the task
-   definition and the state; moving them to a secrets manager needs a new ADR.
+   definition and the state; moving them to a secrets manager needs a new ADR. ADR 0029 keeps the first
+   sentence and the `sensitive`/`TF_VAR_*` part of the second, and replaces the rest: backend secrets live in Secrets Manager with a KMS key and reach
+   the container through the ECS `secrets` block.
 6. Network, IAM, keys, listeners and base images change only with an ADR. The ADR gate
    (`sdd/tools/sddlib/config.py`) enforces it when a commit adds a security group, IAM resource, KMS
    key, database instance or listener to a `.tf` file, or a `FROM` line to a Dockerfile.
@@ -91,5 +94,6 @@ Rules:
 Module boundaries follow trust boundaries: network (`vpc`, `alb`), compute (`ecr`, `ecs`), data (`rds`,
 `storage_events`) and delivery (`web_hosting`). A change to one is reviewed with its blast radius
 visible. The database, documents bucket and queues use KMS keys created in their modules. Rule 5 keeps
-secrets out of code and defaults; while they travel as environment variables, anyone who can read the
-ECS task definition or the Terraform state can read them. The decision adds no data, keys or trust boundaries.
+secrets out of code and defaults; since ADR 0029 they reach the container from Secrets Manager through the
+ECS `secrets` block, so the task definition only holds their ARNs. They are still readable in the
+Terraform state (ADR 0029, pending). The decision adds no data, keys or trust boundaries.

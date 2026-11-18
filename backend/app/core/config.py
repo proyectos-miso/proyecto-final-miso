@@ -65,6 +65,14 @@ class Settings(BaseSettings):
             raise ValueError(f"debe tener al menos {MIN_KEY_LENGTH} caracteres")
         return value
 
+    @field_validator("ORACLE_SECRET", mode="before")
+    @classmethod
+    def oraculo_sin_llave_vacia(cls, value):
+        # Una variable vacía apaga el oráculo (503); nunca se verifica con una llave vacía.
+        if value is None or not str(value.get_secret_value() if isinstance(value, SecretStr) else value).strip():
+            return None
+        return value
+
     @model_validator(mode="after")
     def llaves_distintas(self) -> "Settings":
         if self.JWT_SECRET_KEY.get_secret_value() == self.OTP_SECRET_KEY.get_secret_value():

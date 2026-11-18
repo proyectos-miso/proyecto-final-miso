@@ -70,7 +70,7 @@ class Oracle:
 
     def verify(self, timestamp: str, provided: str, body: bytes) -> None:
         """HMAC-SHA256 de «marca.cuerpo» con la llave compartida y una marca de tiempo de máximo 5 minutos."""
-        if settings.ORACLE_SECRET is None:
+        if settings.ORACLE_SECRET is None or not settings.ORACLE_SECRET.get_secret_value().strip():
             raise OracleDisabledError()
         try:
             moment = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
