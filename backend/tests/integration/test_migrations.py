@@ -28,10 +28,14 @@ async def empty_database():
     await admin.dispose()
 
 
-async def upgrade(url) -> None:
+def config_for(url):
     config = alembic_config()
     config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False))
-    await asyncio.to_thread(command.upgrade, config, "head")
+    return config
+
+
+async def upgrade(url, revision: str = "head") -> None:
+    await asyncio.to_thread(command.upgrade, config_for(url), revision)
 
 
 async def scalar(url, sql: str):
@@ -45,7 +49,7 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
@@ -68,6 +72,23 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
+
+
+async def test_la_migracion_de_preferencias_crea_su_tabla_desde_0003_y_se_revierte(empty_database):
+    await upgrade(empty_database, "0003")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE push_preferences"))
+    await engine.dispose()
+
+    await upgrade(empty_database)
+    created = await scalar(empty_database, "SELECT column_default FROM information_schema.columns "
+                                           "WHERE table_name = 'push_preferences' AND column_name = 'claims'")
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0003")
+
+    assert created == "true"
+    assert await scalar(empty_database, "SELECT to_regclass('push_preferences')") is None
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0003"

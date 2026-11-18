@@ -27,7 +27,9 @@ import com.solventa.app.data.policies.PolicySyncHost
 import com.solventa.app.data.policies.SessionPolicySync
 import com.solventa.app.data.policies.WorkManagerSyncScheduler
 import com.solventa.app.data.session.KeystoreSessionCrypto
+import com.solventa.app.data.settings.NotificationPreferenceStore
 import com.solventa.app.data.settings.ThemePreferenceStore
+import com.solventa.app.domain.policies.NotificationPreferences
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.data.session.SharedPreferencesSessionStore
 import com.solventa.app.domain.auth.AuthApi
@@ -65,6 +67,9 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
 
     val themeStore: ThemePreferenceStore by lazy { ThemePreferenceStore(this) }
 
+    // Copia local de las preferencias de avisos de cada cuenta (FE-MOV-04).
+    val notificationPreferences: NotificationPreferences by lazy { NotificationPreferenceStore(this) }
+
     val policiesApi: PoliciesApi by lazy { HttpPoliciesApi(BuildConfig.API_BASE_URL) }
 
     private val encryptedPolicyStore: EncryptedPolicyStore by lazy {
@@ -90,9 +95,12 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
             onDeviceRejected = {
                 claimStore.delete(it)
                 reportTokens.delete(it)
+                notificationPreferences.delete(it)
             },
             claimsApi = HttpClaimsApi(BuildConfig.API_BASE_URL),
             notices = notificationPoster,
+            preferences = notificationPreferences,
+            preferencesApi = policyActionsApi,
         )
     }
 
@@ -109,7 +117,9 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
         )
     }
 
-    val policyActions: PolicyActions by lazy { SessionPolicyActions(sessionSync, HttpPolicyActionsApi(BuildConfig.API_BASE_URL)) }
+    private val policyActionsApi by lazy { HttpPolicyActionsApi(BuildConfig.API_BASE_URL) }
+
+    val policyActions: PolicyActions by lazy { SessionPolicyActions(sessionSync, policyActionsApi) }
 
     /** Registra el token de avisos para la cuenta con sesión; sin sesión no hace nada (HU-MOV-11). */
     fun registerPushToken(token: String) {

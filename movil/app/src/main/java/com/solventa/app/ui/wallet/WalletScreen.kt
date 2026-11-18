@@ -26,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -91,6 +92,7 @@ fun WalletScreen(
     receipt: ClaimReceipt? = null,
     onOpenReceipt: ((String) -> Unit)? = null,
     onDismissReceipt: () -> Unit = {},
+    onOpenNotices: (() -> Unit)? = null,
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -188,6 +190,10 @@ fun WalletScreen(
         if (onOpenClaims != null && !uiState.loading) {
             item(key = "claims") { SecondaryButton(stringResource(R.string.claims_open_button), onOpenClaims, Modifier.fillMaxWidth()) }
         }
+        // Preferencias de avisos (FE-MOV-04).
+        if (onOpenNotices != null && !uiState.loading) {
+            item(key = "notices") { NoticesButton(onOpenNotices) }
+        }
         uiState.lastSync?.let { lastSync ->
             item(key = "lastSync") { LastSync(lastSync) }
         }
@@ -265,6 +271,26 @@ private fun NoticeBanner(notice: WalletNotice, renewedUntil: Instant?, onDismiss
         TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp).align(Alignment.End)) {
             Text(stringResource(R.string.wallet_dismiss_message))
         }
+    }
+}
+
+@Composable
+private fun NoticesButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_bell), contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(stringResource(R.string.notices_open_button), fontWeight = FontWeight.SemiBold)
     }
 }
 

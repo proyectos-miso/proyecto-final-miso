@@ -20,7 +20,7 @@ from app.modules.policy.models import PolicyDB, PolicySignatureDB  # noqa: F401 
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.service import claim_service
 from app.modules.claims.oracle import OracleEventDB  # noqa: F401 - registrar tablas
-from app.modules.notifications.service import PushTokenDB, notification_service  # noqa: F401 - registrar tablas
+from app.modules.notifications.service import PushPreferencesDB, PushTokenDB, notification_service  # noqa: F401 - registrar tablas
 from app.modules.policy.operations import policy_operations
 from app.core.migrations import upgrade_database
 from app.core.outbox import PUBLISH_EVERY_SECONDS, OutboxMessageDB, outbox_publisher  # noqa: F401 - registrar tablas en Base.metadata
