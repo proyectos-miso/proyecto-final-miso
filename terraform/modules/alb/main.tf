@@ -17,14 +17,6 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
-  ingress {
-    description     = "HTTPS solo desde CloudFront (VPC origin)"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
-  }
-
   egress {
     description = "Salida hacia contenedores ECS"
     from_port   = 0
@@ -78,48 +70,15 @@ resource "aws_lb_target_group" "backend" {
   }
 }
 
-# Certificado ACM para el listener HTTPS del balanceador
-resource "aws_acm_certificate" "alb" {
-  domain_name       = "${var.project_name}-alb.${var.environment}.internal"
-  validation_method = "DNS"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = {
-    Name = "${var.project_name}-alb-cert-${var.environment}"
-  }
-}
-
-# Listener HTTPS con TLS 1.2+ que reenvía hacia el Target Group del backend
-resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate.alb.arn
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.backend.arn
-  }
-}
-
-# Listener HTTP que redirige hacia HTTPS
+# Listener HTTP que reenvía hacia el Target Group del backend
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
-
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
   }
 }
 
