@@ -28,7 +28,6 @@ from app.modules.claims.models import (
     ExpertDB,
 )
 from app.modules.claims.parametric import ParametricRule, matching_rule
-from app.modules.notifications.service import notification_service
 from app.modules.payments.payouts import Payee, payout_service
 from app.modules.policy.detail import mask_phone
 from app.modules.policy.models import PolicyDB
@@ -37,6 +36,8 @@ from app.modules.policy.search import mask_document
 from app.modules.policy.service import included_coverages
 
 LIST_LIMIT = 50
+# Cambios de estado que el asegurado debe conocer: el consumidor del outbox los convierte en push (ADR 0030).
+NOTIFIED_KINDS = ("ASSIGNED", "REJECTED", "SETTLED", "PAID")
 PHOTO_LINK_SECONDS = 900
 DEATH = "death"
 DEFAULT_EXPERTS = [
@@ -122,6 +123,9 @@ class ClaimService:
             raise ClaimNotFoundError()
         return row
 
+    async def status_of(self, session: AsyncSession, claim_number: str) -> Optional[str]:
+        return await session.scalar(select(ClaimDB.status).where(ClaimDB.claim_number == claim_number))
+
     async def detail(
         self, session: AsyncSession, storage: DocumentStorage, claim_number: str, partner_id: Optional[str]
     ) -> ClaimDetail:
@@ -199,17 +203,15 @@ class ClaimService:
 
     def event(self, session: AsyncSession, claim: ClaimDB, kind: str, actor: str, **fields) -> None:
         session.add(ClaimEventDB(claim_number=claim.claim_number, kind=kind, actor=actor, created_at=self.now(), **fields))
-        session.info.setdefault("claim_notices", []).append((claim.policy_number, claim.claim_number, kind))
+        if kind in NOTIFIED_KINDS:
+            # En la misma transacción que el cambio; el aviso sale después, fuera de la petición (HU-MOV-11).
+            session.add(OutboxMessageDB(
+                aggregate_id=claim.claim_number, event_type="ClaimStatusChanged",
+                payload={"claim_number": claim.claim_number, "policy_number": claim.policy_number, "kind": kind},
+            ))
 
     async def commit(self, session: AsyncSession) -> None:
-        """Confirma y después avisa al asegurado; el aviso nunca deshace ni frena la decisión (HU-MOV-11)."""
         await session.commit()
-        for policy_number, claim_number, kind in session.info.pop("claim_notices", []):
-            document = await session.scalar(
-                select(PolicyDB.insured_document).where(PolicyDB.policy_number == policy_number)
-            )
-            if document:
-                await notification_service.claim_changed(session, document, claim_number, kind)
 
     async def assign(
         self, session: AsyncSession, claim_number: str, request: ClaimAssignRequest, actor: str,

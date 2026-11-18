@@ -49,7 +49,7 @@ async def scalar(url, sql: str):
 async def test_una_base_vacia_queda_en_la_ultima_migracion_con_todo_el_esquema(empty_database):
     await upgrade(empty_database)
 
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
     assert await scalar(empty_database, "SELECT count(*) FROM pg_class WHERE relname = 'claim_number_seq'") == 1
@@ -73,7 +73,7 @@ async def test_una_base_creada_antes_de_alembic_se_adopta_sin_perder_datos(empty
     await upgrade(empty_database)
 
     assert await scalar(empty_database, "SELECT name FROM partners WHERE partner_id = 'socio-prueba'") == "Socio de prueba"
-    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0006"
     assert await scalar(empty_database, "SELECT count(*) FROM information_schema.columns "
                                         "WHERE table_name = 'quotes' AND column_name = 'city'") == 1
 
@@ -121,3 +121,23 @@ async def test_la_migracion_de_auditoria_agrega_las_entradas_y_hace_inmutables_l
     assert await scalar(empty_database, columns) == 0
     assert await scalar(empty_database, trigger) == 0
     assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0004"
+
+
+async def test_la_migracion_de_mensajes_procesados_crea_su_tabla_desde_0005_y_se_revierte(empty_database):
+    await upgrade(empty_database, "0005")
+    engine = create_async_engine(empty_database)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE processed_messages"))
+    await engine.dispose()
+    table = "SELECT to_regclass('processed_messages')::text"
+
+    await upgrade(empty_database)
+    await upgrade(empty_database)
+    created = await scalar(empty_database, table)
+    key = await scalar(empty_database, "SELECT count(*) FROM information_schema.table_constraints WHERE "
+                                       "table_name = 'processed_messages' AND constraint_type = 'PRIMARY KEY'")
+    await asyncio.to_thread(command.downgrade, config_for(empty_database), "0005")
+
+    assert (created, key) == ("processed_messages", 1)
+    assert await scalar(empty_database, table) is None
+    assert await scalar(empty_database, "SELECT version_num FROM alembic_version") == "0005"

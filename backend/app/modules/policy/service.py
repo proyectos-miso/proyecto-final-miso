@@ -90,6 +90,9 @@ class PolicyService:
                     raise
         return PolicyRecord.model_validate(policy)
 
+    async def find(self, session: AsyncSession, policy_number: str) -> Optional[PolicyDB]:
+        return await session.get(PolicyDB, policy_number)
+
     async def find_by_quote(self, session: AsyncSession, quote_id: str) -> Optional[PolicyDB]:
         return await session.scalar(select(PolicyDB).where(PolicyDB.quote_id == quote_id))
 

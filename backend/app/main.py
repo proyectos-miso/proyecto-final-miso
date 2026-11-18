@@ -24,7 +24,9 @@ from app.modules.claims.oracle import OracleEventDB  # noqa: F401 - registrar ta
 from app.modules.notifications.service import PushPreferencesDB, PushTokenDB, notification_service  # noqa: F401 - registrar tablas
 from app.modules.policy.operations import policy_operations
 from app.core.migrations import upgrade_database
-from app.core.outbox import PUBLISH_EVERY_SECONDS, OutboxMessageDB, outbox_publisher  # noqa: F401 - registrar tablas en Base.metadata
+from app.core.outbox import (  # noqa: F401 - registrar tablas en Base.metadata
+    PUBLISH_EVERY_SECONDS, OutboxMessageDB, ProcessedMessageDB, events_queue_configured, outbox_consumer, outbox_publisher,
+)
 from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401 - registrar tablas en Base.metadata
@@ -40,7 +42,7 @@ async def run_policy_lifecycle() -> None:
     """Vence las pólizas sin renovar y avisa las que vencen en 30 días (HU-MOV-11, RC-24 y RC-27)."""
     async with AsyncSessionLocal() as session:
         await policy_operations.expire_due(session)
-        await policy_operations.remind_renewals(session, notification_service.renewal_due)
+        await policy_operations.remind_renewals(session)
 
 
 async def publish_outbox() -> None:
@@ -52,6 +54,16 @@ async def publish_outbox() -> None:
         except Exception as exc:
             print(f"Aviso: no se pudo publicar el outbox: {exc}")
         await asyncio.sleep(PUBLISH_EVERY_SECONDS)
+
+
+async def consume_outbox() -> None:
+    """Entrega los eventos de la cola a sus manejadores; cada vuelta espera hasta 10 s por mensajes (ADR 0030)."""
+    while True:
+        try:
+            await outbox_consumer.consume(AsyncSessionLocal)
+        except Exception as exc:
+            print(f"Aviso: no se pudo leer la cola de eventos: {type(exc).__name__}")
+            await asyncio.sleep(PUBLISH_EVERY_SECONDS)
 
 
 async def daily_policy_lifecycle() -> None:
@@ -88,11 +100,15 @@ async def lifespan(app: FastAPI):
             await insured_auth_service.seed_default_account(session)
     except Exception as exc:
         print(f"Aviso de inicialización de base de datos en arranque: {exc}")
-    lifecycle = asyncio.create_task(daily_policy_lifecycle())
-    publisher = asyncio.create_task(publish_outbox())
+    for event_type, handler in notification_service.event_handlers().items():
+        outbox_consumer.register(event_type, handler)
+    tasks = [asyncio.create_task(daily_policy_lifecycle()), asyncio.create_task(publish_outbox())]
+    if events_queue_configured():
+        tasks.append(asyncio.create_task(consume_outbox()))
     yield
-    lifecycle.cancel()
-    publisher.cancel()
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def docs_urls(enabled: bool) -> dict:

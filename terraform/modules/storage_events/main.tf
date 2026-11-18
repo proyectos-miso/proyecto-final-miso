@@ -58,18 +58,20 @@ resource "aws_sqs_queue" "dlq" {
   }
 }
 
-# Cola principal SQS para eventos con redirección a DLQ tras 3 reintentos (HA-08)
+# Cola principal SQS para eventos (HA-08). El consumidor aplaza cada reintento 30 s × 2^(n-1), hasta 15 min (ADR 0030):
+# con 8 recepciones, un mensaje aguanta una caída de Firebase de cerca de una hora antes de pasar a la DLQ.
 resource "aws_sqs_queue" "events" {
-  name                      = "${var.project_name}-events-${var.environment}"
-  delay_seconds             = 0
-  max_message_size          = 262144
-  message_retention_seconds = 345600 # 4 días
-  receive_wait_time_seconds = 20     # Long polling
-  kms_master_key_id         = aws_kms_key.storage.id
+  name                       = "${var.project_name}-events-${var.environment}"
+  delay_seconds              = 0
+  max_message_size           = 262144
+  message_retention_seconds  = 345600 # 4 días
+  receive_wait_time_seconds  = 20     # Long polling
+  visibility_timeout_seconds = 120    # Un lote de 10 avisos cabe holgado; si el consumidor cae, el mensaje vuelve
+  kms_master_key_id          = aws_kms_key.storage.id
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
-    maxReceiveCount     = 3
+    maxReceiveCount     = 8
   })
 
   tags = {

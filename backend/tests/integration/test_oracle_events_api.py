@@ -155,3 +155,21 @@ async def test_cada_siniestro_parametrico_deja_su_evento_en_el_outbox(async_clie
         select(func.count()).select_from(OutboxMessageDB).where(OutboxMessageDB.event_type == "ClaimFiled")
     )
     assert events == 2
+
+
+async def test_la_liquidacion_parametrica_deja_sus_cambios_de_estado_en_el_outbox_una_sola_vez(
+    async_client, postgres_session, policies
+):
+    from app.core.outbox import OutboxMessageDB
+
+    await post(async_client, event())
+    await post(async_client, event())
+
+    created = {c.claim_number: c.status for c in await claims(postgres_session)}
+    changed = list(await postgres_session.scalars(
+        select(OutboxMessageDB).where(OutboxMessageDB.event_type == "ClaimStatusChanged")
+    ))
+    kinds = sorted((e.aggregate_id, e.payload["kind"]) for e in changed)
+    expected = sorted((number, kind) for number, status in created.items()
+                      for kind in (("SETTLED", "PAID") if status == "PAID" else ("SETTLED",)))
+    assert kinds == expected
