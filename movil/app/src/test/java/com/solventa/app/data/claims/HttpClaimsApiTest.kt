@@ -122,4 +122,13 @@ class HttpClaimsApiTest {
         assertEquals("fcm-token", JSONObject(request.body.readUtf8()).getString("token"))
         assertNull(actions.registerPushToken("t", "fcm-token"))
     }
+
+    @Test
+    fun `403 con IDENTITY_IN_REVIEW es identidad en verificacion en los siniestros`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\": \"Estamos verificando su identidad.\", \"code\": \"IDENTITY_IN_REVIEW\"}"))
+        server.enqueue(MockResponse().setResponseCode(403))
+
+        assertEquals(ClaimsResult.IdentityInReview, claims.claims("t"))
+        assertEquals(ClaimsResult.Unavailable, claims.claims("t"))
+    }
 }

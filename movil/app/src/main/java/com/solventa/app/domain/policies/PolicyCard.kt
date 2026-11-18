@@ -34,6 +34,9 @@ sealed interface PoliciesResult {
     data class Loaded(val policies: List<PolicyCard>) : PoliciesResult
     data object Unauthorized : PoliciesResult
     data object Unavailable : PoliciesResult
+
+    /** 403 con código IDENTITY_IN_REVIEW: la cuenta existe, pero su identidad sigue en verificación. */
+    data object IdentityInReview : PoliciesResult
 }
 
 /** Copia de la billetera con la hora de la sincronización que la trajo (HU-MOV-06). */

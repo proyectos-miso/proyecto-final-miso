@@ -60,6 +60,9 @@ data class SolventaColors(
     val brand: Brush,
     val cardFront: Brush,
     val cardBack: Brush,
+    // Visor de la cámara: oscuro en los dos temas, con texto claro encima (mejora FE-MOV-01).
+    val camera: Color = Color(0xFF090D14),
+    val onCamera: Color = Color(0xFFF8FAFC),
 )
 
 private val brand = Brush.linearGradient(listOf(Color(0xFF0F6D94), Color(0xFF0D9488)))

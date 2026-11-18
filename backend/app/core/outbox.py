@@ -28,7 +28,7 @@ RETRY_AFTER_SECONDS = 30
 MAX_RETRY_SECONDS = 15 * 60
 # Eventos que hoy no necesitan consumidor: se borran. Un tipo que no está aquí ni tiene manejador se reintenta y, si
 # ninguna réplica lo maneja, termina en la DLQ (por ejemplo, durante un despliegue escalonado).
-IGNORED_EVENT_TYPES = frozenset({"PolicyIssued", "PaymentApproved"})
+IGNORED_EVENT_TYPES = frozenset({"PolicyIssued", "PaymentApproved", "ClaimDocumentsAdded", "AssistanceRequested"})
 DONE, RETRY, UNHANDLED = "DONE", "RETRY", "UNHANDLED"
 EVENT_TYPE = re.compile(r"^[A-Za-z]{1,64}$")
 

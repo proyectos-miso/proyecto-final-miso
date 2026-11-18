@@ -44,8 +44,11 @@ data class WalletUiState(
     /** Carátula por descargar una sola vez; se consume con [WalletViewModel.consumeCaratula]. */
     val caratula: CaratulaDownload? = null,
     val actionInProgress: Boolean = false,
+    /** El servidor aún verifica la identidad: no es falta de conexión. */
+    val identityInReview: Boolean = false,
 ) {
-    val empty: Boolean get() = !loading && !needsConnection && !copyUnavailable && sessionEnded == null && policies.isEmpty()
+    val empty: Boolean
+        get() = !loading && !needsConnection && !copyUnavailable && !identityInReview && sessionEnded == null && policies.isEmpty()
 }
 
 /**
@@ -128,7 +131,7 @@ class WalletViewModel(
         )
         val accountEmail = account ?: return
         val recent = lastSyncAttempt?.let { Duration.between(it, now) < RESYNC_EVERY } ?: false
-        if (state.offline && !recent) sync(accountEmail)
+        if ((state.offline || state.identityInReview) && !recent) sync(accountEmail)
     }
 
     /** Pide el enlace de 15 minutos de la carátula (HU-MOV-11, AC-10). */
@@ -210,6 +213,10 @@ class WalletViewModel(
                     policySync.schedule()
                     loadReceipt(accountEmail)
                 }
+                SyncOutcome.IdentityInReview -> {
+                    _uiState.value = fromCopy(accountEmail).copy(offline = false, needsConnection = false, identityInReview = true)
+                    loadReceipt(accountEmail)
+                }
             }
         }
     }
@@ -226,7 +233,7 @@ class WalletViewModel(
             is SyncOutcome.SessionEnded -> if (outcome.accountEmail == account) {
                 _uiState.value = WalletUiState(loading = false, sessionEnded = outcome.reason)
             }
-            SyncOutcome.Failed, SyncOutcome.NoSession -> Unit
+            SyncOutcome.Failed, SyncOutcome.NoSession, SyncOutcome.IdentityInReview -> Unit
         }
     }
 

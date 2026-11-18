@@ -2,6 +2,7 @@ package com.solventa.app.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.NoticeCategory
 import com.solventa.app.domain.policies.NotificationPreferences
 import com.solventa.app.domain.policies.PolicyActions
@@ -13,7 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class PreferencesError { SESSION, INVALID, UNAVAILABLE }
+enum class PreferencesError { SESSION, INVALID, UNAVAILABLE, IDENTITY_IN_REVIEW }
+
+/** Revocación de la autorización biométrica desde «Avisos» (mejora FE-MOV-01). */
+enum class BiometricRevocation { CONFIRMING, REVOKING, REVOKED, FAILED, SESSION }
 
 data class NotificationPreferencesUiState(
     val preferences: PushPreferences = PushPreferences(),
@@ -23,6 +27,7 @@ data class NotificationPreferencesUiState(
     val offline: Boolean = false,
     val saved: Boolean = false,
     val error: PreferencesError? = null,
+    val revocation: BiometricRevocation? = null,
 )
 
 /**
@@ -76,6 +81,30 @@ class NotificationPreferencesViewModel(
         send(accountEmail, current)
     }
 
+    fun askRevocation() {
+        if (_uiState.value.revocation != BiometricRevocation.REVOKING) {
+            _uiState.value = _uiState.value.copy(revocation = BiometricRevocation.CONFIRMING)
+        }
+    }
+
+    fun cancelRevocation() {
+        if (_uiState.value.revocation == BiometricRevocation.CONFIRMING) _uiState.value = _uiState.value.copy(revocation = null)
+    }
+
+    /** Llama a `POST /insured/consents/biometric/revoke`; no depende de que carguen las preferencias. */
+    fun revokeBiometricConsent() {
+        if (account == null || _uiState.value.revocation == BiometricRevocation.REVOKING) return
+        _uiState.value = _uiState.value.copy(revocation = BiometricRevocation.REVOKING)
+        viewModelScope.launch {
+            val next = when (actions.revokeBiometricConsent()) {
+                ConsentRevocationResult.Revoked -> BiometricRevocation.REVOKED
+                ConsentRevocationResult.Unauthorized -> BiometricRevocation.SESSION
+                ConsentRevocationResult.Unavailable -> BiometricRevocation.FAILED
+            }
+            if (account != null) _uiState.value = _uiState.value.copy(revocation = next)
+        }
+    }
+
     private fun send(accountEmail: String, preferences: PushPreferences) {
         job?.cancel()
         job = viewModelScope.launch { apply(accountEmail, preferences, actions.savePushPreferences(preferences)) }
@@ -92,6 +121,8 @@ class NotificationPreferencesViewModel(
             PreferencesResult.Unavailable -> state.copy(preferences = sent, loading = false, saving = false, offline = true, saved = false)
             PreferencesResult.Unauthorized -> state.copy(preferences = sent, loading = false, saving = false, saved = false, error = PreferencesError.SESSION)
             PreferencesResult.Invalid -> state.copy(preferences = sent, loading = false, saving = false, saved = false, error = PreferencesError.INVALID)
+            PreferencesResult.IdentityInReview ->
+                state.copy(preferences = sent, loading = false, saving = false, offline = false, saved = false, error = PreferencesError.IDENTITY_IN_REVIEW)
         }
     }
 }

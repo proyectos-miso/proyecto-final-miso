@@ -1,5 +1,6 @@
 package com.solventa.app.data.claims
 
+import com.solventa.app.data.policies.identityInReview
 import com.solventa.app.domain.claims.ClaimTimelineStep
 import com.solventa.app.domain.claims.ClaimsApi
 import com.solventa.app.domain.claims.ClaimsCopy
@@ -32,6 +33,8 @@ class HttpClaimsApi(private val baseUrl: String) : ClaimsApi {
                     ClaimsResult.Loaded(ClaimsJson.parse(JSONObject(body)))
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED -> ClaimsResult.Unauthorized
+                HttpURLConnection.HTTP_FORBIDDEN ->
+                    if (connection.identityInReview()) ClaimsResult.IdentityInReview else ClaimsResult.Unavailable
                 else -> ClaimsResult.Unavailable
             }
         } catch (e: IOException) {

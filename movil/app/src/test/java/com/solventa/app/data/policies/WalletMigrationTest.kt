@@ -14,7 +14,7 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * HU-MOV-10: la versión 4 de la billetera agrega la constancia sin borrar la copia, los siniestros ni los avisos
- * ya enviados de la versión 3.
+ * ya enviados de la versión 3. Mejora FE-MOV-07: la versión 5 agrega la copia de prestadores sin borrar nada.
  */
 @RunWith(RobolectricTestRunner::class)
 class WalletMigrationTest {
@@ -41,7 +41,7 @@ class WalletMigrationTest {
         }
 
         val room = Room.databaseBuilder(context, WalletDatabase::class.java, name)
-            .addMigrations(WalletDatabase.MIGRATION_3_4)
+            .addMigrations(WalletDatabase.MIGRATION_3_4, WalletDatabase.MIGRATION_4_5)
             .build()
         try {
             assertEquals(listOf("POL-2026-00001"), room.policyCards().all().map { it.policyNumber })
@@ -57,7 +57,43 @@ class WalletMigrationTest {
         }
     }
 
+    @Test
+    fun `FE-MOV-07 la migracion de la version 4 a la 5 conserva la copia y la constancia y agrega los prestadores`() = runBlocking {
+        val file = context.getDatabasePath(name).apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            (VERSION_3 + CLAIM_RECEIPT).forEach(db::execSQL)
+            db.execSQL(
+                "INSERT INTO policy_cards VALUES ('POL-2026-00001', 'basic', 1000000.0, 'Asegurada de Prueba', '[]', 0, 1893456000000)",
+            )
+            db.execSQL("INSERT INTO wallet_meta VALUES (0, 1700000000000)")
+            db.execSQL("INSERT INTO insured_claims VALUES ('SIN-2026-00001', 0, '{}')")
+            db.execSQL("INSERT INTO claim_receipt VALUES (0, 'SIN-2026-00001', 'OFF-2026-AB12', NULL, 1)")
+            db.version = 4
+        }
+
+        val room = Room.databaseBuilder(context, WalletDatabase::class.java, name)
+            .addMigrations(WalletDatabase.MIGRATION_3_4, WalletDatabase.MIGRATION_4_5)
+            .build()
+        try {
+            assertEquals(listOf("POL-2026-00001"), room.policyCards().all().map { it.policyNumber })
+            assertEquals(1700000000000L, room.policyCards().syncedAt())
+            assertEquals(listOf("SIN-2026-00001"), room.claims().all().map { it.claimNumber })
+            assertEquals("OFF-2026-AB12", room.claims().receipt()?.provisionalNumber)
+            assertNull(room.providers().read())
+
+            val copy = ProvidersCopyEntity(json = "[]", cityCode = "CALI", savedAtEpochMillis = 2L)
+            room.providers().save(copy)
+            assertEquals(copy, room.providers().read())
+        } finally {
+            room.close()
+        }
+    }
+
     private companion object {
+        // Tabla de la constancia que agregó la versión 4 (HU-MOV-10).
+        const val CLAIM_RECEIPT = "CREATE TABLE IF NOT EXISTS `claim_receipt` (`id` INTEGER NOT NULL, `claimNumber` TEXT NOT NULL, " +
+            "`provisionalNumber` TEXT NOT NULL, `policyNumber` TEXT, `reportedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+
         // Esquema de la versión 3 tal como lo creaba Room (HU-MOV-11).
         val VERSION_3 = listOf(
             "CREATE TABLE IF NOT EXISTS `policy_cards` (`policyNumber` TEXT NOT NULL, `plan` TEXT NOT NULL, `insuredAmount` REAL NOT NULL, " +

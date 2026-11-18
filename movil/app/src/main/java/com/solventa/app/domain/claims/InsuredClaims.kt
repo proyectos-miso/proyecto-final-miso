@@ -31,4 +31,5 @@ sealed interface ClaimsResult {
     data class Loaded(val copy: ClaimsCopy) : ClaimsResult
     data object Unauthorized : ClaimsResult
     data object Unavailable : ClaimsResult
+    data object IdentityInReview : ClaimsResult
 }

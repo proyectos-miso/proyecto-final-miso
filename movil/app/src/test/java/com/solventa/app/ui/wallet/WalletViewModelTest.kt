@@ -524,4 +524,18 @@ class WalletViewModelTest {
         const val EMAIL = "asegurada@example.com"
         const val OTHER_EMAIL = "otra.cuenta@example.com"
     }
+
+    @Test
+    fun `con la identidad en verificacion no se muestra sin conexion ni se agenda la sincronizacion`() {
+        api.result = PoliciesResult.IdentityInReview
+
+        viewModel.open(EMAIL)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.identityInReview)
+        assertFalse(state.offline)
+        assertFalse(state.needsConnection)
+        assertFalse(state.empty)
+        assertEquals(0, scheduler.requests)
+    }
 }

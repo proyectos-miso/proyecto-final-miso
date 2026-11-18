@@ -286,3 +286,24 @@ async def test_reportes_distintos_enviados_al_mismo_tiempo_reciben_radicados_dis
     assert [r.status_code for r in responses] == [201] * 5
     assert len({r.json()["claim_number"] for r in responses}) == 5
     assert await claims_count(postgres_session) == 5
+
+
+async def test_un_reporte_de_mas_de_11_mb_responde_413_antes_de_leer_el_multipart(
+    async_client, postgres_session, storage, policy
+):
+    photos = {f"photo_{p}": ("foto.jpg", JPEG + b"0" * 2_300_000, "image/jpeg") for p in range(1, 6)}
+    big = await send(async_client, report_body(policy, photos=[metadata(p) for p in range(1, 6)]), files=photos)
+
+    async def chunks():
+        yield b'--x\r\nContent-Disposition: form-data; name="photo_1"; filename="f.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
+        for _ in range(12):
+            yield b"0" * (1024 * 1024)
+
+    streamed = await async_client.post(
+        URL, content=chunks(), headers={**insured_headers(), "Content-Type": "multipart/form-data; boundary=x"}
+    )
+
+    assert big.status_code == 413
+    assert streamed.status_code == 413
+    assert "content-length" not in streamed.request.headers
+    assert await claims_count(postgres_session) == 0

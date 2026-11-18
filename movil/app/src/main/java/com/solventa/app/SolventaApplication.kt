@@ -2,11 +2,19 @@ package com.solventa.app
 
 import android.app.Application
 import android.app.KeyguardManager
+import com.solventa.app.data.assistance.HttpAssistanceApi
+import com.solventa.app.data.assistance.SessionAssistance
 import com.solventa.app.data.auth.HttpAuthApi
+import com.solventa.app.domain.assistance.Assistance
+import com.solventa.app.domain.assistance.ProvidersCopyStore
 import com.solventa.app.data.claims.ClaimSendHost
 import com.solventa.app.data.claims.ClaimSender
 import com.solventa.app.data.claims.EncryptedClaimStore
+import com.solventa.app.data.claims.HttpClaimDocumentsApi
 import com.solventa.app.data.claims.HttpClaimSubmitApi
+import com.solventa.app.data.claims.ScannedPageReader
+import com.solventa.app.data.claims.SessionClaimDocuments
+import com.solventa.app.domain.claims.ClaimDocumentUploader
 import com.solventa.app.data.claims.OpenSessionSubmitter
 import com.solventa.app.data.claims.WorkManagerClaimSendScheduler
 import com.solventa.app.data.session.ReportTokenStore
@@ -121,17 +129,29 @@ class SolventaApplication : Application(), PolicySyncHost, ClaimSendHost {
 
     val policyActions: PolicyActions by lazy { SessionPolicyActions(sessionSync, policyActionsApi) }
 
+    // Documentos del siniestro abierto con la sesión abierta; sin cola en disco (mejora FE-MOV-05, DEC-02).
+    val claimDocuments: ClaimDocumentUploader by lazy { SessionClaimDocuments(sessionSync, HttpClaimDocumentsApi(BuildConfig.API_BASE_URL)) }
+
+    // Prestadores y asistencia con la sesión abierta; la última lista va en la copia cifrada de la billetera (mejora FE-MOV-07).
+    val assistance: Assistance by lazy { SessionAssistance(sessionSync, HttpAssistanceApi(BuildConfig.API_BASE_URL)) }
+
+    val providersCopy: ProvidersCopyStore get() = encryptedPolicyStore
+
     /** Registra el token de avisos para la cuenta con sesión; sin sesión no hace nada (HU-MOV-11). */
     fun registerPushToken(token: String) {
         if (sessionRepository.openSession == null) return
         appScope.launch { runCatching { policyActions.registerPushToken(token) } }
     }
 
+    /** Páginas de ML Kit que quedaron en la caché si el proceso murió antes de leerlas (mejora FE-MOV-05, RISK-02). */
+    fun clearLeftoverScans() = ScannedPageReader.clearScannerCache(cacheDir)
+
     override fun onCreate() {
         super.onCreate()
         // SQLCipher escribe en logcat la ruta de la base cuando no abre; la app no registra nada de la copia (CTL-06).
         Logger.setTarget(NoopTarget())
         AndroidNotificationPoster.ensureChannel(this)
+        clearLeftoverScans()
         // Un reporte en cola de una versión anterior, o de antes de reiniciar, vuelve a la cola de envío.
         if (encryptedClaimStore.accounts().isNotEmpty()) claimSendScheduler.request(now = false)
     }

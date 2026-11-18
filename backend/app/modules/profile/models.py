@@ -67,6 +67,8 @@ class ConsentDB(Base):
     id = Column(String(36), primary_key=True)
     document_type = Column(String(10), nullable=False, default="CC", index=True)
     document_number = Column(String(20), nullable=False, index=True)
+    # Solo la autorización biométrica de la app: la cuenta que la dio (mejora FE-MOV-01).
+    user_id = Column(String(36), nullable=True, index=True)
     channel = Column(String(50), nullable=False, default="web")
     purpose = Column(String(255), nullable=False)
     scope = Column(String(255), nullable=False)

@@ -12,6 +12,7 @@ export const CLAIM_EVENTS: Record<string, string> = {
   REPORTED: 'Reportado',
   ASSIGNED: 'Caso tomado',
   EXPERT_ASSIGNED: 'Perito asignado',
+  DOCUMENTS_ADDED: 'Documentos agregados',
   REJECTED: 'Rechazado',
   SETTLED: 'Liquidado',
   PAID: 'Indemnización pagada',

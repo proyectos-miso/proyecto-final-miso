@@ -1,5 +1,5 @@
 """Tablas de identidad del asegurado: compartidas por todas las réplicas (HU-MOV-02, HU-MOV-12)."""
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, func
 
 from app.core.database import Base
 
@@ -10,11 +10,29 @@ class InsuredAccountDB(Base):
     user_id = Column(String(36), primary_key=True)
     email = Column(String(254), unique=True, nullable=False, index=True)
     full_name = Column(String(150), nullable=False)
+    document_type = Column(String(4), nullable=False, default="CC", server_default="CC")
     document_number = Column(String(20), nullable=False)
     phone = Column(String(20), nullable=False)
     password_hash = Column(String(255), nullable=False)
     token_version = Column(Integer, default=0, nullable=False)
+    # Mejora FE-MOV-01: las cuentas anteriores al registro desde la app quedan aprobadas.
+    verification_status = Column(String(10), nullable=False, default="APPROVED", server_default="APPROVED")
+    verified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class IdentityVerificationDB(Base):
+    """Verificación de identidad del registro; las imágenes solo existen en S3 mientras está PENDING (mejora FE-MOV-01)."""
+
+    __tablename__ = "identity_verifications"
+
+    verification_id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), ForeignKey("insured_accounts.user_id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(10), nullable=False)
+    provider_ref = Column(String(64), nullable=True)
+    s3_keys = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class InsuredOtpDB(Base):
@@ -40,6 +58,8 @@ class DocumentOtpDB(Base):
     document_number = Column(String(20), nullable=False, index=True)
     purpose = Column(String(30), nullable=False)  # "consent", "policy_signature"
     code_hash = Column(String(64), nullable=False)
+    # HMAC del teléfono del registro: cada teléfono tiene su propio código (mejora FE-MOV-01); nulo en los demás usos.
+    binding_hash = Column(String(64), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
