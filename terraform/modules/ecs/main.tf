@@ -72,7 +72,41 @@ resource "aws_iam_role_policy_attachment" "execution_standard" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Permiso para que la tarea ECS obtenga la contraseña de RDS desde Secrets Manager (RC-33)
+# Secretos del backend en Secrets Manager, cifrados con la llave KMS de RDS (HOTFIX-secretos-en-ecs).
+# Los opcionales vacíos no se crean: sin la variable, el backend apaga el push o el canal del oráculo.
+locals {
+  backend_secret_values = {
+    JWT_SECRET_KEY            = var.jwt_secret_key
+    OTP_SECRET_KEY            = var.otp_secret_key
+    FIREBASE_CREDENTIALS_JSON = var.firebase_credentials_json
+    ORACLE_SECRET             = var.oracle_secret
+  }
+  backend_secret_names = toset([for name, value in local.backend_secret_values : name if nonsensitive(value != "")])
+}
+
+resource "aws_secretsmanager_secret" "backend" {
+  for_each = local.backend_secret_names
+
+  name                    = "${var.project_name}-${lower(replace(each.key, "_", "-"))}-${var.environment}"
+  description             = "${each.key} del backend, inyectado en la tarea de ECS"
+  kms_key_id              = var.db_kms_key_arn
+  recovery_window_in_days = 0
+
+  tags = {
+    Name = "${var.project_name}-${lower(replace(each.key, "_", "-"))}-${var.environment}"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "backend" {
+  for_each = aws_secretsmanager_secret.backend
+
+  secret_id     = each.value.id
+  secret_string = local.backend_secret_values[each.key]
+}
+
+data "aws_region" "current" {}
+
+# El rol de ejecución solo lee estos secretos y solo descifra con su llave (RC-33, HOTFIX-secretos-en-ecs)
 resource "aws_iam_role_policy" "execution_secrets" {
   name = "${var.project_name}-ecs-execution-secrets-${var.environment}"
   role = aws_iam_role.execution.id
@@ -81,16 +115,21 @@ resource "aws_iam_role_policy" "execution_secrets" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "GetRdsPasswordSecret"
+        Sid      = "LeerSecretosDelBackend"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.db_password_secret_arn]
+        Resource = concat([var.db_password_secret_arn], [for secret in aws_secretsmanager_secret.backend : secret.arn])
       },
       {
-        Sid      = "DecryptRdsPasswordKms"
+        Sid      = "DescifrarSecretosDelBackend"
         Effect   = "Allow"
         Action   = ["kms:Decrypt"]
         Resource = [var.db_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
       }
     ]
   })
@@ -224,22 +263,6 @@ resource "aws_ecs_task_definition" "backend" {
           value = var.db_user
         },
         {
-          name  = "JWT_SECRET_KEY"
-          value = var.jwt_secret_key
-        },
-        {
-          name  = "OTP_SECRET_KEY"
-          value = var.otp_secret_key
-        },
-        {
-          name  = "FIREBASE_CREDENTIALS_JSON"
-          value = var.firebase_credentials_json
-        },
-        {
-          name  = "ORACLE_SECRET"
-          value = var.oracle_secret
-        },
-        {
           name  = "SQS_EVENTS_URL"
           value = var.sqs_queue_url
         },
@@ -249,12 +272,15 @@ resource "aws_ecs_task_definition" "backend" {
         }
       ]
 
-      secrets = [
-        {
-          name      = "DB_PASSWORD"
-          valueFrom = var.db_password_secret_arn
-        }
-      ]
+      secrets = concat(
+        [
+          {
+            name      = "DB_PASSWORD"
+            valueFrom = var.db_password_secret_arn
+          }
+        ],
+        [for name, secret in aws_secretsmanager_secret.backend : { name = name, valueFrom = secret.arn }]
+      )
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -266,6 +292,8 @@ resource "aws_ecs_task_definition" "backend" {
       }
     }
   ])
+
+  depends_on = [aws_secretsmanager_secret_version.backend, aws_iam_role_policy.execution_secrets]
 
   tags = {
     Name = "${var.project_name}-task-def-${var.environment}"

@@ -138,6 +138,15 @@ async def test_sin_llave_configurada_el_canal_esta_cerrado(async_client, monkeyp
     assert response.status_code == 503
 
 
+async def test_una_llave_vacia_cierra_el_canal_y_no_valida_firmas(async_client, monkeypatch):
+    monkeypatch.setattr(settings, "ORACLE_SECRET", SecretStr(""))
+
+    body = event()
+    response = await post(async_client, body, signed(body, secret=""))
+
+    assert response.status_code == 503
+
+
 async def test_un_evento_demasiado_grande_se_rechaza(async_client):
     body = b"{" + b" " * 5000 + b"}"
 

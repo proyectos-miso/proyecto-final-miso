@@ -6,7 +6,7 @@
 | Title | Obtener un número de radicado |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/76 |
 | Owner | Juan Camilo Peña |
-| Status | IN_PROGRESS |
+| Status | DONE |
 | Created | 2026-11-14 |
 | Security profile | HIGH |
 

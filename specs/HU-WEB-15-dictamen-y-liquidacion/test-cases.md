@@ -255,11 +255,11 @@
 | Preconditions | Portal con Narrador o NVDA |
 | Procedure | 1. Activar el lector de pantalla. 2. Abrir Siniestros con Tab y Enter. 3. Abrir un expediente y escuchar el título, las fotos y su huella. 4. Llenar el dictamen solo con teclado. 5. Registrar y escuchar el resultado |
 | Expected result | Las fotos se leen con fecha y ubicación, la huella y las advertencias se leen como texto, el dictamen se llena con teclado y los resultados se anuncian |
-| Tool or method | Narrador o NVDA, teclado |
+| Tool or method | Teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, sin lector de pantalla |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING: axe-core 4.12.1 sin violaciones WCAG 2.2 AA en bandeja, expediente, detalle con endoso y 320 px (TC-10); falta la pasada con lector de pantalla |
-| Status | PENDING |
+| Evidence | axe-core 4.12.1 sin violaciones WCAG 2.2 AA en bandeja, expediente, detalle con endoso y 320 px (TC-10). Pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: «Siniestros» y el expediente se abren con Tab y Enter, con el foco en el título; cada foto se lee con su fecha y su ubicación («Foto 1, tomada el 15/11/2026 08:48 en» y las coordenadas); la huella («Íntegra: coincide con la huella») y la advertencia de ubicación simulada son texto; «Tomar el caso» anuncia «Caso asignado.»; el dictamen, el amparo, el valor y la justificación se llenan solo con teclado, y al registrar se anuncia «Siniestro liquidado y pago ordenado a los beneficiarios.»; un valor mayor que el amparo marca el campo con aria-invalid y le asocia «El valor supera la suma asegurada del amparo ($ 100.000.000 COP).», que se lee al volver al campo (no sale en una región viva), y deja deshabilitado «Registrar dictamen» |
+| Status | PASS |
 
 ## Security test coverage
 

@@ -1,5 +1,6 @@
 """Pruebas de integración HTTP de los endpoints B2B de emisión y consulta de pólizas (HU-WEB-14)."""
 from datetime import datetime, timedelta, timezone
+import math
 import time
 import uuid
 import pytest
@@ -237,28 +238,39 @@ async def test_list_partner_policies_isolated(async_client: AsyncClient, test_db
         assert p["partner_id"] == "banco-aliado-1"
 
 
+PERFORMANCE_SAMPLES = 30
+
+
+def _p95(samples_ms: list[float]) -> float:
+    """Percentil 95 por rango más cercano."""
+    return sorted(samples_ms)[math.ceil(0.95 * len(samples_ms)) - 1]
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_policy_issue_performance(async_client: AsyncClient):
-    """TC-08: Medición de rendimiento en emisión y lectura CQRS bajo carga local."""
+    """TC-08: p95 de 30 emisiones y 30 lecturas CQRS bajo carga local (QR-01 y QR-02)."""
     token = await _obtain_partner_token(async_client)
     headers = {"Authorization": f"Bearer {token}"}
-    quote_id = await _create_partner_quote(async_client, token)
+    quote_ids = [await _create_partner_quote(async_client, token) for _ in range(PERFORMANCE_SAMPLES)]
 
-    start = time.perf_counter()
-    resp = await async_client.post(
-        "/api/v1/quote-edge/policies",
-        headers=headers,
-        json={"quote_id": quote_id, "tier": "standard"},
-    )
-    duration_ms = (time.perf_counter() - start) * 1000
+    issue_ms = []
+    for quote_id in quote_ids:
+        start = time.perf_counter()
+        resp = await async_client.post(
+            "/api/v1/quote-edge/policies",
+            headers=headers,
+            json={"quote_id": quote_id, "tier": "standard"},
+        )
+        issue_ms.append((time.perf_counter() - start) * 1000)
+        assert resp.status_code == 200
 
-    assert resp.status_code == 200
-    assert duration_ms < 200.0, f"Emisión tardó {duration_ms:.2f} ms (esperado < 200 ms)"
+    read_ms = []
+    for _ in range(PERFORMANCE_SAMPLES):
+        start = time.perf_counter()
+        list_resp = await async_client.get("/api/v1/quote-edge/policies", headers=headers)
+        read_ms.append((time.perf_counter() - start) * 1000)
+        assert list_resp.status_code == 200
 
-    start_read = time.perf_counter()
-    list_resp = await async_client.get("/api/v1/quote-edge/policies", headers=headers)
-    read_duration_ms = (time.perf_counter() - start_read) * 1000
-
-    assert list_resp.status_code == 200
-    assert read_duration_ms < 100.0, f"Lectura CQRS tardó {read_duration_ms:.2f} ms (esperado < 100 ms)"
+    assert _p95(issue_ms) < 200.0, f"p95 de la emisión: {_p95(issue_ms):.2f} ms (esperado < 200 ms)"
+    assert _p95(read_ms) < 100.0, f"p95 de la lectura CQRS: {_p95(read_ms):.2f} ms (esperado < 100 ms)"

@@ -195,6 +195,7 @@ jobs:
     steps:
       - name: Aviso de configuración pendiente
         if: env.RELEASE_READY != 'true'
+        working-directory: ${{ github.workspace }}
         run: echo "::notice::APK de release omitido - faltan los secretos de la llave de firma o la variable ANDROID_API_BASE_URL."
 
       - name: Checkout del repositorio

@@ -23,7 +23,7 @@ app for policyholders and AWS infrastructure as code. Details in [README.md](REA
 - Integration branch: `dev`. Protected branches are listed in `sdd/config.json`.
 - Architecture: separated applications (backend, web portal, mobile app, infrastructure), each with its
   own ADRs in [`docs/adr/`](docs/adr/README.md): system and API 0001–0002, hexagonal backend 0003–0007,
-  web 0008–0012, mobile 0013–0017, 0021–0022, 0024 and 0028, Terraform 0018–0020, backend documents,
+  web 0008–0012, mobile 0013–0017, 0021–0022, 0024 and 0028, Terraform 0018–0020 and 0029, backend documents,
   migrations, outbox and oracle 0023, 0025–0027 and 0030.
 - Identifiers in English; comments, docstrings, test names, commit descriptions and UI text in Spanish,
   as the existing code does.
