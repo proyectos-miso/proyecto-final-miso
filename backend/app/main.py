@@ -6,6 +6,7 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
+from app.core.metrics import LatencyMiddleware
 from app.core.middleware import TenantContextMiddleware
 from app.core.storage import ensure_emulator_bucket
 from app.bff.experience.router import router as experience_router
@@ -127,6 +128,9 @@ app.add_middleware(
 
 # 2. Middleware de Contexto Multi-Tenant (ASR-06 / HA-14)
 app.add_middleware(TenantContextMiddleware)
+
+# Latencia de las rutas críticas para el tablero operativo (FE-WEB-07); el más externo, mide de punta a punta.
+app.add_middleware(LatencyMiddleware)
 
 # 3. Endpoint de Sondeo de Salud para AWS ALB (HA-09: cada 5s, umbral 2)
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])

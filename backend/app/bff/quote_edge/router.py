@@ -1,5 +1,5 @@
 """Router BFF para socios B2B (quote-edge) con aislamiento multi-tenant, credenciales OAuth2 y cuotas (HU-WEB-10, HU-WEB-11, HU-WEB-12, HU-WEB-14)."""
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.responses import JSONResponse
@@ -13,6 +13,7 @@ from app.core.security import (
     create_partner_access_token,
     get_current_partner,
     log_partner_security_event,
+    require_roles,
 )
 from app.bff.experience.router import operations_scope
 from app.modules.policy.models import (
@@ -33,6 +34,7 @@ from app.modules.rating.models import (
     PartnerTokenResponse,
     QuoteRequest,
 )
+from app.modules.rating import partners
 from app.modules.rating.service import PartnerQuotaExceededError, rating_service
 
 router = APIRouter(prefix="/quote-edge", tags=["Quote Edge B2B"])
@@ -111,7 +113,9 @@ class PartnerRegistrationResponse(BaseModel):
 )
 async def register_partner_sandbox(
     request: PartnerRegistrationRequest,
+    response: Response,
     partner_scope: Optional[str] = Depends(operations_scope),
+    claims: Dict[str, Any] = Depends(require_roles(["analyst"])),
     db: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -123,37 +127,10 @@ async def register_partner_sandbox(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el equipo de alianzas de Solventa puede registrar socios.",
         )
-    import secrets
-    from app.core.security import get_password_hash
-    from app.modules.rating.models import PartnerStatus
-
-    raw_slug = "".join(c.lower() for c in request.name if c.isalnum())[:20] or "partner"
-    partner_id = f"{raw_slug}_{secrets.token_hex(4)}"
-    client_id = f"client_{raw_slug}_{secrets.token_hex(4)}"
-    client_secret = f"sec_{secrets.token_urlsafe(24)}"
-
-    partner = PartnerDB(
-        partner_id=partner_id,
-        name=request.name,
-        contact_email=request.contact_email,
-        client_id=client_id,
-        client_secret_hash=get_password_hash(client_secret),
-        status=PartnerStatus.ACTIVE.value,
-        quota_limit=1000,
-        quota_used=0,
-        quota_window_seconds=3600,
-        environment="sandbox",
-    )
-    db.add(partner)
-    await db.commit()
-
+    registered = await partners.register(db, request.name, request.contact_email, claims["sub"])
+    response.headers["Cache-Control"] = "no-store"
     return PartnerRegistrationResponse(
-        partner_id=partner_id,
-        name=request.name,
-        client_id=client_id,
-        client_secret=client_secret,
-        environment="sandbox",
-        quota_limit=1000,
+        **registered.model_dump(),
         openapi_spec_url="/openapi.json",
         message="Socio registrado exitosamente en entorno sandbox con 1.000 solicitudes/hora.",
     )
@@ -410,6 +387,9 @@ async def list_partner_quotes(
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Token ausente, inválido, expirado o de socio revocado.",
         },
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Un socio en sandbox cotiza pero no emite pólizas reales (FE-WEB-05).",
+        },
         status.HTTP_404_NOT_FOUND: {
             "description": "Cotización inexistente o perteneciente a otro socio / canal (aislamiento multi-tenant).",
         },
@@ -433,6 +413,8 @@ async def issue_partner_policy(
             request=request,
             partner_id=current_partner.partner_id,
         )
+    except partners.PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except QuoteNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

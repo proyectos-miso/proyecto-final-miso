@@ -265,6 +265,7 @@ def log_partner_security_event(
     client_id: Optional[str] = None,
     partner_id: Optional[str] = None,
     endpoint: Optional[str] = None,
+    operator_ref: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Emite evento de seguridad auditable en formato JSON hacia stdout/CloudWatch con severidad WARNING."""
     event_payload: Dict[str, Any] = {
@@ -277,6 +278,8 @@ def log_partner_security_event(
         "endpoint": endpoint,
         "reason": reason,
     }
+    if operator_ref is not None:
+        event_payload["operator_ref"] = operator_ref
     serialized = json.dumps(event_payload, ensure_ascii=False)
     security_logger.warning(serialized)
     return event_payload

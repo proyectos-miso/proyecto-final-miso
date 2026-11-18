@@ -64,6 +64,16 @@ describe('jwtInterceptor (HU-WEB-13.3)', () => {
     req.flush({ access_token: 'new' });
   });
 
+  it('no envía el token del analista al pedir el contrato OpenAPI ni renueva la sesión si falla (FE-WEB-05)', () => {
+    httpClient.get('/openapi.json').subscribe({ error: () => undefined });
+
+    const req = httpMock.expectOne('/openapi.json');
+    expect(req.request.headers.has('Authorization')).toBe(false);
+    req.flush('No autorizado', { status: 401, statusText: 'Unauthorized' });
+    expect(authServiceSpy.refreshToken).not.toHaveBeenCalled();
+    expect(authServiceSpy.logout).not.toHaveBeenCalled();
+  });
+
   it('debe capturar error 401, renovar sesión silenciosamente y reintentar la petición original con nuevo token', () => {
     const refreshedSession: UserSession = {
       ...mockSession,

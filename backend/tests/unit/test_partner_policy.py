@@ -11,7 +11,7 @@ from app.modules.policy.service import (
     QuoteExpiredError,
     QuoteNotFoundError,
 )
-from app.modules.rating.models import QuoteDB
+from app.modules.rating.models import PartnerDB, QuoteDB
 
 
 def _make_quote(
@@ -143,6 +143,8 @@ async def test_get_and_list_partner_policies_isolation(test_db_session):
     """Verifica aislamiento multi-tenant en consultas individuales y proyección de lectura CQRS."""
     quote_a = _make_quote("COT-A", "banco-aliado-1")
     quote_b = _make_quote("COT-B", "socio-dos")
+    test_db_session.add(PartnerDB(partner_id="socio-dos", client_id="client_socio_dos", client_secret_hash="no-aplica",
+                                  name="Socio Dos", status="ACTIVE", quota_limit=10, quota_used=0))
     test_db_session.add(quote_a)
     test_db_session.add(quote_b)
 

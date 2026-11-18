@@ -29,6 +29,7 @@ from app.modules.payments.models import PaymentTransactionDB, PayoutDB  # noqa: 
 from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401
 from app.modules.identity import db_models as identity_db_models  # noqa: F401
 from app.modules.underwriting.models import UnderwritingRejectionDB  # noqa: F401
+from tests.db_name import TEST_DATABASE
 
 
 class InMemorySessionTestDouble:
@@ -162,8 +163,11 @@ class InMemorySessionTestDouble:
                     doc_filter = v
                 elif "id" in k or k == "id_1":
                     id_filter = v
-            if id_filter and id_filter in self.consents_by_id:
-                return Result([self.consents_by_id[id_filter]])
+            if id_filter:
+                found = self.consents_by_id.get(id_filter)
+                if found is not None and doc_filter and getattr(found, "document_number", None) != doc_filter:
+                    found = None
+                return Result([found] if found else [])
             if doc_filter:
                 items = [c for c in items if getattr(c, "document_number", None) == doc_filter]
 
@@ -304,12 +308,12 @@ async def test_db_session():
 
 @pytest.fixture
 async def postgres_session():
-    """PostgreSQL real en la base solventa_test, con las tablas recreadas; la API lo usa en lugar del doble."""
-    test_url = make_url(settings.DATABASE_URL).set(database="solventa_test")
+    """PostgreSQL real en la base de pruebas (solventa_test por defecto), con las tablas recreadas; la API lo usa en lugar del doble."""
+    test_url = make_url(settings.DATABASE_URL).set(database=TEST_DATABASE)
     admin = create_async_engine(test_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     async with admin.connect() as conn:
-        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = 'solventa_test'")):
-            await conn.execute(text("CREATE DATABASE solventa_test"))
+        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": TEST_DATABASE}):
+            await conn.execute(text(f'CREATE DATABASE "{TEST_DATABASE}"'))
     await admin.dispose()
 
     engine = create_async_engine(test_url)

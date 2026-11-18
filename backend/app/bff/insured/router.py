@@ -32,6 +32,7 @@ from app.modules.policy import document as policy_document
 from app.modules.policy.models import CaratulaLink, InsuredPolicies, PolicyDB, PolicyOperationResult
 from app.modules.policy.operations import NotRenewableError, policy_operations
 from app.modules.policy.service import policy_service
+from app.modules.rating.partners import PartnerBlockedError
 
 router = APIRouter(prefix="/insured", tags=["Asegurado"])
 
@@ -114,6 +115,8 @@ async def renew_my_policy(
     await own_policy(db, policy_number, account)
     try:
         return await policy_operations.renew(db, policy_number, "Asegurado desde la app")
+    except PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except NotRenewableError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
