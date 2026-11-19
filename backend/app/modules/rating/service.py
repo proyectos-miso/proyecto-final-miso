@@ -87,6 +87,10 @@ AGE_BANDS: List[Tuple[int, float]] = [(30, 0.92), (40, 1.0), (50, 1.18), (200, 1
 OCCUPATION_MULTIPLIERS = {1: 1.0, 2: 1.1, 3: 1.25, 4: 1.45, 5: 1.7}
 SCORE_BANDS: List[Tuple[int, float]] = [(800, 0.9), (650, 1.0), (500, 1.15), (0, 1.3)]
 TIER_MULTIPLIERS = {PlanTier.BASIC: 0.75, PlanTier.STANDARD: 1.0, PlanTier.PREMIUM: 1.35}
+# Tiers que se ofrecen hoy; el recálculo de la auditoría compara contra esta lista (FE-WEB-08).
+OFFERED_TIERS: List[PlanTier] = list(PlanTier)
+# Un solo mensaje para «no existe» y «es de otro titular»: no revela si un consent_id existe.
+CONSENT_NOT_VALID_FOR_CLIENT = "El consentimiento no es válido para este cliente."
 
 ScoreProvider = Callable[[QuoteRequest, float], Awaitable[int]]
 
@@ -241,7 +245,7 @@ class RatingService:
             )
 
         tiers = []
-        for tier in PlanTier:
+        for tier in OFFERED_TIERS:
             breakdown = build_breakdown(
                 request.insured_amount, age, request.occupation_risk, score, tier, partial_profile=bool(degradation_reason)
             )
@@ -288,9 +292,25 @@ class RatingService:
         if partner_id is None or request.consent_id:
             if request.consent_id:
                 active_consent = await profile_service.get_consent_by_id_async(session, request.consent_id)
+                if active_consent is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=CONSENT_NOT_VALID_FOR_CLIENT,
+                    )
             if not active_consent:
                 active_consent = await profile_service.get_consent_async(session, request.document_number)
 
+            # Antes de consultar el buró: un consentimiento ajeno no autoriza el perfilamiento (FE-WEB-08).
+            if active_consent and active_consent.document_number != request.document_number:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=CONSENT_NOT_VALID_FOR_CLIENT,
+                )
+            if request.consent_id and active_consent and active_consent.status == "REVOKED":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="El consentimiento informado del cliente fue revocado.",
+                )
             if partner_id is None:
                 if not active_consent or active_consent.status != "GRANTED":
                     raise HTTPException(
@@ -331,6 +351,9 @@ class RatingService:
                 term_months=request.term_months,
                 birth_date=datetime.combine(bdate, datetime.min.time(), tzinfo=timezone.utc),
                 city=request.city,
+                rules_version=underwriting_rules.RULES_VERSION,
+                insured_amount=request.insured_amount,
+                occupation_risk=request.occupation_risk,
             )
         )
         if partner_id and increment_quota:

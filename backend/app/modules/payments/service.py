@@ -13,6 +13,7 @@ from app.modules.payments.gateway import SimulatedGateway
 from app.modules.payments.models import RECEIPT_NUMBER_SEQ, PaymentChargeRequest, PaymentReceipt, PaymentTransactionDB
 from app.modules.policy.models import PolicyDB
 from app.modules.policy.service import policy_service
+from app.modules.rating.partners import ensure_partner_can_issue
 
 
 class PaymentDeclinedError(Exception):
@@ -79,10 +80,15 @@ class PaymentService:
     async def process_charge(
         self, session: AsyncSession, request: PaymentChargeRequest, idempotency_key: str, partner_id: Optional[str] = None
     ) -> PaymentReceipt:
-        """Cobra la prima una sola vez; con una clave ya usada repite su respuesta sin volver a la pasarela (HU-WEB-06, RC-10)."""
+        """Cobra la prima una sola vez; con una clave ya usada repite su respuesta sin volver a la pasarela (HU-WEB-06, RC-10).
+
+        Un cobro nuevo exige que el socio del asesor y el de la póliza puedan operar (FE-WEB-05)."""
         policy = await policy_service.lock(session, request.policy_number)
         effective_partner_id = partner_id or policy.partner_id or "default"
         saved = await find_response(session, effective_partner_id, idempotency_key, request)
+        if saved is None:
+            await ensure_partner_can_issue(session, partner_id)
+            await ensure_partner_can_issue(session, policy.partner_id)
         return replay(saved or await self.charge(session, policy, request, idempotency_key, effective_partner_id))
 
     async def charge(

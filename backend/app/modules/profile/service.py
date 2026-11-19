@@ -19,6 +19,13 @@ from app.modules.profile.models import (
 from app.modules.identity.service import PURPOSE_CONSENT, insured_auth_service
 
 
+# Autorización del tratamiento de la selfie y el documento en el registro desde la app (mejora FE-MOV-01).
+# No es un consentimiento Open Finance: las consultas de cotización y su revocación lo excluyen.
+BIOMETRIC_PURPOSE = "biometric_verification"
+BIOMETRIC_SCOPE = "Foto del documento y selfie para verificar la identidad al crear la cuenta"
+BIOMETRIC_VALIDITY_DAYS = 365
+
+
 class ConsentError(ValueError):
     """Excepción para errores en el registro o validación de consentimiento."""
     pass
@@ -140,12 +147,13 @@ class ProfileService:
         session: AsyncSession,
         consent_id: str,
     ) -> Optional[ConsentRecord]:
-        """Consulta el consentimiento por su identificador único persistido en PostgreSQL."""
-        stmt = select(ConsentDB).where(ConsentDB.id == consent_id)
+        """Consulta el consentimiento por su identificador único persistido en PostgreSQL.
+        La autorización biométrica del registro no es un consentimiento Open Finance: no sirve para cotizar (mejora FE-MOV-01)."""
+        stmt = select(ConsentDB).where(ConsentDB.id == consent_id, ConsentDB.purpose != BIOMETRIC_PURPOSE)
         db_consent = (await session.execute(stmt)).scalars().first()
         if not db_consent:
             for c in self._consents.values():
-                if c.consent_id == consent_id:
+                if c.consent_id == consent_id and c.purpose != BIOMETRIC_PURPOSE:
                     return c
             return None
         return ConsentRecord(
@@ -170,12 +178,25 @@ class ProfileService:
         """Obtiene el consentimiento activo persistido en base de datos para el documento."""
         stmt = (
             select(ConsentDB)
-            .where(ConsentDB.document_number == document_number, ConsentDB.status == "GRANTED")
+            .where(
+                ConsentDB.document_number == document_number,
+                ConsentDB.status == "GRANTED",
+                ConsentDB.purpose != BIOMETRIC_PURPOSE,
+            )
             .order_by(ConsentDB.created_at.desc())
         )
         db_consent = (await session.execute(stmt)).scalars().first()
         if not db_consent:
-            return self.get_consent(document_number)
+            record = self.get_consent(document_number)
+            # La copia en memoria no vale si la base ya tiene ese consentimiento y no está GRANTED (FE-WEB-08).
+            if record is None:
+                return None
+            stored = select(ConsentDB.id).where(
+                ConsentDB.document_number == document_number, ConsentDB.id == record.consent_id
+            )
+            if (await session.execute(stored)).scalars().first() is not None:
+                return None
+            return record
         return ConsentRecord(
             consent_id=db_consent.id,
             document_number=db_consent.document_number,
@@ -201,6 +222,85 @@ class ProfileService:
             return False
         expires = datetime.fromisoformat(record.expires_at)
         return self._now() < expires
+
+    async def revoke_consents_async(self, session: AsyncSession, document_number: str) -> int:
+        """Revoca todos los consentimientos GRANTED del documento; devuelve cuántos cambió (FE-WEB-08)."""
+        rows = (
+            await session.execute(
+                select(ConsentDB)
+                .where(
+                    ConsentDB.document_number == document_number,
+                    ConsentDB.status == "GRANTED",
+                    ConsentDB.purpose != BIOMETRIC_PURPOSE,
+                )
+                .with_for_update()
+            )
+        ).scalars().all()
+        for row in rows:
+            row.status = "REVOKED"
+        await session.commit()
+        self._consents.pop(document_number, None)
+        return len(rows)
+
+    async def consent_revoked_async(
+        self, session: AsyncSession, document_number: str, consent_id: Optional[str] = None
+    ) -> bool:
+        """Si la decisión quedó sin consentimiento: el suyo está revocado o el documento solo tiene revocados.
+        Se miran los dos: una cotización con un consentimiento ajeno no deja ver los datos del documento."""
+        if consent_id:
+            consent = await session.get(ConsentDB, consent_id)
+            if consent is not None and consent.status == "REVOKED":
+                return True
+        statuses = set(
+            (await session.execute(select(ConsentDB.status).where(
+                ConsentDB.document_number == document_number, ConsentDB.purpose != BIOMETRIC_PURPOSE
+            )))
+            .scalars()
+            .all()
+        )
+        return "REVOKED" in statuses and "GRANTED" not in statuses
+
+    def add_biometric_consent(
+        self, session: AsyncSession, user_id: str, document_type: str, document_number: str, now: datetime
+    ) -> ConsentDB:
+        """Deja la autorización en la transacción de quien registra la cuenta; no hace commit (mejora FE-MOV-01)."""
+        granted_at = now.isoformat()
+        canonical = f"{document_number}|app|{BIOMETRIC_PURPOSE}|{BIOMETRIC_SCOPE}|{BIOMETRIC_VALIDITY_DAYS}|True|{granted_at}"
+        consent = ConsentDB(
+            id=f"CNS-{uuid.uuid4().hex[:12].upper()}",
+            document_type=document_type,
+            document_number=document_number,
+            user_id=user_id,
+            channel="app",
+            purpose=BIOMETRIC_PURPOSE,
+            scope=BIOMETRIC_SCOPE,
+            validity_days=BIOMETRIC_VALIDITY_DAYS,
+            status="GRANTED",
+            consent_hash=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            granted_at=now,
+            expires_at=now + timedelta(days=BIOMETRIC_VALIDITY_DAYS),
+            created_at=now,
+        )
+        session.add(consent)
+        return consent
+
+    async def revoke_biometric_consent(self, session: AsyncSession, user_id: str) -> int:
+        """Marca REVOKED la autorización biométrica de la cuenta, no la de otras cuentas con el mismo documento; no hace
+        commit (mejora FE-MOV-01)."""
+        rows = (
+            await session.execute(
+                select(ConsentDB)
+                .where(
+                    ConsentDB.user_id == user_id,
+                    ConsentDB.status == "GRANTED",
+                    ConsentDB.purpose == BIOMETRIC_PURPOSE,
+                )
+                .with_for_update()
+            )
+        ).scalars().all()
+        for row in rows:
+            row.status = "REVOKED"
+        return len(rows)
 
     def register_consent(self, request: ConsentRequest) -> ConsentRecord:
         """Genera registro auditable de consentimiento con hash SHA-256 (HU-WEB-01 / TC-S1-04).

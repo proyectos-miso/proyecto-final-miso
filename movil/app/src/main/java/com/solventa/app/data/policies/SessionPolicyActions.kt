@@ -1,6 +1,7 @@
 package com.solventa.app.data.policies
 
 import com.solventa.app.domain.policies.CaratulaResult
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.PolicyActions
 import com.solventa.app.domain.policies.PolicyActionsApi
 import com.solventa.app.domain.policies.PreferencesResult
@@ -24,6 +25,10 @@ class SessionPolicyActions(private val sync: SessionPolicySync, private val api:
 
     override suspend fun savePushPreferences(preferences: PushPreferences): PreferencesResult =
         sync.withAccessToken({ it == PreferencesResult.Unauthorized }) { api.savePushPreferences(it, preferences) } ?: withoutTokens()
+
+    override suspend fun revokeBiometricConsent(): ConsentRevocationResult =
+        sync.withAccessToken({ it == ConsentRevocationResult.Unauthorized }) { api.revokeBiometricConsent(it) }
+            ?: if (sync.hasOpenSession) ConsentRevocationResult.Unavailable else ConsentRevocationResult.Unauthorized
 
     // Con el ingreso sin red hay sesión pero no tokens: es falta de red, no una sesión vencida (FE-MOV-04, AC-04).
     private fun withoutTokens() = if (sync.hasOpenSession) PreferencesResult.Unavailable else PreferencesResult.Unauthorized

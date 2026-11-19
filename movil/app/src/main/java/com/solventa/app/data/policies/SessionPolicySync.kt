@@ -156,6 +156,7 @@ class SessionPolicySync(
                     return save(current, result.policies, claims(current))
                 }
                 PoliciesResult.Unavailable -> return SyncOutcome.Failed
+                PoliciesResult.IdentityInReview -> return SyncOutcome.IdentityInReview
                 PoliciesResult.Unauthorized -> {
                     if (renewed) return end(current, SessionEndReason.EXPIRED)
                     when (val step = renew(current)) {

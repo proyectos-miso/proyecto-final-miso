@@ -175,6 +175,24 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/siniestros/*"
       },
       {
+        # Imágenes de identidad del registro (mejora FE-MOV-01): solo mientras la verificación está pendiente. El bucket
+        # tiene versionado: borrarlas de verdad exige borrar cada versión y cada marcador de borrado.
+        Sid      = "ImagenesDeIdentidad"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]
+        Resource = "${var.s3_bucket_arn}/identidad/*"
+      },
+      {
+        # Listar las versiones solo bajo identidad/: el backend lista el prefijo de una verificación para borrarla.
+        Sid      = "VersionesDeIdentidad"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucketVersions"]
+        Resource = var.s3_bucket_arn
+        Condition = {
+          StringLike = { "s3:prefix" = ["identidad/", "identidad/*"] }
+        }
+      },
+      {
         # Publicador del outbox (HU-MOV-10, RC-14): solo envía a la cola de eventos.
         Sid      = "PublicarEventos"
         Effect   = "Allow"
@@ -182,6 +200,14 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = var.sqs_queue_arn
       },
       {
+        # Consumidor del outbox (ADR 0030): lee, aplaza el reintento y borra los mensajes de la misma cola.
+        Sid      = "ConsumirEventos"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility"]
+        Resource = var.sqs_queue_arn
+      },
+      {
+        # La misma llave cifra el bucket y la cola: Decrypt también sirve para leer los mensajes.
         Sid      = "LlaveDelBucket"
         Effect   = "Allow"
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]

@@ -119,19 +119,39 @@ data class ClaimReceiptEntity(
     val reportedAtEpochMillis: Long,
 )
 
+/** Última lista de prestadores en JSON, para verla sin conexión (mejora FE-MOV-07). */
+@Entity(tableName = "providers_copy")
+data class ProvidersCopyEntity(
+    @PrimaryKey val id: Int = 0,
+    val json: String,
+    val cityCode: String?,
+    val savedAtEpochMillis: Long,
+)
+
+@Dao
+interface ProvidersCopyDao {
+    @Query("SELECT * FROM providers_copy WHERE id = 0")
+    suspend fun read(): ProvidersCopyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun save(copy: ProvidersCopyEntity)
+}
+
 // Versión 3 (HU-MOV-11): siniestros y avisos. La copia es un caché; una migración destructiva solo obliga a sincronizar.
 // Versión 4 (HU-MOV-10): la constancia, que no se vuelve a descargar, llega con una migración que conserva los datos.
+// Versión 5 (mejora FE-MOV-07): la copia de prestadores, con una migración que conserva lo anterior.
 @Database(
     entities = [
         PolicyCardEntity::class, WalletMetaEntity::class, InsuredClaimEntity::class, ClaimsMetaEntity::class, SentNoticeEntity::class,
-        ClaimReceiptEntity::class,
+        ClaimReceiptEntity::class, ProvidersCopyEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class WalletDatabase : RoomDatabase() {
     abstract fun policyCards(): PolicyCardDao
     abstract fun claims(): InsuredClaimDao
+    abstract fun providers(): ProvidersCopyDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -139,6 +159,15 @@ abstract class WalletDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `claim_receipt` (`id` INTEGER NOT NULL, `claimNumber` TEXT NOT NULL, " +
                         "`provisionalNumber` TEXT NOT NULL, `policyNumber` TEXT, `reportedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `providers_copy` (`id` INTEGER NOT NULL, `json` TEXT NOT NULL, `cityCode` TEXT, " +
+                        "`savedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
                 )
             }
         }

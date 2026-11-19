@@ -4,6 +4,8 @@ from pydantic import SecretStr, ValidationError, field_validator, model_validato
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MIN_KEY_LENGTH = 32
+# Ambientes donde el verificador de identidad simulado decide y el registro desde la app abre por defecto (mejora FE-MOV-01).
+SIMULATION_ENVIRONMENTS = frozenset({"development", "local", "test"})
 
 
 class Settings(BaseSettings):
@@ -57,6 +59,9 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_JSON: Optional[str] = None
     # Llave compartida con el oráculo de eventos para firmar los eventos paramétricos (HU-MOV-10, RC-26).
     ORACLE_SECRET: Optional[SecretStr] = None
+    # Registro desde la app con documento y selfie (mejora FE-MOV-01). Sin valor, solo abre en SIMULATION_ENVIRONMENTS:
+    # sin un proveedor real de verificación, en otro ambiente guardaría datos biométricos que nadie decide.
+    REGISTRATION_ENABLED: Optional[bool] = None
 
     @field_validator("JWT_SECRET_KEY", "OTP_SECRET_KEY")
     @classmethod
@@ -83,6 +88,17 @@ class Settings(BaseSettings):
     def debug_enabled(self) -> bool:
         """Código de prueba en respuestas, cuentas sembradas y documentación interactiva."""
         return self.ENVIRONMENT != "production"
+
+    @property
+    def simulated_identity_decides(self) -> bool:
+        """El verificador simulado solo aprueba o rechaza en una lista cerrada de ambientes; en otro todo queda PENDING."""
+        return self.ENVIRONMENT in SIMULATION_ENVIRONMENTS
+
+    @property
+    def registration_enabled(self) -> bool:
+        if self.REGISTRATION_ENABLED is not None:
+            return self.REGISTRATION_ENABLED
+        return self.ENVIRONMENT in SIMULATION_ENVIRONMENTS
 
     @model_validator(mode="after")
     def assemble_db_connection(self) -> "Settings":

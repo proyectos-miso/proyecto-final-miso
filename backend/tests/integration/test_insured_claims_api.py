@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, insert, select
 
+from app.core.outbox import OutboxMessageDB
 from app.core.security import create_access_token
 from app.core.storage import StorageUnavailableError, get_document_storage
 from app.main import app
@@ -14,6 +15,7 @@ from app.modules.claims.models import ClaimDB, ClaimEventDB
 from app.modules.notifications.service import NotificationService, PushTokenDB
 from app.modules.policy.models import CaratulaLink, PolicyDB, PolicyEventDB
 from app.modules.policy.operations import policy_operations
+from app.modules.rating.models import PartnerDB
 from tests.integration.test_insured_policies_api import MARIA_DOCUMENT, OTHER_DOCUMENT, add_policy, insured_headers
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("seeded_insured")]
@@ -121,6 +123,23 @@ async def test_renovar_poliza_de_otra_persona_responde_404(async_client: AsyncCl
     assert response.status_code == 404
 
 
+async def test_la_app_no_renueva_la_poliza_vencida_de_un_socio_en_sandbox(async_client: AsyncClient, postgres_session):
+    postgres_session.add(PartnerDB(partner_id="socio-sandbox-1", client_id="client_socio_sandbox", client_secret_hash="no-aplica",
+                                   name="Socio en Sandbox", status="ACTIVE", quota_limit=10, quota_used=0, environment="sandbox"))
+    await add_policy(postgres_session, "POL-2026-11014", MARIA_DOCUMENT, "EXPIRED", NOW - timedelta(days=3))
+    policy = await postgres_session.get(PolicyDB, "POL-2026-11014")
+    policy.partner_id = "socio-sandbox-1"
+    await postgres_session.commit()
+
+    response = await async_client.post("/api/v1/insured/policies/POL-2026-11014/renewal", headers=insured_headers())
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Un socio en sandbox no emite pólizas reales"
+    postgres_session.expire_all()
+    policy = await postgres_session.get(PolicyDB, "POL-2026-11014")
+    assert policy.status == "EXPIRED" and policy.valid_until == NOW - timedelta(days=3)
+
+
 async def test_vencida_pasa_a_expired_y_al_renovar_vuelve_a_emitida(postgres_session):
     await add_policy(postgres_session, "POL-2026-11008", MARIA_DOCUMENT, "ACTIVE", NOW - timedelta(days=1))
 
@@ -133,15 +152,14 @@ async def test_vencida_pasa_a_expired_y_al_renovar_vuelve_a_emitida(postgres_ses
 
 async def test_aviso_de_vencimiento_se_envia_una_sola_vez(postgres_session):
     await add_policy(postgres_session, "POL-2026-11009", MARIA_DOCUMENT, "ACTIVE", NOW + timedelta(days=20))
-    sent = []
 
-    async def notify(session, document, policy_number, valid_until):
-        sent.append((document, policy_number))
+    await policy_operations.remind_renewals(postgres_session)
+    await policy_operations.remind_renewals(postgres_session)
 
-    await policy_operations.remind_renewals(postgres_session, notify)
-    await policy_operations.remind_renewals(postgres_session, notify)
-
-    assert sent == [(MARIA_DOCUMENT, "POL-2026-11009")]
+    events = list(await postgres_session.scalars(
+        select(OutboxMessageDB).where(OutboxMessageDB.event_type == "RenewalDue")
+    ))
+    assert [(e.aggregate_id, e.payload) for e in events] == [("POL-2026-11009", {"policy_number": "POL-2026-11009", "version": 1})]
     reminders = await postgres_session.scalar(
         select(func.count()).select_from(PolicyEventDB).where(PolicyEventDB.kind == "RENEWAL_REMINDER")
     )

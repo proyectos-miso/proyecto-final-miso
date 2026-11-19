@@ -4,7 +4,10 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import com.solventa.app.data.assistance.ProvidersJson
 import com.solventa.app.data.claims.ClaimsJson
+import com.solventa.app.domain.assistance.ProvidersCopy
+import com.solventa.app.domain.assistance.ProvidersCopyStore
 import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.claims.InsuredClaim
@@ -39,7 +42,7 @@ class EncryptedPolicyStore(
     private val vault: PassphraseVault,
     // La app siempre cifra con SQLCipher; las pruebas en la JVM pasan SQLite sin cifrar para probar el flujo.
     private val openHelper: (ByteArray) -> SupportSQLiteOpenHelper.Factory = ::sqlcipher,
-) : PolicyStore, ReceiptKeeper {
+) : PolicyStore, ReceiptKeeper, ProvidersCopyStore {
 
     // Un turno por cuenta: read, save y delete de la misma cuenta no se cruzan (CTL-10).
     private val turns = ConcurrentHashMap<String, Mutex>()
@@ -120,6 +123,22 @@ class EncryptedPolicyStore(
         db.claims().deleteReceipt() > 0
     }
 
+    override suspend fun saveProviders(accountEmail: String, copy: ProvidersCopy): Boolean = withExisting(accountEmail, false) { db ->
+        db.providers().save(ProvidersCopyEntity(json = ProvidersJson.toJson(copy.providers).toString(), cityCode = copy.cityCode,
+            savedAtEpochMillis = copy.savedAt.toEpochMilli()))
+        true
+    }
+
+    override suspend fun readProviders(accountEmail: String): ProvidersCopy? = withExisting(accountEmail, null) { db ->
+        db.providers().read()?.let { entity ->
+            try {
+                ProvidersCopy(ProvidersJson.providers(JSONArray(entity.json)), entity.cityCode, Instant.ofEpochMilli(entity.savedAtEpochMillis))
+            } catch (e: JSONException) {
+                null
+            }
+        }
+    }
+
     private suspend fun <T> withExisting(accountEmail: String, otherwise: T, block: suspend (WalletDatabase) -> T): T =
         withExistingId(PassphraseVault.accountId(accountEmail), otherwise, block)
 
@@ -193,7 +212,7 @@ class EncryptedPolicyStore(
         return try {
             db = Room.databaseBuilder(context, WalletDatabase::class.java, fileName(accountId))
                 .openHelperFactory(openHelper(passphrase))
-                .addMigrations(WalletDatabase.MIGRATION_3_4)
+                .addMigrations(WalletDatabase.MIGRATION_3_4, WalletDatabase.MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
             Opened.Done(block(db))

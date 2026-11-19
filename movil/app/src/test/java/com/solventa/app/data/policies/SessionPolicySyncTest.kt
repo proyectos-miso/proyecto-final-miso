@@ -397,4 +397,15 @@ class SessionPolicySyncTest {
         const val EMAIL = "asegurada@example.com"
         const val OTHER = "otra.cuenta@example.com"
     }
+
+    @Test
+    fun `un 403 de identidad en verificacion responde IdentityInReview y conserva la sesion`() = runTest {
+        session.start(EMAIL, old)
+        policies.respond = { PoliciesResult.IdentityInReview }
+
+        assertEquals(SyncOutcome.IdentityInReview, sync.sync(online = true))
+        assertEquals(old, session.activeSession)
+        assertEquals(0, auth.refreshed.size)
+        assertTrue(store.copies.isEmpty())
+    }
 }

@@ -7,6 +7,7 @@ from typing import Callable, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.outbox import OutboxMessageDB
 from app.modules.claims.models import ClaimDB, ClaimEventDB
 from app.modules.payments.models import PaymentTransactionDB, PayoutDB
 from app.modules.payments.payouts import Payee, payout_service
@@ -21,6 +22,7 @@ from app.modules.policy.models import (
 )
 from app.modules.policy.search import mask_document
 from app.modules.policy.service import included_coverages, insured_amount, one_year_after
+from app.modules.rating.partners import PartnerBlockedError, ensure_partner_can_issue
 
 CLOSED = ("CANCELLED", "TERMINATED")
 RENEWAL_WINDOW = timedelta(days=30)
@@ -127,13 +129,19 @@ class PolicyOperations:
 
     async def renew(self, session: AsyncSession, policy_number: str, actor: str) -> PolicyOperationResult:
         """Un año más desde el fin de la vigencia actual, con la misma prima (HU-MOV-11, RC-24).
-        Si ya había vencido, el periodo nuevo queda pendiente de pago hasta que el asesor lo cobre."""
+        Si ya había vencido, el periodo nuevo queda pendiente de pago hasta que el asesor lo cobre.
+        No renueva la póliza de un socio revocado, inexistente o en sandbox: no se podría cobrar (FE-WEB-05)."""
         policy = await session.scalar(
             select(PolicyDB).where(PolicyDB.policy_number == policy_number).with_for_update()
         )
         now = self.now()
         if policy.status in CLOSED or policy.valid_until - now > RENEWAL_WINDOW:
             raise NotRenewableError()
+        try:
+            await ensure_partner_can_issue(session, policy.partner_id)
+        except PartnerBlockedError:
+            await session.rollback()
+            raise
         before = {"valid_until": policy.valid_until.isoformat(), "status": policy.status}
         policy.valid_until = one_year_after(policy.valid_until)
         if policy.status == "EXPIRED":
@@ -166,8 +174,9 @@ class PolicyOperations:
         await session.commit()
         return len(due)
 
-    async def remind_renewals(self, session: AsyncSession, notify) -> int:
-        """Avisa una sola vez por versión a las pólizas vigentes que vencen en 30 días o menos (RC-27)."""
+    async def remind_renewals(self, session: AsyncSession) -> int:
+        """Avisa una sola vez por versión a las pólizas vigentes que vencen en 30 días o menos (RC-27); el push lo envía
+        el consumidor del outbox a partir de RenewalDue (ADR 0030)."""
         now = self.now()
         reminded = select(PolicyEventDB.policy_number).where(
             PolicyEventDB.kind == "RENEWAL_REMINDER", PolicyEventDB.version == PolicyDB.version
@@ -183,9 +192,9 @@ class PolicyOperations:
                 policy_number=policy.policy_number, kind="RENEWAL_REMINDER", version=policy.version or 1,
                 actor=AUTOMATIC, justification=f"Vence el {policy.valid_until:%d/%m/%Y}.", created_at=now,
             ))
+            session.add(OutboxMessageDB(aggregate_id=policy.policy_number, event_type="RenewalDue",
+                                        payload={"policy_number": policy.policy_number, "version": policy.version or 1}))
         await session.commit()
-        for policy in due:
-            await notify(session, policy.insured_document, policy.policy_number, policy.valid_until)
         return len(due)
 
     def terminate(self, session: AsyncSession, policy: PolicyDB, claim_number: str, actor: str) -> None:

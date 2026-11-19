@@ -87,4 +87,13 @@ class HttpPoliciesApiTest {
 
         assertEquals(PoliciesResult.Unavailable, api.activePolicies("token"))
     }
+
+    @Test
+    fun `403 con IDENTITY_IN_REVIEW es identidad en verificacion y no sin conexion`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\": \"Estamos verificando su identidad.\", \"code\": \"IDENTITY_IN_REVIEW\"}"))
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\": \"Prohibido\"}"))
+
+        assertEquals(PoliciesResult.IdentityInReview, api.activePolicies("token"))
+        assertEquals(PoliciesResult.Unavailable, api.activePolicies("token"))
+    }
 }

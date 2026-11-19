@@ -21,7 +21,10 @@ interface PolicySyncHost {
     val policySync: PolicySync
 }
 
-/** Sincroniza cuando hay red; si falla, WorkManager reintenta con espera exponencial (HU-MOV-07). */
+/**
+ * Sincroniza cuando hay red; si falla, WorkManager reintenta con espera exponencial (HU-MOV-07). Con la identidad
+ * en verificación termina: reintentar no la aprueba.
+ */
 class PolicySyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     // Una excepción no llega a logcat: WorkManager registra las que escapan con su mensaje (CTL-02).

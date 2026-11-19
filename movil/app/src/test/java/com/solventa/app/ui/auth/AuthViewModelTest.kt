@@ -1255,6 +1255,49 @@ class AuthViewModelTest {
         assertEquals(300, viewModel.uiState.value.lockedSeconds)
     }
 
+    // Mejora FE-MOV-01: registro con documento y selfie
+
+    @Test
+    fun `crear cuenta abre el registro y cerrarlo vuelve al ingreso`() {
+        viewModel.openRegistration()
+        assertTrue(viewModel.uiState.value.showRegistration)
+
+        viewModel.closeRegistration()
+
+        assertFalse(viewModel.uiState.value.showRegistration)
+        assertFalse(viewModel.uiState.value.isAuthenticated)
+    }
+
+    @Test
+    fun `la cuenta registrada abre su sesion y ofrece activar la huella`() {
+        viewModel.openRegistration()
+
+        viewModel.completeRegistration(" Nueva.Persona@Example.com ", newTokens, "Ana Prueba", FakeBiometricAuthenticator())
+
+        val state = viewModel.uiState.value
+        assertFalse(state.showRegistration)
+        assertTrue(state.offerBiometricEnrollment)
+        assertEquals("nueva.persona@example.com", state.currentAccountEmail)
+        assertEquals("Ana Prueba", state.fullName)
+        assertEquals(newTokens, repository.activeSession)
+
+        viewModel.skipBiometricEnrollment()
+        assertTrue(viewModel.uiState.value.isAuthenticated)
+    }
+
+    @Test
+    fun `sin sensor la cuenta registrada entra directo a la billetera`() {
+        viewModel.completeRegistration(
+            "nueva.persona@example.com", newTokens, "Ana Prueba",
+            FakeBiometricAuthenticator(availability = BiometricAvailability.UNAVAILABLE),
+        )
+
+        val state = viewModel.uiState.value
+        assertTrue(state.isAuthenticated)
+        assertFalse(state.offerBiometricEnrollment)
+        assertEquals(AuthStatus.AUTHENTICATED, state.status)
+    }
+
     private inner class FakeAuthApi : AuthApi {
         var otpResult: OtpResult = OtpResult.Sent(debugCode = null)
         var forgotResult: OtpResult = OtpResult.Sent(debugCode = null)

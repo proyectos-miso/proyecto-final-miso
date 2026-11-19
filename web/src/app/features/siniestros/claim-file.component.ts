@@ -120,6 +120,25 @@ const OPEN = ['REPORTED', 'IN_REVIEW'];
           </ul>
         }
 
+        <h2 id="documentsTitle">Documentos del asegurado ({{ c.documents.length }})</h2>
+        @if (c.documents.length === 0) {
+          <p class="none">El asegurado no ha agregado documentos.</p>
+        } @else {
+          <ul class="items" aria-labelledby="documentsTitle" data-testid="documents">
+            @for (doc of c.documents; track doc.document_id) {
+              <li>
+                @if (doc.url) {
+                  <a [href]="doc.url" target="_blank" rel="noopener noreferrer">Envío del {{ doc.uploaded_at | date: 'dd/MM/yyyy HH:mm' }}, página {{ doc.position }}<span class="sr-only"> (se abre en otra pestaña)</span></a>
+                } @else {
+                  <span>Envío del {{ doc.uploaded_at | date: 'dd/MM/yyyy HH:mm' }}, página {{ doc.position }} · enlace no disponible</span>
+                }
+                <span class="sub">Imagen JPEG · {{ doc.size_bytes / 1024 | number: '1.0-0' }} KB</span>
+              </li>
+            }
+          </ul>
+          <p class="readonly">Los enlaces vencen en 15 minutos; recargue el expediente para obtener unos nuevos.</p>
+        }
+
         <h2>Historial</h2>
         <ol class="history">
           @for (event of c.events; track $index) {
@@ -220,6 +239,7 @@ const OPEN = ['REPORTED', 'IN_REVIEW'];
     </section>
   `,
   styles: [`
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .file { max-width: 1000px; margin: 0 auto; padding: 24px; }
     .back { color: var(--marca-600); font-size: var(--t-sm); display: inline-flex; min-height: 24px; align-items: center; }
     h1 { font-size: var(--t-xl); margin: 8px 0; color: var(--texto); }

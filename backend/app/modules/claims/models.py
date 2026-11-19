@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, Sequence, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, Sequence, String, Text, UniqueConstraint
 
 from app.core.database import Base
 from app.core.immutable import make_immutable
@@ -52,6 +52,23 @@ class ClaimPhotoDB(Base):
     mock_location = Column(Boolean, nullable=False, default=False)
     captured_at = Column(DateTime(timezone=True), nullable=False)
     trusted_time_source = Column(String(16), nullable=True)
+
+
+class ClaimDocumentDB(Base):
+    """Página de un documento que el asegurado agregó al siniestro abierto (mejora FE-MOV-05)."""
+    __tablename__ = "claim_documents"
+    __table_args__ = (UniqueConstraint("upload_id", "position", name="uq_claim_documents_upload_position"),)
+
+    document_id = Column(String(36), primary_key=True)
+    claim_number = Column(String(20), ForeignKey("claims.claim_number"), nullable=False, index=True)
+    # Identificador del envío en el teléfono: el mismo envío repetido no duplica las páginas.
+    upload_id = Column(String(36), nullable=False)
+    position = Column(Integer, nullable=False)
+    s3_key = Column(String(160), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    content_type = Column(String(32), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class ClaimEventDB(Base):
@@ -115,6 +132,16 @@ class ClaimPhoto(BaseModel):
     integrity: Literal["INTACT", "ALTERED", "UNVERIFIED"]
 
 
+class ClaimDocument(BaseModel):
+    document_id: str
+    upload_id: str
+    position: int
+    content_type: str
+    size_bytes: int
+    uploaded_at: datetime
+    url: Optional[str] = None
+
+
 class ClaimEvent(BaseModel):
     kind: str
     actor: str
@@ -164,6 +191,7 @@ class ClaimDetail(BaseModel):
     expert: Optional[Expert] = None
     settled_amount: Optional[float] = None
     photos: List[ClaimPhoto]
+    documents: List[ClaimDocument] = []
     events: List[ClaimEvent]
     payouts: List[ClaimPayout]
 

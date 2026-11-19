@@ -6,6 +6,7 @@ import com.solventa.app.domain.claims.ClaimsCopy
 import com.solventa.app.domain.claims.ClaimsResult
 import com.solventa.app.domain.claims.InsuredClaim
 import com.solventa.app.domain.policies.CaratulaResult
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.Notice
 import com.solventa.app.domain.policies.NotificationPoster
@@ -261,6 +262,15 @@ class FakePolicyActions : PolicyActions {
     override suspend fun savePushPreferences(preferences: PushPreferences): PreferencesResult {
         saved += preferences
         return saveResult(preferences)
+    }
+
+    /** Revocación de la autorización biométrica (mejora FE-MOV-01). */
+    var revocation: ConsentRevocationResult = ConsentRevocationResult.Revoked
+    var revocations = 0
+
+    override suspend fun revokeBiometricConsent(): ConsentRevocationResult {
+        revocations++
+        return revocation
     }
 }
 

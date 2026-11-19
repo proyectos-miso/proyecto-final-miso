@@ -1,8 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
+import { of } from 'rxjs';
 import { AppComponent } from './app.component';
 import { AuthService } from './core/auth/auth.service';
+import { OperatorService } from './core/operator/operator.service';
 import { UserSession } from './core/models/auth.model';
 
 describe('AppComponent (HU-WEB-13)', () => {
@@ -13,6 +15,8 @@ describe('AppComponent (HU-WEB-13)', () => {
     currentSession: typeof currentSessionSignal;
     logout: ReturnType<typeof vi.fn>;
   };
+  const solventa = signal(false);
+  const operatorSpy = { solventa, isSolventa: vi.fn(() => of(solventa())) };
 
   beforeEach(async () => {
     currentSessionSignal = signal<UserSession | null>(null);
@@ -26,6 +30,7 @@ describe('AppComponent (HU-WEB-13)', () => {
       providers: [
         provideRouter([]),
         { provide: AuthService, useValue: authServiceSpy },
+        { provide: OperatorService, useValue: operatorSpy },
       ],
     }).compileComponents();
 
@@ -84,5 +89,44 @@ describe('AppComponent (HU-WEB-13)', () => {
     logoutBtn.click();
 
     expect(authServiceSpy.logout).toHaveBeenCalled();
+  });
+
+  it('FE-WEB-05 y FE-WEB-07 las pestañas Socios y Operación solo aparecen para el analista de Solventa', () => {
+    const analyst: UserSession = {
+      accessToken: 'token',
+      refreshToken: 'refresh',
+      tokenType: 'bearer',
+      role: 'analyst',
+      advisorName: 'Analista de Prueba',
+    };
+    solventa.set(false);
+    currentSessionSignal.set(analyst);
+    fixture.detectChanges();
+    const links = () => Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('nav a')).map((a) => a.textContent?.trim());
+    expect(operatorSpy.isSolventa).toHaveBeenCalled();
+    expect(links()).toEqual(['Pólizas', 'Siniestros']);
+
+    solventa.set(true);
+    fixture.detectChanges();
+    expect(links()).toEqual(['Pólizas', 'Siniestros', 'Socios', 'Auditoría', 'Operación']);
+  });
+
+  it('FE-WEB-08 la pestaña Auditoría solo aparece para el analista de Solventa y lleva a /auditoria', () => {
+    currentSessionSignal.set({
+      accessToken: 'token',
+      refreshToken: 'refresh',
+      tokenType: 'bearer',
+      role: 'analyst',
+      advisorName: 'Analista de Prueba',
+    });
+    solventa.set(false);
+    fixture.detectChanges();
+    const audit = () =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('nav a')).find((a) => a.textContent?.trim() === 'Auditoría');
+    expect(audit()).toBeUndefined();
+
+    solventa.set(true);
+    fixture.detectChanges();
+    expect(audit()?.getAttribute('href')).toBe('/auditoria');
   });
 });

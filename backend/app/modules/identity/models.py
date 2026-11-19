@@ -1,7 +1,8 @@
 """Modelos de identidad del asegurado para el canal móvil."""
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class OtpRequest(BaseModel):
@@ -66,3 +67,44 @@ class LockedResponse(BaseModel):
     detail: str
     locked_until: datetime
     retry_after: int
+
+
+# Registro desde la app con documento y selfie (mejora FE-MOV-01).
+DOCUMENT_NUMBER = r"^[0-9A-Z]{5,12}$"
+MOBILE_PHONE = r"^(\+57)?3\d{9}$"
+
+
+class _DocumentFields(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    document_type: Literal["CC", "CE", "PA"]
+    document_number: str = Field(..., pattern=DOCUMENT_NUMBER, json_schema_extra={"example": "1098765432"})
+    phone: str = Field(..., pattern=MOBILE_PHONE, json_schema_extra={"example": "3000000000"})
+
+    @field_validator("phone")
+    @classmethod
+    def with_country_code(cls, phone: str) -> str:
+        return phone if phone.startswith("+57") else f"+57{phone}"
+
+    @model_validator(mode="after")
+    def numeric_cc(self):
+        if self.document_type == "CC" and not self.document_number.isdigit():
+            raise ValueError("La cédula de ciudadanía solo lleva números.")
+        return self
+
+
+class RegistrationOtpRequest(_DocumentFields):
+    pass
+
+
+class RegistrationData(_DocumentFields):
+    email: str = Field(..., min_length=6, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    full_name: str = Field(..., min_length=3, max_length=150)
+    password: str = Field(..., min_length=1, max_length=128)
+    otp_code: str = Field(..., pattern=r"^\d{6}$")
+    terms_accepted: Literal[True]
+    biometric_consent_accepted: Literal[True]
+
+
+class RegistrationResult(TokenPair):
+    verification_status: Literal["APPROVED", "PENDING"]

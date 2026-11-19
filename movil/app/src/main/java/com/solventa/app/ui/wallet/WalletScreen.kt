@@ -93,6 +93,7 @@ fun WalletScreen(
     onOpenReceipt: ((String) -> Unit)? = null,
     onDismissReceipt: () -> Unit = {},
     onOpenNotices: (() -> Unit)? = null,
+    onOpenAssistance: (() -> Unit)? = null,
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -105,7 +106,9 @@ fun WalletScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "greeting") { Greeting(fullName, uiState) }
-        if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
+        if (uiState.identityInReview) {
+            item(key = "identityInReview") { WarningBanner(stringResource(R.string.identity_in_review), icon = R.drawable.ic_shield) }
+        } else if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
             item(key = "offline") { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
         if (uiState.stale) {
@@ -189,6 +192,12 @@ fun WalletScreen(
         }
         if (onOpenClaims != null && !uiState.loading) {
             item(key = "claims") { SecondaryButton(stringResource(R.string.claims_open_button), onOpenClaims, Modifier.fillMaxWidth()) }
+        }
+        // Prestadores y asistencia (mejora FE-MOV-07).
+        if (onOpenAssistance != null && !uiState.loading) {
+            item(key = "assistance") {
+                SecondaryButton(stringResource(R.string.assistance_open_button), onOpenAssistance, Modifier.fillMaxWidth())
+            }
         }
         // Preferencias de avisos (FE-MOV-04).
         if (onOpenNotices != null && !uiState.loading) {

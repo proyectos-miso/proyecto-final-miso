@@ -17,6 +17,8 @@ from app.modules.claims.models import (
     ClaimDB,
     ClaimDecisionRequest,
     ClaimDetail,
+    ClaimDocument,
+    ClaimDocumentDB,
     ClaimEvent,
     ClaimEventDB,
     ClaimList,
@@ -28,7 +30,6 @@ from app.modules.claims.models import (
     ExpertDB,
 )
 from app.modules.claims.parametric import ParametricRule, matching_rule
-from app.modules.notifications.service import notification_service
 from app.modules.payments.payouts import Payee, payout_service
 from app.modules.policy.detail import mask_phone
 from app.modules.policy.models import PolicyDB
@@ -37,6 +38,8 @@ from app.modules.policy.search import mask_document
 from app.modules.policy.service import included_coverages
 
 LIST_LIMIT = 50
+# Cambios de estado que el asegurado debe conocer: el consumidor del outbox los convierte en push (ADR 0030).
+NOTIFIED_KINDS = ("ASSIGNED", "REJECTED", "SETTLED", "PAID")
 PHOTO_LINK_SECONDS = 900
 DEATH = "death"
 DEFAULT_EXPERTS = [
@@ -122,6 +125,9 @@ class ClaimService:
             raise ClaimNotFoundError()
         return row
 
+    async def status_of(self, session: AsyncSession, claim_number: str) -> Optional[str]:
+        return await session.scalar(select(ClaimDB.status).where(ClaimDB.claim_number == claim_number))
+
     async def detail(
         self, session: AsyncSession, storage: DocumentStorage, claim_number: str, partner_id: Optional[str]
     ) -> ClaimDetail:
@@ -131,6 +137,10 @@ class ClaimService:
                      for c in included_coverages(policy.conditions)]
         photos = await session.scalars(
             select(ClaimPhotoDB).where(ClaimPhotoDB.claim_number == claim_number).order_by(ClaimPhotoDB.position)
+        )
+        documents = await session.scalars(
+            select(ClaimDocumentDB).where(ClaimDocumentDB.claim_number == claim_number)
+            .order_by(ClaimDocumentDB.uploaded_at, ClaimDocumentDB.position)
         )
         events = await session.scalars(
             select(ClaimEventDB).where(ClaimEventDB.claim_number == claim_number).order_by(ClaimEventDB.id)
@@ -156,6 +166,7 @@ class ClaimService:
             expert=Expert(expert_id=expert.expert_id, name=expert.name, city=expert.city) if expert else None,
             settled_amount=claim.settled_amount,
             photos=[await self.verified(storage, photo) for photo in photos],
+            documents=[await self.linked(storage, document) for document in documents],
             events=[
                 ClaimEvent(kind=e.kind, actor=e.actor, justification=e.justification, amount=e.amount,
                            created_at=e.created_at)
@@ -182,6 +193,19 @@ class ClaimService:
             captured_at=photo.captured_at, trusted_time=photo.trusted_time_source is not None, integrity=integrity,
         )
 
+    @staticmethod
+    async def linked(storage: DocumentStorage, document: ClaimDocumentDB) -> ClaimDocument:
+        """Documento agregado desde la app con un enlace de 15 minutos; sin S3 queda sin enlace (mejora FE-MOV-05)."""
+        try:
+            url = await storage.view_url(document.s3_key, document.content_type, PHOTO_LINK_SECONDS)
+        except StorageUnavailableError:
+            url = None
+        return ClaimDocument(
+            document_id=document.document_id, upload_id=document.upload_id, position=document.position,
+            content_type=document.content_type, size_bytes=document.size_bytes, uploaded_at=document.uploaded_at,
+            url=url,
+        )
+
     async def seed_experts(self, session: AsyncSession) -> None:
         """Catálogo inicial de peritos por ciudad; no se repite si ya existe."""
         if await session.scalar(select(ExpertDB).limit(1)) is not None:
@@ -199,17 +223,15 @@ class ClaimService:
 
     def event(self, session: AsyncSession, claim: ClaimDB, kind: str, actor: str, **fields) -> None:
         session.add(ClaimEventDB(claim_number=claim.claim_number, kind=kind, actor=actor, created_at=self.now(), **fields))
-        session.info.setdefault("claim_notices", []).append((claim.policy_number, claim.claim_number, kind))
+        if kind in NOTIFIED_KINDS:
+            # En la misma transacción que el cambio; el aviso sale después, fuera de la petición (HU-MOV-11).
+            session.add(OutboxMessageDB(
+                aggregate_id=claim.claim_number, event_type="ClaimStatusChanged",
+                payload={"claim_number": claim.claim_number, "policy_number": claim.policy_number, "kind": kind},
+            ))
 
     async def commit(self, session: AsyncSession) -> None:
-        """Confirma y después avisa al asegurado; el aviso nunca deshace ni frena la decisión (HU-MOV-11)."""
         await session.commit()
-        for policy_number, claim_number, kind in session.info.pop("claim_notices", []):
-            document = await session.scalar(
-                select(PolicyDB.insured_document).where(PolicyDB.policy_number == policy_number)
-            )
-            if document:
-                await notification_service.claim_changed(session, document, claim_number, kind)
 
     async def assign(
         self, session: AsyncSession, claim_number: str, request: ClaimAssignRequest, actor: str,
