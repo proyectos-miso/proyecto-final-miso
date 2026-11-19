@@ -39,7 +39,6 @@
 | EV-03 | Build sin scripts inline | SR-03, CTL-03, TC-03 | web/angular.json | AVAILABLE |
 | EV-05 | Prueba del plan sin infraestructura | TC-09 | terraform/tests/plan_desde_cero.tftest.hcl | AVAILABLE |
 | EV-04 | Verificación tras el despliegue | SR-01, SR-02, TC-04 | terraform/modules/alb/main.tf, terraform/modules/web_hosting/main.tf | AVAILABLE |
-| EV-06 | Certificado ACM y listener 443 con TLS 1.2+ | SR-01, CTL-08, TC-10 | terraform/modules/alb/main.tf | AVAILABLE |
 
 ## Closeout
 
@@ -56,4 +55,3 @@
 | AC-05 | MET | terraform/modules/web_hosting/spa-routing.js:1-25 |
 | AC-06 | MET | web/angular.json:45-55 |
 | AC-07 | MET | terraform/tests/plan_desde_cero.tftest.hcl:1-11 |
-| AC-08 | MET | terraform/modules/alb/main.tf:83-115, terraform/modules/web_hosting/main.tf:30-45 |

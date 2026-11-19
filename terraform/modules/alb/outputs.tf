@@ -13,7 +13,3 @@ output "target_group_arn" {
 output "alb_security_group_id" {
   value = aws_security_group.alb.id
 }
-
-output "certificate_arn" {
-  value = aws_acm_certificate.alb.arn
-}
