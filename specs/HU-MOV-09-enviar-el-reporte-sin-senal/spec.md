@@ -6,7 +6,7 @@
 | Title | Enviar el reporte sin señal |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/75 |
 | Owner | Juan Camilo Peña |
-| Status | IN_PROGRESS |
+| Status | DONE |
 | Created | 2026-11-13 |
 | Security profile | HIGH |
 
