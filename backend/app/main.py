@@ -1,31 +1,106 @@
 """Punto de entrada principal del backend monolito modular de Solventa."""
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
-from app.core.middleware import TenantContextMiddleware
-from app.core.storage import ensure_emulator_bucket
+from app.core.metrics import LatencyMiddleware
+from app.core.middleware import BodyLimit, BodySizeLimitMiddleware, TenantContextMiddleware
+from app.core.storage import ensure_emulator_bucket, get_document_storage
 from app.bff.experience.router import router as experience_router
+from app.bff.experience.operations_router import router as operations_router
 from app.bff.quote_edge.router import router as quote_edge_router
 from app.bff.auth.router import router as auth_router
-from app.bff.insured.router import router as insured_router
+from app.bff.insured.router import IdentityInReview, identity_in_review_handler, router as insured_router
+from app.bff.oracle.router import router as oracle_router
 from app.modules.auth.models import UserDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.modules.policy.models import PolicyDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.policy.models import PolicyDB, PolicySignatureDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.claims.models import ClaimDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.core.outbox import OutboxMessageDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.core.idempotency import IdempotencyRecordDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.claims.documents import DOCUMENTS_MAX_BODY_BYTES
+from app.modules.claims.intake import REPORT_MAX_BODY_BYTES as CLAIM_REPORT_MAX_BODY_BYTES
+from app.modules.claims.service import claim_service
+from app.modules.claims.oracle import OracleEventDB  # noqa: F401 - registrar tablas
+from app.modules.notifications.service import PushPreferencesDB, PushTokenDB, notification_service  # noqa: F401 - registrar tablas
+from app.modules.policy.operations import policy_operations
+from app.core.migrations import upgrade_database
+from app.core.outbox import (  # noqa: F401 - registrar tablas en Base.metadata
+    PUBLISH_EVERY_SECONDS, OutboxMessageDB, ProcessedMessageDB, events_queue_configured, outbox_consumer, outbox_publisher,
+)
+from app.core.idempotency import IdempotencyRecordDB, purge_expired  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.payments.models import PaymentTransactionDB  # noqa: F401 - registrar tablas en Base.metadata
-from app.modules.profile.models import FinancialEntityDB, CityDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401 - registrar tablas en Base.metadata
 from app.modules.identity import db_models as identity_db_models  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.assistance.models import AssistanceRequestDB, ProviderDB  # noqa: F401 - registrar tablas en Base.metadata
+from app.modules.assistance.service import assistance_service
 from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
 from app.modules.identity.service import insured_auth_service
+from app.modules.identity.adapters import get_identity_verifier
+from app.modules.identity.service_registration import REGISTRATION_MAX_BODY_BYTES, insured_registration_service
 from app.modules.policy.search import create_search_indexes
+
+
+async def run_policy_lifecycle() -> None:
+    """Vence las pólizas sin renovar y avisa las que vencen en 30 días (HU-MOV-11, RC-24 y RC-27)."""
+    async with AsyncSessionLocal() as session:
+        await policy_operations.expire_due(session)
+        await policy_operations.remind_renewals(session)
+
+
+async def run_identity_verifications() -> None:
+    """Vence las verificaciones pendientes de más de 30 días, pide la decisión de las demás y borra sus imágenes (mejora FE-MOV-01)."""
+    async with AsyncSessionLocal() as session:
+        storage = get_document_storage()
+        await insured_registration_service.expire_pending(session, storage)
+        await insured_registration_service.decide_pending(session, storage, get_identity_verifier())
+
+
+async def run_idempotency_purge() -> None:
+    """Borra las respuestas guardadas de más de 24 h, que ya no se repiten (mejora FE-MOV-07, RISK-06)."""
+    async with AsyncSessionLocal() as session:
+        await purge_expired(session)
+
+
+async def publish_outbox() -> None:
+    """Lleva el outbox a SQS cada pocos segundos; una falla deja los mensajes pendientes para la siguiente vuelta."""
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                await outbox_publisher.publish_pending(session)
+        except Exception as exc:
+            print(f"Aviso: no se pudo publicar el outbox: {exc}")
+        await asyncio.sleep(PUBLISH_EVERY_SECONDS)
+
+
+async def consume_outbox() -> None:
+    """Entrega los eventos de la cola a sus manejadores; cada vuelta espera hasta 10 s por mensajes (ADR 0030)."""
+    while True:
+        try:
+            await outbox_consumer.consume(AsyncSessionLocal)
+        except Exception as exc:
+            print(f"Aviso: no se pudo leer la cola de eventos: {type(exc).__name__}")
+            await asyncio.sleep(PUBLISH_EVERY_SECONDS)
+
+
+async def daily_policy_lifecycle() -> None:
+    while True:
+        try:
+            await run_policy_lifecycle()
+        except Exception as exc:
+            print(f"Aviso: no se pudo revisar el vencimiento de las pólizas: {exc}")
+        try:
+            await run_identity_verifications()
+        except Exception as exc:
+            print(f"Aviso: no se pudieron decidir las verificaciones de identidad: {type(exc).__name__}")
+        try:
+            await run_idempotency_purge()
+        except Exception as exc:
+            print(f"Aviso: no se pudieron purgar las llaves de idempotencia: {type(exc).__name__}")
+        await asyncio.sleep(24 * 3600)
 
 
 @asynccontextmanager
@@ -33,28 +108,7 @@ async def lifespan(app: FastAPI):
     """Inicialización de tablas relacionales, usuario asesor y socios B2B semilla (HU-WEB-13, HU-WEB-10)."""
     insured_auth_service.sms  # falla al arrancar si la configuración del SMS está incompleta
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            await conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64)"))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_quotes_partner_id ON quotes (partner_id)"))
-            # HU-WEB-08: socio de la póliza (faltaba desde HU-WEB-14), usuarios ligados a un socio y titular
-            # de la póliza en bases ya creadas.
-            await conn.execute(text(
-                "ALTER TABLE policies ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
-            ))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_partner_id ON policies (partner_id)"))
-            await conn.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id VARCHAR(64) REFERENCES partners(partner_id)"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE policies ADD COLUMN IF NOT EXISTS holder_name VARCHAR(150), "
-                "ADD COLUMN IF NOT EXISTS holder_document_type VARCHAR(8), "
-                "ADD COLUMN IF NOT EXISTS holder_email VARCHAR(254), "
-                "ADD COLUMN IF NOT EXISTS holder_phone VARCHAR(20)"
-            ))
-            # HU-WEB-16: clave de la carátula en S3, vacía hasta el primer pedido.
-            await conn.execute(text("ALTER TABLE policies ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(64)"))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_policies_insured_document ON policies (insured_document)"))
+        await upgrade_database()
         try:
             async with engine.begin() as conn:
                 await create_search_indexes(conn)
@@ -67,13 +121,29 @@ async def lifespan(app: FastAPI):
         async with AsyncSessionLocal() as session:
             await profile_service.seed_default_catalogs(session)
             await rating_service.seed_default_partners(session)
+            await claim_service.seed_experts(session)
             # Después de los socios: el analista de prueba de Banco Aliado se liga a su socio.
             if settings.debug_enabled:
                 await auth_service.seed_default_users(session)
+                # Prestadores ficticios: en producción el catálogo real se carga aparte (mejora FE-MOV-07). Una falla
+                # aquí no impide sembrar la cuenta del asegurado.
+                try:
+                    await assistance_service.seed_providers(session)
+                except Exception as exc:
+                    await session.rollback()
+                    print(f"Aviso: sin prestadores de prueba: {type(exc).__name__}")
             await insured_auth_service.seed_default_account(session)
     except Exception as exc:
         print(f"Aviso de inicialización de base de datos en arranque: {exc}")
+    for event_type, handler in notification_service.event_handlers().items():
+        outbox_consumer.register(event_type, handler)
+    tasks = [asyncio.create_task(daily_policy_lifecycle()), asyncio.create_task(publish_outbox())]
+    if events_queue_configured():
+        tasks.append(asyncio.create_task(consume_outbox()))
     yield
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def docs_urls(enabled: bool) -> dict:
@@ -98,10 +168,30 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    expose_headers=[
+        "Retry-After",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "X-RateLimit-Reset-Time",
+    ],
 )
 
 # 2. Middleware de Contexto Multi-Tenant (ASR-06 / HA-14)
 app.add_middleware(TenantContextMiddleware)
+
+# Latencia de las rutas críticas para el tablero operativo (FE-WEB-07); envuelve a CORS, al contexto y a las rutas.
+app.add_middleware(LatencyMiddleware)
+
+# El más externo, porque se agrega de último: corta los cuerpos con fotos antes de leer el multipart (mejora FE-MOV-01).
+# Un 413 por tamaño no pasa por la latencia ni por CORS.
+BODY_LIMITS = [
+    BodyLimit("POST", f"{settings.API_V1_STR}/auth/register", REGISTRATION_MAX_BODY_BYTES),
+    BodyLimit("POST", f"{settings.API_V1_STR}/insured/claims", CLAIM_REPORT_MAX_BODY_BYTES),
+    # Documentos de un siniestro: diez páginas de 5 MB y el sobrecosto del multipart (mejora FE-MOV-05).
+    BodyLimit("POST", f"{settings.API_V1_STR}/insured/claims/{{claim_number}}/documents", DOCUMENTS_MAX_BODY_BYTES),
+]
+app.add_middleware(BodySizeLimitMiddleware, limits=BODY_LIMITS)
 
 # 3. Endpoint de Sondeo de Salud para AWS ALB (HA-09: cada 5s, umbral 2)
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
@@ -117,9 +207,12 @@ async def health_check():
 
 # 4. Registro de Routers BFF
 app.include_router(experience_router, prefix=settings.API_V1_STR)
+app.include_router(operations_router, prefix=settings.API_V1_STR)
 app.include_router(quote_edge_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(insured_router, prefix=settings.API_V1_STR)
+app.add_exception_handler(IdentityInReview, identity_in_review_handler)
+app.include_router(oracle_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["Root"])

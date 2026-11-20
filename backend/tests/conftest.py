@@ -19,6 +19,18 @@ from app.modules.identity.service import InsuredAuthService, insured_auth_servic
 from app.modules.auth.service import auth_service
 from app.modules.profile.service import profile_service
 from app.modules.rating.service import rating_service
+from app.modules.auth.models import UserDB  # noqa: F401
+from app.modules.rating.models import PartnerDB, QuoteDB  # noqa: F401
+from app.modules.policy.models import PolicyDB, PolicyEventDB, PolicySignatureDB  # noqa: F401
+from app.modules.claims.models import ClaimDB, ClaimPhotoDB, ClaimEventDB, ExpertDB  # noqa: F401
+from app.core.outbox import OutboxMessageDB  # noqa: F401
+from app.core.idempotency import IdempotencyRecordDB  # noqa: F401
+from app.modules.payments.models import PaymentTransactionDB, PayoutDB  # noqa: F401
+from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB  # noqa: F401
+from app.modules.identity import db_models as identity_db_models  # noqa: F401
+from app.modules.assistance.models import AssistanceRequestDB, ProviderDB  # noqa: F401
+from app.modules.underwriting.models import UnderwritingRejectionDB  # noqa: F401
+from tests.db_name import TEST_DATABASE
 
 
 class InMemorySessionTestDouble:
@@ -33,6 +45,8 @@ class InMemorySessionTestDouble:
         self.quotes = {}
         self.policies_by_number = {}
         self.policies_by_quote = {}
+        self.consents_by_id = {}
+        self.consents_by_doc = {}
         self.outbox = []
         self.idempotency_records = {}
 
@@ -137,6 +151,36 @@ class InMemorySessionTestDouble:
             except Exception:
                 return Result([])
 
+        if "from consents" in sql_str:
+            items = list(self.consents_by_id.values())
+            try:
+                params = stmt.compile().params
+            except Exception:
+                params = {}
+            doc_filter = None
+            id_filter = None
+            for k, v in params.items():
+                if "document_number" in k:
+                    doc_filter = v
+                elif "id" in k or k == "id_1":
+                    id_filter = v
+            if id_filter:
+                found = self.consents_by_id.get(id_filter)
+                if found is not None and doc_filter and getattr(found, "document_number", None) != doc_filter:
+                    found = None
+                return Result([found] if found else [])
+            if doc_filter:
+                items = [c for c in items if getattr(c, "document_number", None) == doc_filter]
+
+            def _sort_key(c):
+                dt = getattr(c, "created_at", None)
+                if isinstance(dt, datetime):
+                    return dt.timestamp()
+                return 0.0
+
+            items.sort(key=_sort_key, reverse=True)
+            return Result(items)
+
         if "from quotes" in sql_str:
             try:
                 where_str = str(stmt.whereclause).lower()
@@ -186,12 +230,15 @@ class InMemorySessionTestDouble:
 
     def add(self, obj):
         from app.core.idempotency import IdempotencyRecordDB
-        from app.modules.profile.models import FinancialEntityDB, CityDB
+        from app.modules.profile.models import FinancialEntityDB, CityDB, ConsentDB
         from app.modules.rating.models import PartnerDB, QuoteDB
         from app.modules.policy.models import PolicyDB
         from app.core.outbox import OutboxMessageDB
 
-        if isinstance(obj, FinancialEntityDB):
+        if isinstance(obj, ConsentDB):
+            self.consents_by_id[obj.id] = obj
+            self.consents_by_doc[obj.document_number] = obj
+        elif isinstance(obj, FinancialEntityDB):
             if not getattr(obj, "id", None):
                 obj.id = len(self.financial_entities) + 1
             self.financial_entities[obj.code] = obj
@@ -211,7 +258,7 @@ class InMemorySessionTestDouble:
             self.outbox.append(obj)
         elif isinstance(obj, IdempotencyRecordDB):
             self.idempotency_records[(obj.partner_id, obj.idempotency_key)] = obj
-        else:
+        elif hasattr(obj, "username"):
             self.users[obj.username] = obj
 
     async def delete(self, obj):
@@ -249,6 +296,7 @@ async def test_db_session():
     session = InMemorySessionTestDouble()
     await auth_service.seed_default_users(session)
     await profile_service.seed_default_catalogs(session)
+    await profile_service.seed_default_consents(session)
     await rating_service.seed_default_partners(session)
 
     async def override_db():
@@ -261,17 +309,18 @@ async def test_db_session():
 
 @pytest.fixture
 async def postgres_session():
-    """PostgreSQL real en la base solventa_test, con las tablas recreadas; la API lo usa en lugar del doble."""
-    test_url = make_url(settings.DATABASE_URL).set(database="solventa_test")
+    """PostgreSQL real en la base de pruebas (solventa_test por defecto), con las tablas recreadas; la API lo usa en lugar del doble."""
+    test_url = make_url(settings.DATABASE_URL).set(database=TEST_DATABASE)
     admin = create_async_engine(test_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     async with admin.connect() as conn:
-        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = 'solventa_test'")):
-            await conn.execute(text("CREATE DATABASE solventa_test"))
+        if not await conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": TEST_DATABASE}):
+            await conn.execute(text(f'CREATE DATABASE "{TEST_DATABASE}"'))
     await admin.dispose()
 
     engine = create_async_engine(test_url)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -282,6 +331,7 @@ async def postgres_session():
     app.dependency_overrides[get_db_session] = override_db
     async with sessions() as session:
         await rating_service.seed_default_partners(session)
+        await profile_service.seed_default_consents(session)
         yield session
     await engine.dispose()
 

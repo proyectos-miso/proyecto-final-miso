@@ -21,9 +21,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,7 +48,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
@@ -56,6 +61,9 @@ import androidx.compose.ui.unit.sp
 import com.solventa.app.R
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
+import com.solventa.app.domain.claims.ClaimReceipt
+import com.solventa.app.ui.claims.OfficialReceiptCard
+import com.solventa.app.ui.claims.ReportEntry
 import com.solventa.app.ui.theme.ChipTone
 import com.solventa.app.ui.theme.SecondaryButton
 import com.solventa.app.ui.theme.SectionLabel
@@ -74,6 +82,18 @@ fun WalletScreen(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
     onRetry: () -> Unit = {},
+    reportEntry: ReportEntry = ReportEntry.HIDDEN,
+    onReport: () -> Unit = {},
+    onOpenClaims: (() -> Unit)? = null,
+    cardActions: Boolean = false,
+    onRenew: (String) -> Unit = {},
+    onDownloadCaratula: (String) -> Unit = {},
+    onDismissNotice: () -> Unit = {},
+    receipt: ClaimReceipt? = null,
+    onOpenReceipt: ((String) -> Unit)? = null,
+    onDismissReceipt: () -> Unit = {},
+    onOpenNotices: (() -> Unit)? = null,
+    onOpenAssistance: (() -> Unit)? = null,
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
@@ -86,11 +106,19 @@ fun WalletScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "greeting") { Greeting(fullName, uiState) }
-        if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
+        if (uiState.identityInReview) {
+            item(key = "identityInReview") { WarningBanner(stringResource(R.string.identity_in_review), icon = R.drawable.ic_shield) }
+        } else if (uiState.offline && !uiState.needsConnection && !uiState.copyUnavailable) {
             item(key = "offline") { WarningBanner(stringResource(R.string.wallet_offline)) }
         }
         if (uiState.stale) {
             item(key = "stale") { WarningBanner(stringResource(R.string.wallet_stale), icon = R.drawable.ic_clock) }
+        }
+        // La constancia oficial del reporte recibido queda arriba hasta que el asegurado la cierra (HU-MOV-10, AC-01).
+        receipt?.let { official ->
+            item(key = "receipt") {
+                OfficialReceiptCard(official, onOpen = onOpenReceipt?.let { open -> { open(official.claimNumber) } }, onDismiss = onDismissReceipt)
+            }
         }
         when {
             uiState.loading -> item(key = "loading") { Loading() }
@@ -113,6 +141,15 @@ fun WalletScreen(
                             .padding(top = 8.dp),
                     )
                 }
+                if (cardActions) {
+                    item(key = "cardActions") {
+                        CardActions(current, uiState.actionInProgress, onRenew = { onRenew(current.policy.policyNumber) }) {
+                            onDownloadCaratula(current.policy.policyNumber)
+                        }
+                    }
+                }
+                // Debajo del carné, como el mockup 1 (HU-MOV-08, AC-06).
+                if (reportEntry != ReportEntry.HIDDEN) item(key = "report") { ReportButton(reportEntry, onReport) }
                 item(key = "header") {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -145,6 +182,27 @@ fun WalletScreen(
                 }
             }
         }
+        // Sin carnés (copia descartada o no disponible, sin conexión ni copia, o sin pólizas), debajo del aviso: un
+        // reporte guardado siempre se puede retomar o descartar (HU-MOV-08, SR-13).
+        if (current == null && !uiState.loading && reportEntry != ReportEntry.HIDDEN) {
+            item(key = "report") { ReportButton(reportEntry, onReport) }
+        }
+        uiState.notice?.let { notice ->
+            item(key = "notice") { NoticeBanner(notice, uiState.renewedUntil, onDismissNotice) }
+        }
+        if (onOpenClaims != null && !uiState.loading) {
+            item(key = "claims") { SecondaryButton(stringResource(R.string.claims_open_button), onOpenClaims, Modifier.fillMaxWidth()) }
+        }
+        // Prestadores y asistencia (mejora FE-MOV-07).
+        if (onOpenAssistance != null && !uiState.loading) {
+            item(key = "assistance") {
+                SecondaryButton(stringResource(R.string.assistance_open_button), onOpenAssistance, Modifier.fillMaxWidth())
+            }
+        }
+        // Preferencias de avisos (FE-MOV-04).
+        if (onOpenNotices != null && !uiState.loading) {
+            item(key = "notices") { NoticesButton(onOpenNotices) }
+        }
         uiState.lastSync?.let { lastSync ->
             item(key = "lastSync") { LastSync(lastSync) }
         }
@@ -170,6 +228,78 @@ fun WalletScreen(
                 }
             }
         }
+    }
+}
+
+/** Aviso de vencimiento con «Renovar» y descarga de la carátula (HU-MOV-11, AC-09, AC-10). */
+@Composable
+private fun CardActions(card: WalletCard, busy: Boolean, onRenew: () -> Unit, onDownload: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        if (card.expiresSoon) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        stringResource(R.string.wallet_expires_soon, formatShortDate(card.policy.validUntil)),
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = onRenew, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(stringResource(R.string.wallet_renew))
+                    }
+                }
+            }
+        }
+        SecondaryButton(stringResource(R.string.wallet_download_caratula), onDownload, Modifier.fillMaxWidth(), enabled = !busy)
+    }
+}
+
+@Composable
+private fun NoticeBanner(notice: WalletNotice, renewedUntil: Instant?, onDismiss: () -> Unit) {
+    val text = when (notice) {
+        WalletNotice.RENEWED -> stringResource(R.string.wallet_renewed, renewedUntil?.let(::formatShortDate).orEmpty())
+        WalletNotice.NOT_RENEWABLE -> stringResource(R.string.wallet_not_renewable)
+        WalletNotice.CARATULA_NOT_FOUND -> stringResource(R.string.wallet_caratula_not_found)
+        WalletNotice.CARATULA_CANCELLED -> stringResource(R.string.wallet_caratula_cancelled)
+        WalletNotice.CARATULA_GENERATING -> stringResource(R.string.wallet_caratula_generating)
+        WalletNotice.OFFLINE -> stringResource(R.string.wallet_action_offline)
+        WalletNotice.SESSION -> stringResource(R.string.wallet_action_session)
+    }
+    Column(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
+        val icon = when (notice) {
+            WalletNotice.RENEWED -> R.drawable.ic_check_circle
+            WalletNotice.OFFLINE -> R.drawable.ic_cloud_off
+            WalletNotice.SESSION -> R.drawable.ic_lock
+            else -> R.drawable.ic_clock
+        }
+        WarningBanner(text, icon = icon)
+        TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp).align(Alignment.End)) {
+            Text(stringResource(R.string.wallet_dismiss_message))
+        }
+    }
+}
+
+@Composable
+private fun NoticesButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_bell), contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(stringResource(R.string.notices_open_button), fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -444,6 +574,30 @@ private fun Loading() {
             .padding(vertical = 32.dp),
     ) {
         CircularProgressIndicator(modifier = Modifier.semantics { contentDescription = description })
+    }
+}
+
+@Composable
+private fun ReportButton(entry: ReportEntry, onClick: () -> Unit) {
+    val text = stringResource(
+        when (entry) {
+            ReportEntry.RESUME -> R.string.claim_resume_button
+            ReportEntry.QUEUED -> R.string.claim_queued_button
+            ReportEntry.REJECTED -> R.string.claim_rejected_button
+            else -> R.string.claim_report_button
+        },
+    )
+    Button(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_camera), contentDescription = null, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.size(10.dp))
+        Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -2,6 +2,7 @@
 import random
 import statistics
 import time
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -11,6 +12,7 @@ from app.modules.policy.search import create_search_indexes
 
 from tests.integration.policy_search_fixtures import (
     ALIADO,
+    NOW,
     OTRO,
     add_policies,
     claim,
@@ -129,4 +131,50 @@ async def test_tc_09_el_p95_del_detalle_queda_por_debajo_de_150_ms(async_client:
 
     p95 = statistics.quantiles(timings, n=100)[94]
     print(f"\nDetalle con {POLICIES} pólizas: p50 {statistics.median(timings):.1f} ms, p95 {p95:.1f} ms")
+    assert p95 < P95_LIMIT_MS
+
+
+async def test_tc_hu_web_15_el_p95_de_la_bandeja_y_el_expediente_queda_por_debajo_de_150_ms(
+    async_client: AsyncClient, postgres_session
+):
+    """HU-WEB-15 (QR-01): 10.000 siniestros; el expediente sin fotos, que se sirven con enlace aparte."""
+    from app.modules.claims.models import ClaimDB, ClaimEventDB
+    from sqlalchemy import insert
+
+    await seed_partners_and_users(postgres_session)
+    owners = [None, ALIADO, OTRO]
+    rows = [policy_row(f"POL-2026-{i:05d}", f"{1_000_000_000 + i}", partner_id=owners[i % 3], age_days=i % 365)
+            for i in range(POLICIES)]
+    for start in range(0, POLICIES, 2_000):
+        await add_policies(postgres_session, rows[start:start + 2_000])
+    claims = [{"claim_number": f"SIN-2026-{i:05d}", "policy_number": f"POL-2026-{i:05d}", "status": "REPORTED",
+               "reported_at": NOW - timedelta(minutes=i), "origin": "APP", "coverage_id": "death"}
+              for i in range(POLICIES)]
+    events = [{"claim_number": c["claim_number"], "kind": "REPORTED", "actor": "App del asegurado",
+               "created_at": c["reported_at"]} for c in claims]
+    for start in range(0, POLICIES, 2_000):
+        await postgres_session.execute(insert(ClaimDB), claims[start:start + 2_000])
+        await postgres_session.execute(insert(ClaimEventDB), events[start:start + 2_000])
+    await postgres_session.execute(text("ANALYZE"))
+    await postgres_session.commit()
+
+    analyst = headers("operaciones@solventa.example")
+    partner = headers("analista@bancoaliado.example")
+    rng = random.Random(15)
+    calls = []
+    for i in range(DETAILS):
+        number = f"SIN-2026-{rng.randrange(POLICIES):05d}"
+        calls.append(("/api/v1/experience/claims", analyst if i % 2 else partner))
+        calls.append((f"/api/v1/experience/claims/{number}", analyst))
+    await async_client.get("/api/v1/experience/claims", headers=analyst)
+
+    timings = []
+    for url, auth in calls:
+        start = time.perf_counter()
+        response = await async_client.get(url, headers=auth)
+        timings.append((time.perf_counter() - start) * 1000)
+        assert response.status_code == 200
+
+    p95 = statistics.quantiles(timings, n=100)[94]
+    print(f"\nSiniestros con {POLICIES} registros: p50 {statistics.median(timings):.1f} ms, p95 {p95:.1f} ms")
     assert p95 < P95_LIMIT_MS

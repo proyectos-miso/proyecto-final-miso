@@ -39,6 +39,8 @@ enum class KeyState { USABLE, LOST, UNAVAILABLE }
 class SecureSessionRepository(
     private val crypto: SessionCrypto,
     private val store: EncryptedSessionStore,
+    // Recibe cada par nuevo: [signedIn] al ingresar y false al renovar. Guarda el token de reporte (HU-MOV-09).
+    private val onTokens: (email: String, tokens: SessionTokens, signedIn: Boolean) -> Unit = { _, _, _ -> },
     private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val open = AtomicReference<OpenSession?>()
@@ -49,13 +51,21 @@ class SecureSessionRepository(
     val activeSession: SessionTokens? get() = open.get()?.tokens
 
     fun start(email: String, tokens: SessionTokens): OpenSession =
-        OpenSession(ids.incrementAndGet(), email, tokens, null, 0, false).also(open::set)
+        OpenSession(ids.incrementAndGet(), email, tokens, null, 0, false).also {
+            open.set(it)
+            onTokens(email, tokens, true)
+        }
 
     fun startOffline(email: String, credential: DeviceCredential): OpenSession =
         OpenSession(ids.incrementAndGet(), email, null, credential, elapsedRealtime(), false).also(open::set)
 
     /** Cambia la sesión solo si sigue siendo [from]; una renovación tardía no revive una sesión cerrada. */
-    fun replace(from: OpenSession, to: OpenSession): Boolean = open.compareAndSet(from, to)
+    fun replace(from: OpenSession, to: OpenSession): Boolean {
+        if (!open.compareAndSet(from, to)) return false
+        val tokens = to.tokens
+        if (tokens != null && tokens != from.tokens) onTokens(to.email, tokens, from.tokens == null)
+        return true
+    }
 
     fun endIf(from: OpenSession): Boolean = open.compareAndSet(from, null)
 

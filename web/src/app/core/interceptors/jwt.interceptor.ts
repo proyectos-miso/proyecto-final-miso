@@ -8,10 +8,12 @@ export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
   const session = authService.currentSession();
 
   const isAuthEndpoint =
-    req.url.includes('/auth/login') || req.url.includes('/auth/refresh');
+    req.url.includes('/auth/login') || req.url.includes('/auth/refresh') || req.url.includes('/auth/logout');
+  // El contrato OpenAPI es público: no hace falta el token del analista (FE-WEB-05).
+  const isPublicContract = req.url === '/openapi.json';
 
   let modifiedReq = req;
-  if (session?.accessToken && !isAuthEndpoint) {
+  if (session?.accessToken && !isAuthEndpoint && !isPublicContract) {
     modifiedReq = req.clone({
       setHeaders: {
         Authorization: `Bearer ${session.accessToken}`,
@@ -25,6 +27,7 @@ export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
         error instanceof HttpErrorResponse &&
         error.status === 401 &&
         !isAuthEndpoint &&
+        !isPublicContract &&
         session?.refreshToken
       ) {
         // Intento de renovación silenciosa de sesión ante token expirado (Criterio 3)

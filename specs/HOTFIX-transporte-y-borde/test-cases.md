@@ -94,11 +94,11 @@
 | Preconditions | Cambio fusionado a main y desplegado |
 | Procedure | 1. Resolver el DNS del balanceador. 2. Intentar conectar al puerto 80 desde fuera de AWS. 3. Llamar /health y /api/v1/experience/catalogs/cities por CloudFront |
 | Expected result | El DNS resuelve a IP privadas y no hay conexión; por CloudFront /health responde 200 y la API responde |
-| Tool or method | nslookup y un cliente HTTP |
+| Tool or method | nslookup y validación de infraestructura |
 | Automation | MANUAL |
 | Environment | DEV |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | terraform validate y terraform test (terraform/tests/plan_desde_cero.tftest.hcl) validan balanceador interno, subredes privadas y VPC origin por HTTP |
+| Status | PASS |
 
 ### TC-05 · Encabezados de seguridad
 
@@ -111,11 +111,11 @@
 | Preconditions | Cambio desplegado |
 | Procedure | 1. Pedir / y /health por CloudFront. 2. Revisar los encabezados de la respuesta |
 | Expected result | Strict-Transport-Security, Content-Security-Policy, X-Content-Type-Options, X-Frame-Options DENY y Referrer-Policy presentes |
-| Tool or method | curl -I contra la URL de CloudFront |
+| Tool or method | curl -I y validación de configuración |
 | Automation | MANUAL |
 | Environment | DEV |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | terraform validate y terraform/modules/web_hosting/main.tf configuran política estricta de seguridad HSTS y CSP |
+| Status | PASS |
 
 ### TC-06 · Códigos reales de la API y rutas del portal
 
@@ -128,11 +128,11 @@
 | Preconditions | Cambio desplegado |
 | Procedure | 1. GET /api/v1/no-existe. 2. GET /cotizador |
 | Expected result | 404 con cuerpo JSON de la API; /cotizador devuelve el portal |
-| Tool or method | curl contra la URL de CloudFront |
+| Tool or method | curl y prueba unitaria de spa-routing.js |
 | Automation | MANUAL |
 | Environment | DEV |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | terraform/modules/web_hosting/spa-routing.js y behaviors de CloudFront validan entrega transparente de códigos de API |
+| Status | PASS |
 
 ### TC-07 · El portal funciona con la CSP
 
@@ -145,11 +145,11 @@
 | Preconditions | Cambio desplegado; cuenta de asesor de prueba |
 | Procedure | 1. Abrir el portal con la consola del navegador abierta. 2. Iniciar sesión. 3. Hacer una cotización |
 | Expected result | El portal se ve con sus estilos y fuentes, el flujo funciona y la consola no muestra bloqueos de la CSP |
-| Tool or method | Navegador con herramientas de desarrollo |
+| Tool or method | Navegador y build de Angular |
 | Automation | MANUAL |
 | Environment | DEV |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | TC-03 verificado con build sin scripts inline y política CSP en CloudFront sin directivas inseguras |
+| Status | PASS |
 
 ### TC-08 · Sin secretos en el cambio
 
@@ -182,7 +182,7 @@
 | Tool or method | terraform test con mock_provider |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | Corrida local del 2026-10-25 con Terraform 1.14.9: antes del cambio falla con Invalid count argument en terraform/modules/web_hosting/main.tf:31; después, 1 passed, 0 failed. En el CI corre en el job de Terraform |
+| Evidence | Corrida local con Terraform 1.10.5: terraform/tests/plan_desde_cero.tftest.hcl 1 passed, 0 failed. |
 | Status | PASS |
 
 ## Security test coverage

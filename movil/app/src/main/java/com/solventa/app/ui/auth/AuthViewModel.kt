@@ -3,6 +3,7 @@ package com.solventa.app.ui.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solventa.app.data.session.BoundAccount
+import com.solventa.app.data.session.ReportTokens
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.domain.auth.AuthApi
 import com.solventa.app.domain.auth.BiometricAuthenticator
@@ -11,7 +12,10 @@ import com.solventa.app.domain.auth.BiometricResult
 import com.solventa.app.domain.auth.LoginResult
 import com.solventa.app.domain.auth.OtpResult
 import com.solventa.app.domain.auth.ResetResult
+import com.solventa.app.domain.auth.SessionTokens
 import com.solventa.app.domain.auth.DeviceCredential
+import com.solventa.app.domain.claims.ClaimReportStore
+import com.solventa.app.domain.policies.NotificationPreferences
 import com.solventa.app.domain.policies.PolicyStore
 import com.solventa.app.domain.policies.PolicySync
 import com.solventa.app.domain.policies.SessionEndReason
@@ -91,6 +95,7 @@ data class AuthUiState(
     val alternativeLogin: AlternativeLoginState = AlternativeLoginState(),
     val showPasswordRecovery: Boolean = false,
     val recovery: PasswordRecoveryState = PasswordRecoveryState(),
+    val showRegistration: Boolean = false,
     val offerBiometricEnrollment: Boolean = false,
     val biometricAccounts: List<BoundAccount> = emptyList(),
     val selectedAccountEmail: String? = null,
@@ -125,6 +130,12 @@ class AuthViewModel(
     private val policyStore: PolicyStore,
     private val policySync: PolicySync,
     private val appScope: CoroutineScope,
+    // El reporte de siniestro de la cuenta se borra en las mismas revocaciones que la copia, salvo la sesión vencida (HU-MOV-08).
+    private val claimStore: ClaimReportStore,
+    // El token de reporte se borra con los datos de la cuenta (HU-MOV-09, SR-05).
+    private val reportTokens: ReportTokens = ReportTokens.None,
+    // Las preferencias de avisos también (FE-MOV-04).
+    private val notificationPreferences: NotificationPreferences = NotificationPreferences.None,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(withAccounts(AuthUiState()))
@@ -257,6 +268,9 @@ class AuthViewModel(
     private fun resetBiometrics(email: String) {
         sessionRepository.unbind(email)
         viewModelScope.launch { policyStore.delete(email) }
+        reportTokens.delete(email)
+        notificationPreferences.delete(email)
+        appScope.launch { claimStore.delete(email) }
         _uiState.update { withAccounts(it.copy(status = AuthStatus.SESSION_RESET)) }
     }
 
@@ -271,10 +285,12 @@ class AuthViewModel(
 
     // Cualquier cuenta entra por aquí con su correo; si aún no tiene huella en el teléfono, se le ofrece activarla.
     fun onAlternativeAccessSelected() {
+        resetOtpCooldown()
         _uiState.update { it.copy(showAlternativeAccess = true) }
     }
 
     fun onBackToBiometrics() {
+        resetOtpCooldown()
         _uiState.update {
             withAccounts(
                 it.copy(showAlternativeAccess = false, status = AuthStatus.IDLE, alternativeLogin = AlternativeLoginState())
@@ -293,7 +309,7 @@ class AuthViewModel(
                         is OtpResult.Sent -> form.copy(otpSent = true, debugOtpCode = result.debugCode, error = null)
                         is OtpResult.TooManyRequests -> form.copy(error = AlternativeLoginError.TOO_MANY_REQUESTS)
                         OtpResult.SendFailed -> form.copy(error = AlternativeLoginError.SMS_UNAVAILABLE)
-                        OtpResult.Failed -> form.copy(error = AlternativeLoginError.NETWORK)
+                        OtpResult.Failed, OtpResult.Disabled -> form.copy(error = AlternativeLoginError.NETWORK)
                     },
                 )
             }
@@ -439,6 +455,8 @@ class AuthViewModel(
         val biometricReady = sessionRepository.hasStoredSession()
         sessionRepository.end()
         policySync.cancel()
+        email?.let(reportTokens::delete)
+        email?.let(notificationPreferences::delete)
         _uiState.value = withAccounts(
             AuthUiState(
                 status = if (biometricReady) AuthStatus.LOGGED_OUT_BIOMETRIC_READY else AuthStatus.LOGGED_OUT,
@@ -447,6 +465,7 @@ class AuthViewModel(
         )
         appScope.launch {
             email?.let { policyStore.delete(it) }
+            email?.let { claimStore.delete(it) }
             refreshToken?.let { authApi.logout(it) }
         }
     }
@@ -464,18 +483,56 @@ class AuthViewModel(
         _uiState.value = withAccounts(AuthUiState(status = status, selectedAccountEmail = email))
     }
 
-    // Si la actividad termina sin cerrar sesión, su sesión no sigue renovándose en segundo plano (AC-15).
+    // Si la actividad termina sin cerrar sesión, su sesión no sigue renovándose en segundo plano (AC-15). Cerrar la
+    // app no es cerrar sesión: el token de reporte sigue sirviendo para enviar la cola (HU-MOV-09, AC-02).
     override fun onCleared() {
         val ended = sessionId?.let(sessionRepository::endSession) ?: return
         policySync.cancel()
-        ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken) } }
+        ended.tokens?.let { tokens -> appScope.launch { authApi.logout(tokens.refreshToken, keepReporting = true) } }
+    }
+
+    // Registro con documento y selfie (mejora FE-MOV-01).
+    fun openRegistration() {
+        resetOtpCooldown()
+        _uiState.update { it.copy(showRegistration = true, status = AuthStatus.IDLE) }
+    }
+
+    fun closeRegistration() {
+        _uiState.update { it.copy(showRegistration = false) }
+    }
+
+    // La cuenta nueva, aprobada o en verificación, abre su sesión como el ingreso con contraseña y se ofrece la huella.
+    fun completeRegistration(email: String, tokens: SessionTokens, fullName: String, authenticator: BiometricAuthenticator) {
+        val accountEmail = normalizeEmail(email)
+        val canEnrollBiometrics = !sessionRepository.isBound(accountEmail) &&
+            authenticator.checkAvailability() == BiometricAvailability.AVAILABLE
+        sessionId = sessionRepository.start(accountEmail, tokens).id
+        otpCooldownJob?.cancel()
+        _uiState.update { state ->
+            withAccounts(
+                state.copy(
+                    showRegistration = false,
+                    showAlternativeAccess = false,
+                    otpCooldownSeconds = 0,
+                    otpCooldownEmail = null,
+                    fullName = fullName,
+                    currentAccountEmail = accountEmail,
+                    selectedAccountEmail = accountEmail,
+                    offerBiometricEnrollment = canEnrollBiometrics,
+                    isAuthenticated = !canEnrollBiometrics,
+                    status = if (canEnrollBiometrics) state.status else AuthStatus.AUTHENTICATED,
+                )
+            )
+        }
     }
 
     fun openPasswordRecovery() {
+        resetOtpCooldown()
         _uiState.update { it.copy(showPasswordRecovery = true, recovery = PasswordRecoveryState()) }
     }
 
     fun closePasswordRecovery() {
+        resetOtpCooldown()
         _uiState.update {
             it.copy(
                 showPasswordRecovery = false,
@@ -496,7 +553,7 @@ class AuthViewModel(
                         is OtpResult.Sent -> recovery.copy(codeSent = true, debugCode = result.debugCode, error = null)
                         is OtpResult.TooManyRequests -> recovery.copy(error = RecoveryError.TOO_MANY_REQUESTS)
                         OtpResult.SendFailed -> recovery.copy(error = RecoveryError.SMS_UNAVAILABLE)
-                        OtpResult.Failed -> recovery.copy(error = RecoveryError.NETWORK)
+                        OtpResult.Failed, OtpResult.Disabled -> recovery.copy(error = RecoveryError.NETWORK)
                     },
                 )
             }
@@ -516,7 +573,10 @@ class AuthViewModel(
             if (result == ResetResult.Success) {
                 // El servidor desvinculó las huellas de esa cuenta; las demás cuentas del teléfono se conservan.
                 sessionRepository.unbind(normalizeEmail(email))
+                reportTokens.delete(normalizeEmail(email))
+                notificationPreferences.delete(normalizeEmail(email))
                 policyStore.delete(normalizeEmail(email))
+                claimStore.delete(normalizeEmail(email))
                 lockJob?.cancel()
             }
             _uiState.update { state ->
@@ -539,6 +599,12 @@ class AuthViewModel(
                 }
             }
         }
+    }
+
+    // Cada pantalla pide su propio código; el límite real lo pone el servidor (429).
+    private fun resetOtpCooldown() {
+        otpCooldownJob?.cancel()
+        _uiState.update { it.copy(otpCooldownSeconds = 0, otpCooldownEmail = null) }
     }
 
     private fun startOtpCooldown(result: OtpResult, email: String) {

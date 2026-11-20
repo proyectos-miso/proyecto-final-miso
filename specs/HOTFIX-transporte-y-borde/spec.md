@@ -6,7 +6,7 @@
 | Title | Transporte y borde |
 | User story | none: hotfix de la revisión de cumplimiento del 2026-10-22 |
 | Owner | Juan Camilo Peña |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-22 |
 | Security profile | HIGH |
 

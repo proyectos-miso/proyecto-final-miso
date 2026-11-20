@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
@@ -22,6 +23,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.solventa.app.PHONE
 import com.solventa.app.R
 import com.solventa.app.data.policies.samplePolicy
+import com.solventa.app.domain.claims.ClaimReceipt
+import com.solventa.app.ui.claims.ReportEntry
 import com.solventa.app.ui.theme.SolventaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +33,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import androidx.compose.ui.unit.dp
+import java.time.Instant
 
 // Billetera según el mockup y su lectura con TalkBack (HU-MOV-04: TC-04, TC-05, TC-11, TC-12).
 @RunWith(RobolectricTestRunner::class)
@@ -222,5 +227,133 @@ class WalletScreenTest {
         show(WalletUiState())
 
         compose.onNodeWithContentDescription(s(R.string.wallet_loading)).assertIsDisplayed()
+    }
+
+    // HU-MOV-08 TC-12: el botón del reporte va debajo del carné o del aviso de la billetera.
+    private val withPolicy = WalletUiState(loading = false, policies = listOf(WalletCard(samplePolicy(), expired = false)))
+
+    private fun showWithReport(state: WalletUiState, entry: ReportEntry, onReport: () -> Unit = {}) {
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = state, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    reportEntry = entry, onReport = onReport,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 con una póliza vigente ofrece reportar un siniestro`() {
+        var opened = false
+        showWithReport(withPolicy, ReportEntry.NEW) { opened = true }
+
+        compose.onNodeWithText(s(R.string.claim_report_button)).performClick()
+
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 sin pólizas vigentes ni reporte no ofrece nada`() {
+        showWithReport(WalletUiState(loading = false), ReportEntry.HIDDEN)
+
+        compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_resume_button)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.claim_queued_button)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-12 un reporte guardado se retoma aunque la billetera no muestre carnés`() {
+        val noCards = listOf(
+            WalletUiState(loading = false, copyDiscarded = true),
+            WalletUiState(loading = false, offline = true, needsConnection = true),
+            WalletUiState(loading = false),
+        )
+        var shown by mutableStateOf(noCards.first())
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = shown, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    reportEntry = ReportEntry.RESUME, onReport = {},
+                )
+            }
+        }
+        noCards.forEach { state ->
+            shown = state
+            compose.onNodeWithText(s(R.string.claim_resume_button)).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun `HU-MOV-09 un reporte en cola se ofrece para verlo`() {
+        showWithReport(withPolicy, ReportEntry.QUEUED)
+
+        compose.onNodeWithText(s(R.string.claim_queued_button)).assertExists()
+        compose.onNodeWithText(s(R.string.claim_report_button)).assertDoesNotExist()
+    }
+
+    // HU-MOV-10 AC-01 y QR-02: la constancia oficial se lee en un nodo con radicado, fecha y póliza; sus acciones miden 48 dp.
+    @Test
+    fun `HU-MOV-10 AC-01 la billetera muestra la constancia oficial, abre el siniestro y se cierra`() {
+        val receipt = ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", Instant.parse("2026-11-14T15:05:00Z"))
+        var opened: String? = null
+        var dismissed = false
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = withPolicy, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    receipt = receipt, onOpenReceipt = { opened = it }, onDismissReceipt = { dismissed = true },
+                )
+            }
+        }
+
+        val spoken = s(R.string.receipt_official_spoken, "SIN-2026-00001", "OFF-2026-AB12", formatDateTime(receipt.reportedAt), "POL-2026-00001")
+        compose.onNodeWithContentDescription(spoken).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.receipt_open)).assertHeightIsAtLeast(48.dp).performClick()
+        assertEquals("SIN-2026-00001", opened)
+        compose.onNodeWithText(s(R.string.receipt_dismiss)).assertHeightIsAtLeast(48.dp).performClick()
+        assertTrue(dismissed)
+    }
+
+    @Test
+    fun `HU-MOV-10 sin constancia la billetera no la muestra`() {
+        showWithReport(withPolicy, ReportEntry.NEW)
+
+        compose.onNodeWithText(s(R.string.receipt_received_heading)).assertDoesNotExist()
+    }
+
+    // FE-MOV-04: la entrada a las preferencias de avisos mide 48 dp y solo aparece cuando hay a dónde ir.
+    @Test
+    fun `FE-MOV-04 el boton Avisos abre las preferencias y mide al menos 48 dp`() {
+        var opened = false
+        compose.setContent {
+            SolventaTheme {
+                WalletScreen(
+                    uiState = withPolicy, fullName = "María Ruiz", biometricEnabled = true, onDisableBiometrics = {}, onLogout = {},
+                    onOpenNotices = { opened = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText(s(R.string.notices_open_button)).assertHeightIsAtLeast(48.dp).performClick()
+
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `FE-MOV-04 sin entrada a las preferencias la billetera no muestra el boton Avisos`() {
+        show(withPolicy)
+
+        compose.onNodeWithText(s(R.string.notices_open_button)).assertDoesNotExist()
+    }
+
+    @Test
+    fun `con la identidad en verificacion muestra el aviso y no el de sin conexion`() {
+        show(WalletUiState(loading = false, identityInReview = true))
+
+        compose.onNodeWithText(s(R.string.identity_in_review)).assertIsDisplayed()
+        compose.onNodeWithText(s(R.string.wallet_offline)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.wallet_needs_connection)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.wallet_empty)).assertDoesNotExist()
     }
 }

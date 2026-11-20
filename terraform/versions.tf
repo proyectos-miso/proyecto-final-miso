@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
+    }
   }
 
   backend "s3" {}
@@ -33,6 +37,7 @@ provider "aws" {
     cloudwatchlogs         = var.use_local_emulator ? var.local_emulator_endpoint : null
     cloudwatch             = var.use_local_emulator ? var.local_emulator_endpoint : null
     applicationautoscaling = var.use_local_emulator ? var.local_emulator_endpoint : null
+    acm                    = var.use_local_emulator ? var.local_emulator_endpoint : null
   }
 
   default_tags {

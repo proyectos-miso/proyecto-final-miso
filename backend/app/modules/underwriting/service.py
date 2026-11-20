@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.underwriting.models import UnderwritingDecision, UnderwritingRejectionDB
+from app.modules.underwriting.rules import RULES_VERSION
 
 
 def new_rejection_id() -> str:
@@ -29,6 +30,7 @@ async def record_rejection(
             requested_amount=requested_amount,
             max_approvable_amount=decision.max_approvable_amount,
             created_at=created_at,
+            rules_version=RULES_VERSION,
         )
     )
     if commit:

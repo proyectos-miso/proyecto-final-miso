@@ -1,5 +1,6 @@
 """Pruebas de integración de los endpoints B2B de Quote Edge (HU-WEB-10)."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
 import pytest
@@ -10,7 +11,9 @@ from app.core.security import (
     create_partner_access_token,
     get_password_hash,
 )
+from app.modules.profile.models import ConsentDB
 from app.modules.rating.models import PartnerDB, PartnerStatus
+from app.modules.rating.service import rating_service
 
 
 QUOTE_PAYLOAD = {
@@ -250,3 +253,334 @@ async def test_partner_quote_isolation_between_partners_and_channels(
     assert resp_list_p2.status_code == 200
     items_p2 = resp_list_p2.json()
     assert [item["quote_id"] for item in items_p2] == [q1_p2["quote_id"]]
+
+
+# -- Pruebas de Telemetría de Cuotas y Rechazo 429 (HU-WEB-12) ---------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_includes_ratelimit_headers(
+    async_client: AsyncClient,
+    test_db_session,
+):
+    """TC-01 (HU-WEB-12.2 / CA-04): cotización exitosa incluye cabeceras X-RateLimit-* de cuota restante."""
+    token = await _obtain_partner_token(async_client)
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "test-key-ratelimit-headers"}
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers=headers,
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp.status_code == 200
+    assert "X-RateLimit-Limit" in resp.headers
+    assert "X-RateLimit-Remaining" in resp.headers
+    assert "X-RateLimit-Reset" in resp.headers
+    assert "X-RateLimit-Reset-Time" in resp.headers
+
+    limit = int(resp.headers["X-RateLimit-Limit"])
+    remaining = int(resp.headers["X-RateLimit-Remaining"])
+    assert limit == 50000
+    assert remaining == 49999
+    assert int(resp.headers["X-RateLimit-Reset"]) > 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quota_exceeded_returns_429_with_retry_after(
+    async_client: AsyncClient,
+    test_db_session,
+    caplog,
+):
+    """TC-02 (HU-WEB-12.2 / CA-01, CA-02): cuando el socio supera su cuota, recibe 429 con Retry-After y reset_at."""
+    # Configurar socio con cuota límite baja
+    partner = test_db_session.partners_by_id["banco-aliado-1"]
+    partner.quota_limit = 2
+    partner.quota_used = 0
+
+    token = await _obtain_partner_token(async_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Primera cotización -> 200 OK (resta 1)
+    resp1 = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={**headers, "Idempotency-Key": "quota-key-1"},
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp1.status_code == 200
+    assert resp1.headers["X-RateLimit-Remaining"] == "1"
+
+    # 2. Segunda cotización -> 200 OK (resta 0)
+    resp2 = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={**headers, "Idempotency-Key": "quota-key-2"},
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp2.status_code == 200
+    assert resp2.headers["X-RateLimit-Remaining"] == "0"
+
+    # 3. Tercera cotización -> 429 Too Many Requests
+    with caplog.at_level(logging.WARNING, logger="solventa.security.partner"):
+        resp3 = await async_client.post(
+            "/api/v1/quote-edge/quotes",
+            headers={**headers, "Idempotency-Key": "quota-key-3"},
+            json=QUOTE_PAYLOAD,
+        )
+    assert resp3.status_code == 429
+    assert "Retry-After" in resp3.headers
+    retry_after_val = int(resp3.headers["Retry-After"])
+    assert retry_after_val > 0
+    assert resp3.headers["X-RateLimit-Remaining"] == "0"
+    assert resp3.headers["X-RateLimit-Limit"] == "2"
+
+    body3 = resp3.json()
+    assert body3["error"] == "QUOTA_EXCEEDED"
+    assert "Se ha superado la cuota" in body3["detail"]
+    assert body3["retry_after"] == retry_after_val
+    assert "reset_at" in body3
+    assert body3["quota_limit"] == 2
+    assert body3["quota_remaining"] == 0
+
+    # Verificar registro de auditoría de seguridad
+    audit_events = [json.loads(r.message) for r in caplog.records if "PARTNER_QUOTA_EXCEEDED" in r.message]
+    assert len(audit_events) >= 1
+    assert audit_events[0]["event_code"] == "PARTNER_QUOTA_EXCEEDED"
+    assert audit_events[0]["partner_id"] == "banco-aliado-1"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quota_isolation_between_concurrent_partners(
+    async_client: AsyncClient,
+    test_db_session,
+):
+    """TC-03 (HU-WEB-12.4 / CA-03 / HA-07): el agotamiento de cuota de un socio no afecta a otro socio concurrent."""
+    # Crear segundo socio activo
+    second_partner = PartnerDB(
+        partner_id="coop-activa-99",
+        client_id="coop_activa",
+        client_secret_hash=get_password_hash("CoopPass2026*"),
+        name="Cooperativa Activa",
+        status=PartnerStatus.ACTIVE.value,
+        quota_limit=10,
+        quota_used=0,
+    )
+    test_db_session.add(second_partner)
+
+    # Agotar cuota del Socio 1 (Banco Aliado)
+    partner1 = test_db_session.partners_by_id["banco-aliado-1"]
+    partner1.quota_limit = 1
+    partner1.quota_used = 1
+
+    token1 = await _obtain_partner_token(async_client, "banco_aliado", "AliadoSecret2026*")
+    token2 = await _obtain_partner_token(async_client, "coop_activa", "CoopPass2026*")
+
+    # Socio 1 cotiza -> 429
+    resp_p1 = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token1}", "Idempotency-Key": "p1-exceeded-key"},
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp_p1.status_code == 429
+
+    # Socio 2 cotiza -> 200 OK con su propia cuota
+    resp_p2 = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token2}", "Idempotency-Key": "p2-normal-key"},
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp_p2.status_code == 200
+    assert resp_p2.json()["partner_id"] == "coop-activa-99"
+    assert resp_p2.headers["X-RateLimit-Limit"] == "10"
+    assert resp_p2.headers["X-RateLimit-Remaining"] == "9"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_idempotent_retry_allowed_when_quota_exhausted(
+    async_client: AsyncClient,
+    test_db_session,
+):
+    """TC-04 (HU-WEB-12.2 / AC-05): reintentos con la misma Idempotency-Key retornan 200 aun con cuota en 0."""
+    partner = test_db_session.partners_by_id["banco-aliado-1"]
+    partner.quota_limit = 1
+    partner.quota_used = 0
+
+    token = await _obtain_partner_token(async_client)
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "idemp-quota-key"}
+
+    # 1. Petición inicial consume la única cuota disponible -> 200 OK
+    resp1 = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers=headers,
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp1.status_code == 200
+    assert partner.quota_used == 1
+
+    # 2. Reintento con la misma clave y payload -> 200 OK (no descuenta ni bloquea por 429)
+    resp_retry = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers=headers,
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp_retry.status_code == 200
+    assert resp_retry.json()["quote_id"] == resp1.json()["quote_id"]
+    assert partner.quota_used == 1
+
+    # 3. Petición nueva con clave diferente -> 429 Too Many Requests
+    resp_new = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "idemp-quota-key-diff"},
+        json=QUOTE_PAYLOAD,
+    )
+    assert resp_new.status_code == 429
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quota_rejection_latency_performance(
+    async_client: AsyncClient,
+    test_db_session,
+):
+    """TC-06 (HU-WEB-12 / QR-01): rechazo 429 ultra-rápido en capa de borde sin llamar a buró ni computar tarifas."""
+    import time
+
+    partner = test_db_session.partners_by_id["banco-aliado-1"]
+    partner.quota_limit = 1
+    partner.quota_used = 1
+
+    token = await _obtain_partner_token(async_client)
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "perf-key-rejected"}
+
+    # Con simulated_delay alto para confirmar que no se invoca buró cuando la cuota está agotada
+    start = time.perf_counter()
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes?simulated_delay=1.0",
+        headers=headers,
+        json=QUOTE_PAYLOAD,
+    )
+    duration_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 429
+    # Debe responder inmediatamente (< 100 ms) sin esperar el delay de 1.0s del buró
+    assert duration_ms < 200.0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_openapi_spec_documents_429(
+    async_client: AsyncClient,
+):
+    """TC-07 (HU-WEB-12.3 / AC-01, AC-02): el contrato OpenAPI documenta 429, cabeceras y esquema de cuota."""
+    resp = await async_client.get("/openapi.json")
+    assert resp.status_code == 200
+    spec = resp.json()
+
+    quotes_post = spec["paths"]["/api/v1/quote-edge/quotes"]["post"]
+    responses = quotes_post["responses"]
+
+    assert "429" in responses
+    resp_429 = responses["429"]
+    assert "headers" in resp_429
+    assert "Retry-After" in resp_429["headers"]
+    assert "X-RateLimit-Limit" in resp_429["headers"]
+    assert "X-RateLimit-Remaining" in resp_429["headers"]
+    assert "X-RateLimit-Reset" in resp_429["headers"]
+    assert "X-RateLimit-Reset-Time" in resp_429["headers"]
+
+
+
+
+def _add_consent(session, consent_id: str, document_number: str, status: str = "GRANTED") -> None:
+    """Consentimiento ficticio guardado en el doble de la base."""
+    now = datetime.now(timezone.utc)
+    session.add(ConsentDB(id=consent_id, document_type="CC", document_number=document_number, channel="partner",
+                          purpose="Perfilamiento actuarial", scope="Scoring", validity_days=30, status=status,
+                          consent_hash=hashlib.sha256(consent_id.encode()).hexdigest(), granted_at=now,
+                          expires_at=now + timedelta(days=30), created_at=now))
+
+
+def _count_bureau_calls(monkeypatch) -> list:
+    calls = []
+
+    async def counted_score(request, delay=0.0):
+        calls.append(request.document_number)
+        return 720
+
+    monkeypatch.setattr(rating_service, "_score_provider", counted_score)
+    return calls
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_consentimiento_de_otro_documento_responde_422_sin_consultar_el_buro(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion (B-2): el consent_id de otro titular no autoriza perfilar este documento."""
+    _add_consent(test_db_session, "cst-partner-other-01", "52194832")
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-otro-documento"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-partner-other-01"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento no es válido para este cliente."
+    assert calls == []
+    assert test_db_session.quotes == {}
+    assert test_db_session.idempotency_records == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_consentimiento_revocado_responde_422(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion: un socio no cotiza con un consent_id revocado del titular."""
+    _add_consent(test_db_session, "cst-partner-revoked-1", QUOTE_PAYLOAD["document_number"], status="REVOKED")
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-revocado"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-partner-revoked-1"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento informado del cliente fue revocado."
+    assert calls == []
+    assert test_db_session.quotes == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_partner_quote_con_un_consentimiento_inexistente_responde_422_sin_consultar_el_buro(
+    async_client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """HOTFIX-auditoria-de-suscripcion: un consent_id que no existe no autoriza perfilar al titular."""
+    calls = _count_bureau_calls(monkeypatch)
+    token = await _obtain_partner_token(async_client)
+
+    resp = await async_client.post(
+        "/api/v1/quote-edge/quotes",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "consent-inexistente"},
+        json={**QUOTE_PAYLOAD, "consent_id": "cst-no-existe-0001"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "El consentimiento no es válido para este cliente."
+    assert calls == []
+    assert test_db_session.quotes == {}
+    assert test_db_session.idempotency_records == {}

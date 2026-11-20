@@ -59,6 +59,25 @@ class EncryptedPolicyStoreFlowTest {
         assertEquals(StoredCopy.Missing, store.read(OTHER_EMAIL))
     }
 
+    // HU-MOV-11 AC-04 y AC-11: los siniestros viven en la misma copia, los avisos se marcan una vez y todo se borra junto.
+    @Test
+    fun `guarda los siniestros con la copia, marca cada aviso una vez y los borra con ella`() = runBlocking {
+        val claims = com.solventa.app.domain.claims.ClaimsCopy(listOf(sampleClaim("SIN-2"), sampleClaim("SIN-1")), LATER)
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        assertFalse(store.saveClaims(EMAIL, claims))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.saveClaims(EMAIL, claims))
+        assertEquals(claims, store.readClaims(EMAIL))
+        assertTrue(store.markNotified(EMAIL, "renewal:POL"))
+        assertFalse(store.markNotified(EMAIL, "renewal:POL"))
+        assertNull(store.readClaims(OTHER_EMAIL))
+
+        store.delete(EMAIL)
+        assertNull(store.readClaims(EMAIL))
+    }
+
     // HU-MOV-07 TC-02: la copia se reemplaza sin duplicar, una póliza repetida se guarda una vez y save informa.
     @Test
     fun `reemplaza sin duplicar, quita repetidas e informa si escribio`() = runBlocking {
@@ -221,6 +240,29 @@ class EncryptedPolicyStoreFlowTest {
         assertTrue(passphrases.all { bytes -> bytes.all { it == 0.toByte() } })
     }
 
+    // HU-MOV-10 AC-01: el envío guarda la constancia por id de cuenta junto a la copia; se cierra y se borra con ella.
+    @Test
+    fun `HU-MOV-10 guarda la constancia junto a la copia, se cierra y se borra al cerrar sesion`() = runBlocking {
+        val receipt = com.solventa.app.domain.claims.ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", LATER)
+        assertFalse("sin copia no se crea la base", store.keep(ACCOUNT, receipt))
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.keep(ACCOUNT, receipt))
+        assertEquals(receipt, store.readReceipt(EMAIL))
+        assertNull(store.readReceipt(OTHER_EMAIL))
+        assertEquals(StoredCopy.Found(WalletCopy(listOf(policy), SYNCED_AT)), store.read(EMAIL))
+
+        assertTrue(store.dismissReceipt(EMAIL))
+        assertNull(store.readReceipt(EMAIL))
+
+        store.keep(ACCOUNT, receipt.copy(claimNumber = "SIN-2026-00002"))
+        store.delete(EMAIL)
+        assertNull(store.readReceipt(EMAIL))
+        assertFalse(databaseOf(EMAIL).exists())
+    }
+
     private fun databaseOf(email: String): File =
         context.getDatabasePath("wallet_${PassphraseVault.accountId(email)}.db")
 
@@ -230,5 +272,22 @@ class EncryptedPolicyStoreFlowTest {
         val ACCOUNT = PassphraseVault.accountId(EMAIL)
         val SYNCED_AT: Instant = Instant.parse("2026-10-20T15:00:00Z")
         val LATER: Instant = Instant.parse("2026-10-21T15:00:00Z")
+    }
+
+    // Mejora FE-MOV-07: la última lista de prestadores vive en la copia de la cuenta y se borra con ella.
+    @Test
+    fun `guarda la lista de prestadores con la copia de la billetera y la borra con ella`() = runBlocking {
+        val copy = com.solventa.app.domain.assistance.ProvidersCopy(listOf(com.solventa.app.data.assistance.sampleProvider()), "BOGOTA", LATER)
+        assertFalse(store.saveProviders(EMAIL, copy))
+        // Robolectric en Windows no reabre la base en WAL dentro de una transacción; corre en CI (Linux).
+        org.junit.Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+
+        store.save(EMAIL, listOf(policy), SYNCED_AT)
+        assertTrue(store.saveProviders(EMAIL, copy))
+        assertEquals(copy, store.readProviders(EMAIL))
+        assertNull(store.readProviders(OTHER_EMAIL))
+
+        store.delete(EMAIL)
+        assertNull(store.readProviders(EMAIL))
     }
 }

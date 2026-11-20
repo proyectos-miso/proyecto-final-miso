@@ -83,7 +83,10 @@ describe('PolicyDetailComponent (HU-WEB-09)', () => {
     expect(text()).toContain('SIN-2026-00001');
     expect(text()).toContain('En revisión');
     const headings = Array.from(page().querySelectorAll('h3')).map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Titular', 'Plan y vigencia', 'Coberturas contratadas', 'Historial de pagos', 'Siniestros asociados (1)']);
+    expect(headings).toEqual([
+      'Titular', 'Plan y vigencia', 'Beneficiarios', 'Coberturas contratadas', 'Historial de pagos',
+      'Siniestros asociados (1)', 'Operaciones',
+    ]);
   });
 
   it('TC-08 sin siniestros ni pagos lo dice, y sin titular no muestra contacto', async () => {

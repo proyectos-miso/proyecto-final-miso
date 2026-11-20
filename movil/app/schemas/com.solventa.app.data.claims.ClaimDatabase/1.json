@@ -1,0 +1,184 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "12fce2f90be01a79d3fa2ab2965d5333",
+    "entities": [
+      {
+        "tableName": "reports",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `policy_number` TEXT, `description` TEXT NOT NULL, `state` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "policyNumber",
+            "columnName": "policy_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `report_id` TEXT NOT NULL, `position` INTEGER NOT NULL, `captured_at` INTEGER NOT NULL, `trusted_time` INTEGER, `trusted_source` TEXT, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `accuracy_m` REAL NOT NULL, `mock_location` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `size_bytes` INTEGER NOT NULL, `file_key` BLOB NOT NULL, `nonce` BLOB NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`report_id`) REFERENCES `reports`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reportId",
+            "columnName": "report_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capturedAtEpochMillis",
+            "columnName": "captured_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trustedTimeEpochMillis",
+            "columnName": "trusted_time",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "trustedSource",
+            "columnName": "trusted_source",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accuracyMeters",
+            "columnName": "accuracy_m",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mockLocation",
+            "columnName": "mock_location",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileKey",
+            "columnName": "file_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nonce",
+            "columnName": "nonce",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_photos_report_id",
+            "unique": false,
+            "columnNames": [
+              "report_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_photos_report_id` ON `${TABLE_NAME}` (`report_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "reports",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "report_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '12fce2f90be01a79d3fa2ab2965d5333')"
+    ]
+  }
+}

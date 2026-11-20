@@ -13,6 +13,7 @@ import com.solventa.app.data.session.InMemorySessionStore
 import com.solventa.app.data.session.SecureSessionRepository
 import com.solventa.app.domain.auth.RefreshResult
 import com.solventa.app.domain.auth.SessionTokens
+import com.solventa.app.domain.claims.ClaimReceipt
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.SessionEndReason
@@ -484,8 +485,57 @@ class WalletViewModelTest {
         assertEquals(calls + 2, api.calls)
     }
 
+    // HU-MOV-10 AC-01: la constancia oficial aparece al sincronizar o al volver a la app, y queda hasta cerrarla.
+    @Test
+    fun `HU-MOV-10 AC-01 muestra la constancia oficial hasta que el asegurado la cierra`() {
+        val receipt = ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", now)
+        api.result = PoliciesResult.Loaded(listOf(active))
+        viewModel.open(EMAIL)
+        assertNull(viewModel.receipt.value)
+
+        store.receipts[EMAIL] = receipt
+        viewModel.refreshClock()
+        assertEquals(receipt, viewModel.receipt.value)
+
+        viewModel.dismissReceipt()
+        assertNull(viewModel.receipt.value)
+        assertFalse(EMAIL in store.receipts)
+        viewModel.refreshClock()
+        assertNull(viewModel.receipt.value)
+    }
+
+    @Test
+    fun `HU-MOV-10 AC-01 la constancia llega con la sincronizacion que pide el envio y es solo de la cuenta abierta`() = runBlocking {
+        store.receipts[OTHER_EMAIL] = ClaimReceipt("SIN-2026-00009", "OFF-2026-CD34", null, now)
+        openOffline()
+        assertNull(viewModel.receipt.value)
+
+        val receipt = ClaimReceipt("SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", now)
+        store.receipts[EMAIL] = receipt
+        api.result = PoliciesResult.Loaded(listOf(active))
+        sync.sync(online = true)
+        assertEquals(receipt, viewModel.receipt.value)
+
+        viewModel.close()
+        assertNull(viewModel.receipt.value)
+    }
+
     private companion object {
         const val EMAIL = "asegurada@example.com"
         const val OTHER_EMAIL = "otra.cuenta@example.com"
+    }
+
+    @Test
+    fun `con la identidad en verificacion no se muestra sin conexion ni se agenda la sincronizacion`() {
+        api.result = PoliciesResult.IdentityInReview
+
+        viewModel.open(EMAIL)
+
+        val state = viewModel.uiState.value
+        assertTrue(state.identityInReview)
+        assertFalse(state.offline)
+        assertFalse(state.needsConnection)
+        assertFalse(state.empty)
+        assertEquals(0, scheduler.requests)
     }
 }

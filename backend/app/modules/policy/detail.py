@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.claims.models import ClaimDB, ClaimSummary
 from app.modules.payments.models import PaymentTransactionDB
 from app.modules.policy.models import (
+    MaskedBeneficiary,
     PolicyDB,
     PolicyDetail,
     PolicyDetailCoverage,
@@ -27,6 +28,17 @@ def mask_email(email: str) -> str:
 
 def mask_phone(phone: str) -> str:
     return mask_document(re.sub(r"\D", "", phone))
+
+
+def masked_beneficiary(beneficiary: dict) -> MaskedBeneficiary:
+    """Las pólizas anteriores a HU-WEB-15 pueden traer beneficiarios incompletos: se muestra lo que haya."""
+    return MaskedBeneficiary(
+        name=beneficiary.get("name", "Sin nombre"),
+        document_type=beneficiary.get("document_type", ""),
+        document=mask_document(str(beneficiary.get("document_number", ""))),
+        relationship=beneficiary.get("relationship", "OTRO"),
+        percentage=float(beneficiary.get("percentage", 0)),
+    )
 
 
 async def get_policy_detail(
@@ -56,6 +68,7 @@ async def get_policy_detail(
     included = included_coverages(policy.conditions)
     return PolicyDetail(
         policy_number=policy.policy_number,
+        version=policy.version or 1,
         status=policy.status,
         plan=policy.conditions["tier"],
         valid_from=policy.issued_at,
@@ -89,4 +102,5 @@ async def get_policy_detail(
         claims=[
             ClaimSummary(claim_number=c.claim_number, status=c.status, reported_at=c.reported_at) for c in claims
         ],
+        beneficiaries=[masked_beneficiary(b) for b in policy.beneficiaries or []],
     )

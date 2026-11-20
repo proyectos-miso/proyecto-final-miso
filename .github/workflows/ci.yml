@@ -69,7 +69,7 @@ jobs:
         run: poetry install --no-interaction
 
       - name: Ejecutar pruebas unitarias y cobertura (pytest)
-        run: poetry run pytest --junitxml=test-results/junit.xml
+        run: poetry run pytest --cov-fail-under=85 --junitxml=test-results/junit.xml
 
       - name: Resumen de pruebas
         if: always()
@@ -180,6 +180,72 @@ jobs:
           name: coverage-movil
           path: movil/app/build/reports/kover/reportDebug.xml
 
+  # 3b. APK de release firmado al integrar a dev (HU-MOV-09, AC-10). La llave solo vive en los secretos de GitHub;
+  # sin ellos, o sin la URL HTTPS del API en la variable ANDROID_API_BASE_URL, el trabajo se omite con un aviso.
+  mobile-release:
+    name: Mobile release (APK firmado)
+    runs-on: ubuntu-latest
+    needs: [mobile-ci]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    env:
+      RELEASE_READY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' && vars.ANDROID_API_BASE_URL != '' }}
+    defaults:
+      run:
+        working-directory: movil
+    steps:
+      - name: Aviso de configuración pendiente
+        if: env.RELEASE_READY != 'true'
+        working-directory: ${{ github.workspace }}
+        run: echo "::notice::APK de release omitido - faltan los secretos de la llave de firma o la variable ANDROID_API_BASE_URL."
+
+      - name: Checkout del repositorio
+        if: env.RELEASE_READY == 'true'
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17 LTS
+        if: env.RELEASE_READY == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Gradle
+        if: env.RELEASE_READY == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restaurar la llave de firma en un archivo temporal
+        if: env.RELEASE_READY == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Compilar el APK de release firmado
+        if: env.RELEASE_READY == 'true'
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          API_BASE_URL: ${{ vars.ANDROID_API_BASE_URL }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease -PapiBaseUrl="$API_BASE_URL"
+
+      - name: Borrar la llave de firma del runner
+        if: always() && env.RELEASE_READY == 'true'
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      # Solo existe app-release.apk si quedó firmado; sin firma Gradle lo llama app-release-unsigned.apk.
+      - name: Publicar el APK de release
+        if: env.RELEASE_READY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solventa-release-apk
+          path: movil/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
   # 4. Verificación de sintaxis y módulos de Terraform
   terraform-ci:
     name: Terraform CI (Lint & Validate)
@@ -238,7 +304,7 @@ jobs:
 
       - name: Analizar con SonarCloud
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v6
 
       - name: Aviso de configuración pendiente
         if: env.SONAR_TOKEN == ''

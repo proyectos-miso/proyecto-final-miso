@@ -199,11 +199,11 @@
 | Preconditions | Portal en el navegador con lector de pantalla |
 | Procedure | 1. Llegar con Tab al número de una póliza y abrirla con Enter. 2. Escuchar el título y recorrer las secciones. 3. Cerrar con el botón y con Escape |
 | Expected result | El foco va al título del panel; las secciones tienen encabezados; "No hay siniestros registrados" se lee; al cerrar el foco vuelve al número |
-| Tool or method | Narrador o NVDA, teclado |
+| Tool or method | Teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, sin lector de pantalla |
 | Automation | MANUAL |
 | Environment | LOCAL |
-| Evidence | PENDING: auditoría automática con Chrome el 2026-10-27. axe-core 4.12.1 (WCAG 2.2 AA) sin violaciones con el detalle abierto, sin siniestros, con una póliza no encontrada y a 320 px; se corrigieron el contraste de la fila abierta (1.4.3) y el alto del botón del número (2.5.8). Árbol de accesibilidad: botón «Ver detalle de la póliza POL-…», región «Póliza POL-…», título h2 y secciones h3, fila abierta con aria-current, «No encontramos la póliza» como alerta. Teclado: Enter abre y lleva el foco al título, Tab llega a «Cerrar detalle», Escape cierra y devuelve el foco al número. Falta la pasada con lector de pantalla |
-| Status | PENDING |
+| Evidence | Pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: con Tab se llega al número de la póliza y Enter abre el panel con el foco en su título («Póliza POL-2026-00025», h2); las secciones tienen encabezados (Titular, Plan y vigencia, Beneficiarios, Coberturas contratadas, Historial de pagos, Siniestros asociados, Operaciones); «No hay siniestros registrados» es texto, y no aparece en una póliza con siniestros; al cerrar con el botón o con Escape el foco vuelve al número |
+| Status | PASS |
 
 ### TC-11 · Datos de la póliza como texto
 

@@ -1,4 +1,6 @@
 """Emisión de pólizas: una por cotización vigente, con su evento PolicyIssued en el outbox (HU-WEB-05, HU-WEB-14)."""
+import hashlib
+import uuid
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
@@ -16,8 +18,10 @@ from app.modules.policy.models import (
     PolicyDB,
     PolicyIssueRequest,
     PolicyRecord,
+    PolicySignatureDB,
 )
 from app.modules.rating.models import QuoteDB
+from app.modules.rating.partners import ensure_partner_can_issue
 
 
 class QuoteNotFoundError(Exception):
@@ -30,6 +34,14 @@ class QuoteExpiredError(Exception):
 
 class PolicyNotFoundError(Exception):
     pass
+
+
+class SignatureRequiredError(Exception):
+    """La emisión exige el código de firma electrónica que recibió el titular (RC-02)."""
+
+
+class InvalidSignatureError(Exception):
+    """El código de firma no coincide, venció o ya se usó."""
 
 
 def one_year_after(moment: datetime) -> datetime:
@@ -55,13 +67,31 @@ class PolicyService:
     def __init__(self, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.now = now
 
-    async def issue_policy(self, session: AsyncSession, request: PolicyIssueRequest) -> PolicyRecord:
-        """Emite la póliza de la cotización; si ya existe, la devuelve aunque la cotización haya vencido."""
+    async def issue_policy(
+        self, session: AsyncSession, request: PolicyIssueRequest, advisor_partner_id: Optional[str] = None
+    ) -> PolicyRecord:
+        """Emite la póliza de la cotización; si ya existe, la devuelve aunque la cotización haya vencido
+        o el socio ya no pueda emitir (RC-02). Solo una póliza nueva exige que el socio pueda emitir."""
         quote = await session.get(QuoteDB, request.quote_id)
         if quote is None:
             raise QuoteNotFoundError()
-        policy = await self.find_by_quote(session, quote.quote_id) or await self.create(session, quote, request)
+        quote_id = quote.quote_id
+        policy = await self.find_by_quote(session, quote_id)
+        if policy is None:
+            await ensure_partner_can_issue(session, advisor_partner_id)
+            await ensure_partner_can_issue(session, quote.partner_id)
+            try:
+                policy = await self.create(session, quote, request)
+            except InvalidSignatureError:
+                # Otra petición con el mismo código ya emitió la póliza de esta cotización: se devuelve esa.
+                await session.rollback()
+                policy = await self.find_by_quote(session, quote_id)
+                if policy is None:
+                    raise
         return PolicyRecord.model_validate(policy)
+
+    async def find(self, session: AsyncSession, policy_number: str) -> Optional[PolicyDB]:
+        return await session.get(PolicyDB, policy_number)
 
     async def find_by_quote(self, session: AsyncSession, quote_id: str) -> Optional[PolicyDB]:
         return await session.scalar(select(PolicyDB).where(PolicyDB.quote_id == quote_id))
@@ -71,6 +101,21 @@ class PolicyService:
         issued_at = self.now()
         if quote.expires_at <= issued_at:
             raise QuoteExpiredError()
+
+        doc_type = request.holder.document_type if request.holder else "CC"
+        if not request.otp_code:
+            raise SignatureRequiredError()
+        from app.modules.identity.service import PURPOSE_POLICY_SIGNATURE, insured_auth_service
+        if not await insured_auth_service.verify_document_otp(
+            session=session,
+            document_number=quote.document_number,
+            purpose=PURPOSE_POLICY_SIGNATURE,
+            code=request.otp_code,
+            document_type=doc_type,
+            commit=False,
+        ):
+            raise InvalidSignatureError()
+
         sequence = await session.scalar(select(POLICY_NUMBER_SEQ.next_value()))
         policy = await session.scalar(
             insert(PolicyDB)
@@ -79,7 +124,7 @@ class PolicyService:
                 quote_id=quote.quote_id,
                 partner_id=quote.partner_id,
                 insured_document=quote.document_number,
-                beneficiaries=request.beneficiaries,
+                beneficiaries=[b.model_dump() for b in request.beneficiaries],
                 holder_name=request.holder.name if request.holder else None,
                 holder_document_type=request.holder.document_type if request.holder else None,
                 holder_email=request.holder.email if request.holder else None,
@@ -92,6 +137,23 @@ class PolicyService:
             .returning(PolicyDB)
         )
         if policy:
+            canonical_summary = f"POL:{policy.policy_number}|DOC:{policy.insured_document}|ISSUED:{policy.issued_at.isoformat()}|TIER:{policy.conditions.get('tier')}"
+            pdf_hash = hashlib.sha256(canonical_summary.encode()).hexdigest()
+            otp_code_hash = hashlib.sha256(request.otp_code.encode()).hexdigest()
+
+            signature = PolicySignatureDB(
+                signature_id=str(uuid.uuid4()),
+                policy_id=policy.policy_number,
+                policy_number=policy.policy_number,
+                document_type=doc_type,
+                document_number=policy.insured_document,
+                signed_at=issued_at,
+                otp_code_hash=otp_code_hash,
+                pdf_hash_sha256=pdf_hash,
+                consent_id=getattr(quote, "consent_id", None),
+            )
+            session.add(signature)
+
             payload = PolicyRecord.model_validate(policy).model_dump(mode="json")
             session.add(OutboxMessageDB(aggregate_id=policy.policy_number, event_type="PolicyIssued", payload=payload))
         await session.commit()
@@ -131,6 +193,7 @@ class PolicyService:
         existing = await self.find_by_quote(session, quote.quote_id)
         if existing is not None:
             return PartnerPolicyResponse.model_validate(existing)
+        await ensure_partner_can_issue(session, partner_id)
 
         issued_at = self.now()
         if quote.expires_at <= issued_at:
@@ -222,6 +285,41 @@ class PolicyService:
             valid_from=policy.issued_at,
             valid_until=policy.valid_until,
         )
+
+    async def expire_outdated_policies(self, session: AsyncSession) -> List[str]:
+        """Marca como EXPIRED las pólizas vigentes cuya fecha valid_until haya sido superada (RC-24, CTL-11)."""
+        from app.modules.policy.models import PolicyEventDB
+        now = self.now()
+        stmt = (
+            select(PolicyDB)
+            .where(
+                PolicyDB.status.in_(["ACTIVE", "ISSUED"]),
+                PolicyDB.valid_until <= now,
+            )
+            .with_for_update()
+        )
+        outdated = (await session.scalars(stmt)).all()
+        expired_numbers = []
+        for policy in outdated:
+            before_status = policy.status
+            policy.status = "EXPIRED"
+            policy.version = (policy.version or 1) + 1
+            session.add(
+                PolicyEventDB(
+                    policy_number=policy.policy_number,
+                    kind="EXPIRED",
+                    version=policy.version,
+                    actor="Sistema (Mantenimiento diario)",
+                    justification="Vencimiento automático de la vigencia de la póliza",
+                    before={"status": before_status},
+                    after={"status": "EXPIRED"},
+                    created_at=now,
+                )
+            )
+            expired_numbers.append(policy.policy_number)
+        if expired_numbers:
+            await session.commit()
+        return expired_numbers
 
 
 policy_service = PolicyService()

@@ -9,13 +9,33 @@ export interface PolicyHolder {
   phone: string;
 }
 
+export type Relationship = 'CONYUGE' | 'HIJO' | 'PADRE' | 'MADRE' | 'HERMANO' | 'OTRO';
+
+/** Beneficiario de la póliza de vida; los porcentajes de todos suman 100 (HU-WEB-15). */
+export interface Beneficiary {
+  name: string;
+  document_type: string;
+  document_number: string;
+  relationship: Relationship;
+  percentage: number;
+}
+
 export interface PolicyIssueRequest {
   quote_id: string;
   tier: PlanTier;
+  beneficiaries: Beneficiary[];
   holder?: PolicyHolder;
+  otp_code?: string;
 }
 
-export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED';
+/** Envío de un código de un solo uso; en local trae el código de prueba porque el SMS no sale. */
+export interface OtpSent {
+  status: string;
+  message: string;
+  debug_code?: string | null;
+}
+
+export type PolicyStatus = 'ISSUED' | 'ACTIVE' | 'CANCELLED' | 'TERMINATED' | 'EXPIRED';
 
 /** Fila de la búsqueda de operaciones: documento enmascarado y sin datos de contacto (HU-WEB-08). */
 export interface PolicySearchItem {
@@ -80,6 +100,47 @@ export interface PolicyDetail {
   coverages: PolicyDetailCoverage[];
   payments: PolicyPayment[];
   claims: PolicyClaim[];
+  version?: number;
+  beneficiaries?: MaskedBeneficiary[];
+}
+
+/** Beneficiario con el documento enmascarado por el servidor. */
+export interface MaskedBeneficiary {
+  name: string;
+  document_type: string;
+  document: string;
+  relationship: Relationship;
+  percentage: number;
+}
+
+export interface EndorsementRequest {
+  kind: 'BENEFICIARIES' | 'SUM_INSURED';
+  justification: string;
+  beneficiaries?: Beneficiary[];
+  insured_amount?: number;
+}
+
+export interface PolicyOperationResult {
+  policy_number: string;
+  status: PolicyStatus;
+  version: number;
+  refund_amount?: number | null;
+}
+
+/** Una decisión sobre la póliza, en orden y de solo lectura (HU-WEB-15, RC-19). */
+export interface AuditEntry {
+  occurred_at: string;
+  kind: string;
+  actor: string;
+  summary: string;
+  justification?: string | null;
+  amount?: number | null;
+  reference?: string | null;
+}
+
+export interface PolicyAudit {
+  policy_number: string;
+  entries: AuditEntry[];
 }
 
 /** Enlace prefirmado de la carátula en PDF; vence a los 15 minutos (HU-WEB-16). */

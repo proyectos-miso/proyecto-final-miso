@@ -187,6 +187,25 @@ class SessionPolicySyncTest {
     }
 
     // TC-05: la credencial rechazada borra la copia y desvincula la huella, aunque la sesión haya cambiado.
+    // HU-MOV-08 TC-08: el teléfono desvinculado por el servidor borra el reporte de siniestro; la sesión vencida no.
+    @Test
+    fun `HU-MOV-08 TC-08 solo el telefono desvinculado borra el reporte de siniestro`() = runTest {
+        val wiped = mutableListOf<String>()
+        val withClaims = SessionPolicySync(session, auth, policies, store, scheduler, Clock.fixed(syncedAt, ZoneOffset.UTC)) { wiped += it }
+
+        session.start(EMAIL, old)
+        policies.respond = { PoliciesResult.Unauthorized }
+        auth.refreshResult = { RefreshResult.Rejected }
+        assertEquals(SyncOutcome.SessionEnded(EMAIL, SessionEndReason.EXPIRED), withClaims.sync())
+        assertTrue("la sesión vencida conserva el reporte", wiped.isEmpty())
+
+        bind()
+        session.startOffline(EMAIL, credential)
+        auth.biometricResult = { LoginResult.InvalidCredentials }
+        assertEquals(SyncOutcome.SessionEnded(EMAIL, SessionEndReason.DEVICE_REJECTED), withClaims.sync())
+        assertEquals(listOf(EMAIL), wiped)
+    }
+
     @Test
     fun `la credencial rechazada desvincula la huella siempre`() = runTest {
         bind()
@@ -377,5 +396,16 @@ class SessionPolicySyncTest {
     private companion object {
         const val EMAIL = "asegurada@example.com"
         const val OTHER = "otra.cuenta@example.com"
+    }
+
+    @Test
+    fun `un 403 de identidad en verificacion responde IdentityInReview y conserva la sesion`() = runTest {
+        session.start(EMAIL, old)
+        policies.respond = { PoliciesResult.IdentityInReview }
+
+        assertEquals(SyncOutcome.IdentityInReview, sync.sync(online = true))
+        assertEquals(old, session.activeSession)
+        assertEquals(0, auth.refreshed.size)
+        assertTrue(store.copies.isEmpty())
     }
 }

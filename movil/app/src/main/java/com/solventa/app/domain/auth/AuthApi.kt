@@ -4,8 +4,11 @@ interface AuthApi {
     suspend fun requestOtp(email: String): OtpResult
     suspend fun login(email: String, password: String, otpCode: String): LoginResult
 
-    /** true si el servidor revocó el refresh token. */
-    suspend fun logout(refreshToken: String): Boolean
+    /**
+     * true si el servidor revocó el refresh token. Con [keepReporting] sigue sirviendo el token de reporte, para
+     * enviar la cola con la app cerrada; sin él se revoca toda la sesión (HU-MOV-09).
+     */
+    suspend fun logout(refreshToken: String, keepReporting: Boolean = false): Boolean
 
     /** Renueva la sesión; el backend rota el refresh token en cada renovación (HU-MOV-07). */
     suspend fun refresh(refreshToken: String): RefreshResult
@@ -17,6 +20,13 @@ interface AuthApi {
 
     suspend fun forgotPassword(email: String): OtpResult
     suspend fun resetPassword(email: String, code: String, newPassword: String): ResetResult
+
+    /** Código por SMS al celular del registro (mejora FE-MOV-01). */
+    suspend fun requestRegistrationOtp(documentType: DocumentType, documentNumber: String, phone: String): OtpResult =
+        OtpResult.Failed
+
+    suspend fun register(form: RegistrationForm, photos: IdentityPhotos): RegistrationResult =
+        RegistrationResult.NetworkError
 }
 
 sealed interface OtpResult {
@@ -25,6 +35,9 @@ sealed interface OtpResult {
     data class TooManyRequests(val retryAfterSeconds: Int) : OtpResult
     data object SendFailed : OtpResult
     data object Failed : OtpResult
+
+    /** 404: el registro desde la app está apagado en este entorno. */
+    data object Disabled : OtpResult
 }
 
 sealed interface LoginResult {

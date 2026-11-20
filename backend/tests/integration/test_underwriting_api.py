@@ -8,6 +8,7 @@ from app.core.security import create_access_token
 from app.modules.policy.models import PolicyDB
 from app.modules.rating.models import QuoteDB
 from app.modules.underwriting.models import UnderwritingRejectionDB
+from tests.integration.policy_search_fixtures import BENEFICIARIES
 
 pytestmark = pytest.mark.integration
 
@@ -69,7 +70,9 @@ async def test_tc_04_el_identificador_de_un_rechazo_no_se_puede_emitir(async_cli
     rejected = (await quote(async_client, 900_000_000)).json()
 
     response = await async_client.post(
-        "/api/v1/experience/policies", headers=advisor_headers(), json={"quote_id": rejected["quote_id"], "tier": "standard"}
+        "/api/v1/experience/policies",
+        headers=advisor_headers(),
+        json={"quote_id": rejected["quote_id"], "tier": "standard", "beneficiaries": BENEFICIARIES},
     )
 
     assert response.status_code == 404

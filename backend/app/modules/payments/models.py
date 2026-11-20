@@ -48,3 +48,23 @@ class PaymentReceipt(BaseModel):
     status: str = Field(default="APPROVED")
     receipt_number: str
     created_at: datetime
+
+
+class PayoutDB(Base):
+    """Pago que Solventa hace: indemnización a un beneficiario o devolución de prima (HU-WEB-15).
+    Uno solo por referencia, tipo y documento, aunque se reintente (HA-11)."""
+    __tablename__ = "payouts"
+    __table_args__ = (UniqueConstraint("reference", "kind", "beneficiary_document"),)
+
+    payout_id = Column(String(36), primary_key=True)
+    reference = Column(String(20), nullable=False, index=True)
+    kind = Column(String(16), nullable=False)
+    policy_number = Column(String(16), ForeignKey("policies.policy_number"), nullable=False, index=True)
+    beneficiary_name = Column(String(150), nullable=False)
+    beneficiary_document = Column(String(20), nullable=False)
+    percentage = Column(Float, nullable=False)
+    amount = Column(Float, nullable=False)
+    status = Column(String(16), nullable=False)
+    decline_reason = Column(String, nullable=True)
+    receipt_number = Column(String(16), unique=True, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)

@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, catchError, map, of, tap, throwError } from 'rxjs';
+import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError } from 'rxjs';
 import {
   LoginResponseDto,
   RefreshTokenRequestDto,
@@ -19,6 +19,8 @@ export class AuthService {
   private readonly router = inject(Router);
 
   private readonly _currentSession = signal<UserSession | null>(this.loadInitialSession());
+  // Una sola renovación en vuelo: el backend revoca el refresh usado y un segundo intento fallaría (HU-WEB-15).
+  private refreshing: Observable<UserSession> | null = null;
   readonly currentSession = this._currentSession.asReadonly();
 
   private loadInitialSession(): UserSession | null {
@@ -58,6 +60,7 @@ export class AuthService {
    * Renovación silenciosa de la sesión activa mediante refresh token (HU-WEB-13)
    */
   refreshToken(): Observable<UserSession> {
+    if (this.refreshing) return this.refreshing;
     const current = this._currentSession();
     if (!current?.refreshToken) {
       this.logout();
@@ -68,7 +71,7 @@ export class AuthService {
       refresh_token: current.refreshToken,
     };
 
-    return this.http
+    this.refreshing = this.http
       .post<LoginResponseDto>('/api/v1/experience/auth/refresh', payload)
       .pipe(
         map((dto) => this.mapDtoToSession(dto)),
@@ -77,13 +80,24 @@ export class AuthService {
           this.logout();
           return throwError(() => err);
         }),
+        finalize(() => (this.refreshing = null)),
+        shareReplay(1),
       );
+    return this.refreshing;
   }
 
   /**
-   * Cierre de sesión seguro: purga credenciales de sessionStorage y redirige al login
+   * Cierre de sesión seguro: revoca el refresh en el backend (HU-WEB-15), purga sessionStorage y redirige al login.
+   * El aviso al backend no espera respuesta: si falla, el refresh igual vence.
    */
   logout(): void {
+    const refreshToken = this._currentSession()?.refreshToken;
+    if (refreshToken) {
+      this.http
+        .post('/api/v1/experience/auth/logout', { refresh_token: refreshToken })
+        .pipe(catchError(() => of(null)))
+        .subscribe();
+    }
     if (typeof window !== 'undefined' && window.sessionStorage) {
       window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
     }

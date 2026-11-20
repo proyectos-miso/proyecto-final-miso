@@ -12,6 +12,11 @@ from app.modules.rating.models import PartnerDB, QuoteDB
 from app.modules.rating.service import rating_service
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
+# Beneficiario de prueba para emitir desde el portal (HU-WEB-15 exige beneficiarios que sumen 100 %).
+BENEFICIARIES = [
+    {"name": "Lucía Prueba Gómez", "document_type": "CC", "document_number": "52000111", "relationship": "CONYUGE",
+     "percentage": 100}
+]
 ALIADO = "banco-aliado-1"
 OTRO = "otro-socio-1"
 REVOCADO = "socio-inactivo-1"

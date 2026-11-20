@@ -1,14 +1,19 @@
 """Router BFF de autenticación del asegurado para la app móvil (HU-MOV-02, HU-MOV-12)."""
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.security import require_roles
+from app.core.storage import DocumentStorage, StorageUnavailableError, get_document_storage
+from app.modules.claims.intake import JPEG_MAGIC, MAX_PHOTO_BYTES
 from app.modules.identity import policy
+from app.modules.identity.adapters import get_identity_verifier
+from app.modules.identity.ports import APPROVED, IdentityVerifier
 from app.modules.identity.models import (
     BiometricLoginRequest,
     DeviceRegistrationResponse,
@@ -19,7 +24,11 @@ from app.modules.identity.models import (
     OtpResponse,
     PasswordForgotRequest,
     PasswordResetRequest,
+    LogoutRequest,
     RefreshTokenRequest,
+    RegistrationData,
+    RegistrationOtpRequest,
+    RegistrationResult,
     TokenPair,
 )
 from app.modules.identity.service import (
@@ -33,6 +42,15 @@ from app.modules.identity.service import (
     WeakPasswordError,
     insured_auth_service,
 )
+from app.modules.identity.service_registration import (
+    DuplicateAccountError,
+    IdentityPhotos,
+    IdentityRejectedError,
+    InvalidRegistrationCodeError,
+    NewInsured,
+    RegistrationOutcome,
+    insured_registration_service,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth Asegurado"])
 
@@ -40,6 +58,8 @@ require_insured = require_roles(["insured"])
 
 INVALID_CREDENTIALS = "Los datos ingresados no son válidos."
 CODE_SENT = "Si el correo está registrado, enviamos un código por SMS."
+REGISTRATION_CODE_SENT = "Enviamos un código por SMS al celular indicado."
+WEAK_PASSWORD = f"La contraseña debe tener al menos {policy.MIN_PASSWORD_LENGTH} caracteres, con letras y números."
 LOCKED_RESPONSES: Dict[int | str, Dict[str, Any]] = {423: {"model": LockedResponse}}
 
 
@@ -109,9 +129,9 @@ async def login(request: InsuredLoginRequest, http: Request, db: AsyncSession = 
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db_session)):
+async def logout(request: LogoutRequest, db: AsyncSession = Depends(get_db_session)):
     try:
-        await insured_auth_service.logout(db, request.refresh_token)
+        await insured_auth_service.logout(db, request.refresh_token, request.keep_reporting)
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de sesión inválido.")
 
@@ -181,7 +201,7 @@ async def reset_password(request: PasswordResetRequest, http: Request, db: Async
     except WeakPasswordError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"La contraseña debe tener al menos {policy.MIN_PASSWORD_LENGTH} caracteres, con letras y números.",
+            detail=WEAK_PASSWORD,
         )
     except RateLimitedError as exc:
         raise _rate_limited(exc)
@@ -193,3 +213,130 @@ async def reset_password(request: PasswordResetRequest, http: Request, db: Async
             detail="La contraseña no es válida. Elija una diferente.",
         )
     return MessageResponse(message="Contraseña actualizada. Ingrese con su nueva contraseña.")
+
+
+class RegistrationRefused(Exception):
+    """Error del registro con un código estable para la app; el mensaje es genérico."""
+
+    def __init__(self, status_code: int, code: str, detail: str):
+        self.status_code, self.code, self.detail = status_code, code, detail
+
+    def response(self) -> JSONResponse:
+        return JSONResponse(status_code=self.status_code, content={"detail": self.detail, "code": self.code})
+
+
+def registration_open() -> None:
+    """Con REGISTRATION_ENABLED apagado el registro no existe: 404, como cualquier ruta desconocida (mejora FE-MOV-01)."""
+    if not settings.registration_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+def _unprocessable(code: str, detail: str) -> RegistrationRefused:
+    return RegistrationRefused(status.HTTP_422_UNPROCESSABLE_CONTENT, code, detail)
+
+
+async def _read_jpeg(upload: Optional[UploadFile], required: bool) -> Optional[bytes]:
+    """Se lee con tope de 2 MB y se exige la firma JPEG, como las fotos del siniestro."""
+    if upload is None:
+        if required:
+            raise _unprocessable("INVALID_PHOTO", "Faltan las fotos del documento o la selfie.")
+        return None
+    content = await upload.read(MAX_PHOTO_BYTES + 1)
+    if len(content) > MAX_PHOTO_BYTES:
+        raise RegistrationRefused(status.HTTP_413_CONTENT_TOO_LARGE, "INVALID_PHOTO", "Cada foto puede pesar máximo 2 MB.")
+    if not content.startswith(JPEG_MAGIC):
+        raise _unprocessable("INVALID_PHOTO", "Las fotos deben ser imágenes JPEG tomadas con la cámara.")
+    return content
+
+
+@router.post("/register/otp", response_model=OtpResponse, dependencies=[Depends(registration_open)])
+async def request_registration_otp(
+    request: RegistrationOtpRequest, http: Request, db: AsyncSession = Depends(get_db_session)
+):
+    """Código por SMS para comprobar el celular antes de crear la cuenta (mejora FE-MOV-01)."""
+    try:
+        code = await insured_registration_service.request_otp(
+            db, request.document_type, request.document_number, request.phone, _client_ip(http)
+        )
+    except RateLimitedError as exc:
+        raise _rate_limited(exc)
+    except SmsUnavailableError:
+        raise _sms_unavailable()
+    response = _otp_response(code)
+    response.message = REGISTRATION_CODE_SENT
+    return response
+
+
+async def _register(
+    data: str,
+    document_front: Optional[UploadFile],
+    selfie: Optional[UploadFile],
+    document_back: Optional[UploadFile],
+    db: AsyncSession,
+    storage: DocumentStorage,
+    verifier: IdentityVerifier,
+    ip: Optional[str],
+) -> RegistrationOutcome:
+    try:
+        request = RegistrationData.model_validate_json(data)
+    except ValidationError:
+        raise _unprocessable("INVALID_DATA", "Los datos del registro no tienen el formato esperado.")
+    photos = IdentityPhotos(
+        document_front=await _read_jpeg(document_front, required=True),
+        selfie=await _read_jpeg(selfie, required=True),
+        document_back=await _read_jpeg(document_back, required=False),
+    )
+    new_insured = NewInsured(
+        email=request.email, full_name=request.full_name, document_type=request.document_type,
+        document_number=request.document_number, phone=request.phone, password=request.password,
+        otp_code=request.otp_code,
+    )
+    try:
+        return await insured_registration_service.register(db, storage, verifier, new_insured, photos, ip)
+    except WeakPasswordError:
+        raise _unprocessable("WEAK_PASSWORD", WEAK_PASSWORD)
+    except RateLimitedError as exc:
+        raise _rate_limited(exc)
+    except InvalidRegistrationCodeError:
+        raise _unprocessable("INVALID_CODE", "El código no es válido o ya venció. Pida uno nuevo.")
+    except DuplicateAccountError:
+        raise RegistrationRefused(status.HTTP_409_CONFLICT, "DUPLICATE", "No pudimos crear la cuenta con esos datos.")
+    except IdentityRejectedError:
+        raise _unprocessable("IDENTITY_REJECTED", "No pudimos verificar su identidad.")
+    except StorageUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No pudimos completar el registro. Intente en unos minutos.",
+            headers={"Retry-After": "30"},
+        )
+
+
+@router.post(
+    "/register",
+    dependencies=[Depends(registration_open)],
+    response_model=RegistrationResult,
+    status_code=status.HTTP_201_CREATED,
+    responses={202: {"model": RegistrationResult, "description": "Cuenta creada con la identidad en verificación"}},
+)
+async def register(
+    response: Response,
+    http: Request,
+    data: str = Form(..., max_length=4_000),
+    document_front: Optional[UploadFile] = File(None),
+    selfie: Optional[UploadFile] = File(None),
+    document_back: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
+    verifier: IdentityVerifier = Depends(get_identity_verifier),
+):
+    """Crea la cuenta con la foto del documento y la selfie (mejora FE-MOV-01).
+    201 aprobada, 202 en verificación; las imágenes solo se guardan mientras está en verificación."""
+    try:
+        outcome = await _register(data, document_front, selfie, document_back, db, storage, verifier, _client_ip(http))
+    except RegistrationRefused as refused:
+        return refused.response()
+    response.headers["Cache-Control"] = "no-store"
+    if outcome.status != APPROVED:
+        response.status_code = status.HTTP_202_ACCEPTED
+    return RegistrationResult(**outcome.tokens.model_dump(), verification_status=outcome.status)
+

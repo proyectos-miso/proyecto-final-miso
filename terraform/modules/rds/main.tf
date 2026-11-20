@@ -9,6 +9,34 @@ resource "aws_kms_key" "rds" {
   }
 }
 
+# Generación de contraseña aleatoria cuando no se suministra externamente (RC-33)
+resource "random_password" "db_password" {
+  count   = var.db_password == null || var.db_password == "" ? 1 : 0
+  length  = 24
+  special = false
+}
+
+locals {
+  db_password = var.db_password != null && var.db_password != "" ? var.db_password : random_password.db_password[0].result
+}
+
+# Secreto en AWS Secrets Manager para almacenar la contraseña de RDS cifrada con KMS (RC-33)
+resource "aws_secretsmanager_secret" "db_password" {
+  name                    = "${var.project_name}-rds-password-${var.environment}"
+  description             = "Contraseña de la base de datos RDS PostgreSQL"
+  kms_key_id              = aws_kms_key.rds.arn
+  recovery_window_in_days = 0
+
+  tags = {
+    Name = "${var.project_name}-rds-password-${var.environment}"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "db_password" {
+  secret_id     = aws_secretsmanager_secret.db_password.id
+  secret_string = local.db_password
+}
+
 # Subnet Group en subredes privadas aisladas
 resource "aws_db_subnet_group" "main" {
   name       = "${var.project_name}-db-subnet-group-${var.environment}"
@@ -61,13 +89,16 @@ resource "aws_db_instance" "main" {
 
   db_name  = "solventa_db"
   username = var.db_username
-  password = var.db_password
+  password = local.db_password
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  skip_final_snapshot    = true
-  publicly_accessible    = false
+  backup_retention_period   = 7
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.project_name}-db-final-snapshot-${var.environment}"
+  deletion_protection       = var.db_deletion_protection
+  publicly_accessible       = false
 
   tags = {
     Name = "${var.project_name}-postgres-${var.environment}"

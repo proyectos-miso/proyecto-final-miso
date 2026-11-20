@@ -1,4 +1,5 @@
 """Carátula de la póliza en PDF, guardada en S3 y entregada con un enlace de 15 minutos (HU-WEB-16)."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
@@ -21,9 +22,10 @@ class PolicyCancelledError(Exception):
     pass
 
 
-def caratula_key(policy_number: str) -> str:
-    """La clave sale del número ya validado por la ruta; el cliente nunca la manda."""
-    return f"caratulas/{policy_number}.pdf"
+def caratula_key(policy_number: str, version: int = 1) -> str:
+    """La clave sale del número ya validado por la ruta; el cliente nunca la manda.
+    Cada endoso sube la versión y la carátula nueva no pisa la anterior (HU-WEB-15)."""
+    return f"caratulas/{policy_number}.pdf" if version <= 1 else f"caratulas/{policy_number}-v{version}.pdf"
 
 
 def cop(amount: float) -> str:
@@ -60,7 +62,8 @@ def render_caratula(policy: PolicyDB, partner_name: Optional[str], generated_at:
 
     # Mismas secciones y etiquetas que el detalle de Gestión (HU-WEB-09).
     write(f"Carátula de la póliza {policy.policy_number}", "B", 16, 9)
-    write("Solventa Seguros Digitales")
+    version = getattr(policy, "version", None) or 1
+    write("Solventa Seguros Digitales" + (f" · Versión {version} (con endosos)" if version > 1 else ""))
 
     heading("Titular")
     write(f"Nombre: {policy.holder_name or 'Sin nombre registrado'}")
@@ -79,6 +82,13 @@ def render_caratula(policy: PolicyDB, partner_name: Optional[str], generated_at:
     for coverage in included:
         deductible = coverage.get("deductible", 0.0)
         write(f"{coverage['name']}: {cop(coverage['limit'])}" + (f", deducible {cop(deductible)}" if deductible else ""))
+
+    heading("Constancia de Firma Electrónica")
+    write("Documento suscrito con firma electrónica y verificación OTP de un solo uso.")
+    write(f"Fecha de firma: {colombia(policy.issued_at):%d/%m/%Y a las %H:%M:%S} (hora de Colombia)")
+    canonical_summary = f"POL:{policy.policy_number}|DOC:{policy.insured_document}|ISSUED:{policy.issued_at.isoformat()}|TIER:{conditions.get('tier')}"
+    doc_hash = hashlib.sha256(canonical_summary.encode()).hexdigest()
+    write(f"Hash criptográfico de validez probatoria (SHA-256): {doc_hash}")
 
     pdf.ln(6)
     write(
@@ -115,7 +125,7 @@ async def get_caratula_link(
 
     key = policy.pdf_s3_key
     if key is None:
-        key = caratula_key(policy.policy_number)
+        key = caratula_key(policy.policy_number, getattr(policy, "version", None) or 1)
         await storage.put_pdf(key, render_caratula(policy, partner_name, now()))
         await session.execute(update(PolicyDB).where(PolicyDB.policy_number == policy.policy_number).values(pdf_s3_key=key))
         await session.commit()

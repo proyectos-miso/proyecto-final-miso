@@ -28,6 +28,8 @@ class HttpPoliciesApi(private val baseUrl: String) : PoliciesApi {
                     PoliciesResult.Loaded(parse(JSONObject(body)))
                 }
                 HttpURLConnection.HTTP_UNAUTHORIZED -> PoliciesResult.Unauthorized
+                HttpURLConnection.HTTP_FORBIDDEN ->
+                    if (connection.identityInReview()) PoliciesResult.IdentityInReview else PoliciesResult.Unavailable
                 else -> PoliciesResult.Unavailable
             }
         } catch (e: IOException) {

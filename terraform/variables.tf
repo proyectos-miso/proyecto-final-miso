@@ -23,14 +23,21 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña de PostgreSQL en RDS. Sin valor por defecto: llega como TF_VAR_db_password desde los secretos de CI"
+  description = "Contraseña de PostgreSQL en RDS. Si no se suministra externamente, se genera con random_password y se guarda en Secrets Manager (RC-33)"
   type        = string
   sensitive   = true
+  default     = null
 
   validation {
-    condition     = length(var.db_password) >= 12 && length(var.db_password) <= 41 && !can(regex("[/@\" ]", var.db_password))
+    condition     = var.db_password == null || (length(var.db_password) >= 12 && length(var.db_password) <= 41 && !can(regex("[/@\" ]", var.db_password)))
     error_message = "db_password debe tener entre 12 y 41 caracteres, sin /, @, comillas dobles ni espacios."
   }
+}
+
+variable "db_deletion_protection" {
+  description = "Habilitar protección contra eliminación accidental de la base de datos RDS"
+  type        = bool
+  default     = true
 }
 
 variable "jwt_secret_key" {
@@ -42,6 +49,25 @@ variable "jwt_secret_key" {
     condition     = length(var.jwt_secret_key) >= 32
     error_message = "jwt_secret_key debe tener al menos 32 caracteres."
   }
+}
+
+variable "oracle_secret" {
+  description = "Llave compartida con el oráculo de eventos (HU-MOV-10, RC-26). Llega como TF_VAR_oracle_secret desde los secretos de CI; vacía, el canal queda cerrado"
+  type        = string
+  sensitive   = true
+  default     = ""
+
+  validation {
+    condition     = var.oracle_secret == "" || length(var.oracle_secret) >= 32
+    error_message = "oracle_secret debe estar vacía o tener al menos 32 caracteres."
+  }
+}
+
+variable "firebase_credentials_json" {
+  description = "Cuenta de servicio de Firebase (JSON) para los push de HU-MOV-11. Llega como TF_VAR_firebase_credentials_json desde los secretos de CI; vacía, no hay push"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 variable "otp_secret_key" {

@@ -118,4 +118,55 @@ describe('PaymentStepComponent (HU-WEB-06)', () => {
     );
     retry.flush(receipt);
   });
+
+  describe('mensajes diferenciados y control de reintento por código HTTP (TC-10, RC-03)', () => {
+    it('en error 404 muestra mensaje específico y oculta el botón de reintento', () => {
+      const call = pay();
+      call.flush(
+        { detail: 'La póliza no existe o no se encuentra disponible para cobro.' },
+        { status: 404, statusText: 'Not Found' },
+      );
+      fixture.detectChanges();
+
+      expect(alert()).toContain('La póliza no existe');
+      expect(payButton()).toBeNull();
+    });
+
+    it('en error 409 muestra aviso de póliza pagada y oculta el botón de reintento', () => {
+      const call = pay();
+      call.flush(
+        { detail: 'La póliza ya está pagada.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      fixture.detectChanges();
+
+      expect(alert()).toContain('La póliza ya está pagada');
+      expect(payButton()).toBeNull();
+    });
+
+    it('en error 422 muestra error de datos no procesables y oculta el botón de reintento', () => {
+      const call = pay();
+      call.flush(
+        { detail: 'El monto no coincide con la prima de la póliza.' },
+        { status: 422, statusText: 'Unprocessable Content' },
+      );
+      fixture.detectChanges();
+
+      expect(alert()).toContain('El monto no coincide');
+      expect(payButton()).toBeNull();
+    });
+
+    it('en error 502 muestra error de pasarela no disponible y permite reintentar', () => {
+      const call = pay();
+      call.flush(
+        { detail: 'La pasarela no respondió. Reintente con la misma clave: no se cobrará dos veces.' },
+        { status: 502, statusText: 'Bad Gateway' },
+      );
+      fixture.detectChanges();
+
+      expect(alert()).toContain('La pasarela no respondió');
+      expect(payButton()).not.toBeNull();
+      expect(payButton()!.disabled).toBe(false);
+    });
+  });
 });

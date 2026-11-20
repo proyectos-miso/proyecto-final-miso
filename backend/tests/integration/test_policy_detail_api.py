@@ -82,7 +82,8 @@ async def test_tc_02_documento_correo_y_telefono_salen_enmascarados(async_client
     raw = response.text
     for full in ("1020304050", "titular@example.com", "3000000000"):
         assert full not in raw
-    assert "beneficiaries" not in raw
+    # HU-WEB-15 muestra los beneficiarios; la póliza de prueba no tiene y nunca sale un documento completo.
+    assert response.json()["beneficiaries"] == []
 
 
 async def test_tc_03_una_poliza_inexistente_responde_404_sin_detalles_tecnicos(async_client: AsyncClient, catalog):

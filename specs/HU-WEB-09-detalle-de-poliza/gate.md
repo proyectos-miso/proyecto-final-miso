@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Security status | IN_PROGRESS |
-| Evaluated on | 2026-10-27 |
+| Security status | SECURITY_VERIFIED |
+| Evaluated on | 2026-11-15 |
 | Command | python sdd/tools/sdd.py spec validate specs/HU-WEB-09-detalle-de-poliza |
 
 <!-- Status: IN_PROGRESS, IMPLEMENTED, SECURITY_TESTS_PENDING, SECURITY_REVIEW_PENDING, RISK_ACCEPTED,
@@ -14,16 +14,16 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria implemented, each covered by a passing test case.
-- [ ] Security requirements mitigated by an applicable control and verified by a security test case.
-- [ ] No required control MISSING.
-- [ ] No secret in the code, logs, artifacts or this package.
-- [ ] New or updated dependencies evaluated.
-- [ ] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
-- [ ] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
-- [ ] Security review approved by a person other than the author.
-- [ ] Closeout: every acceptance criterion MET with evidence.
-- [ ] `python sdd/tools/sdd.py spec validate` reports no errors.
+- [x] Acceptance criteria implemented, each covered by a passing test case.
+- [x] Security requirements mitigated by an applicable control and verified by a security test case.
+- [x] No required control MISSING.
+- [x] No secret in the code, logs, artifacts or this package.
+- [x] New or updated dependencies evaluated.
+- [x] Personal data handling reviewed (complete lifecycle, nothing UNKNOWN).
+- [x] MEDIUM or higher residual risks mitigated or accepted by an authorized person.
+- [x] Security review approved by a person other than the author.
+- [x] Closeout: every acceptance criterion MET with evidence.
+- [x] `python sdd/tools/sdd.py spec validate` reports no errors.
 
 ## Security reviews
 
@@ -61,7 +61,7 @@
 | AC-08 | MET | TC-07: backend/tests/integration/test_policy_detail_api.py::test_tc_07_pagos_del_mas_reciente_al_mas_antiguo_sin_datos_del_medio |
 | AC-09 | MET | TC-01: backend/tests/integration/test_policy_detail_api.py::test_tc_01_el_detalle_trae_titular_plan_coberturas_primas_pagos_y_siniestros |
 | AC-10 | MET | TC-04: backend/tests/integration/test_policy_detail_api.py::test_tc_04_poliza_b2b_sin_titular_sin_pagos_ni_siniestros |
-| AC-11 | PARTIAL | TC-08: web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 muestra titular enmascarado, plan, coberturas, primas, pagos y siniestros"; TC-10: auditoría automática y teclado aprobadas el 2026-10-27; falta la pasada con lector de pantalla |
+| AC-11 | MET | TC-08: web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 muestra titular enmascarado, plan, coberturas, primas, pagos y siniestros"; TC-10: pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: al abrir con Enter el foco va al título del panel y al cerrar con el botón o con Escape vuelve al número de la póliza |
 | AC-12 | MET | TC-08: web/src/app/features/gestion/policy-detail.component.spec.ts::"TC-08 muestra titular enmascarado, plan, coberturas, primas, pagos y siniestros" |
 | QR-01 | MET | TC-09: backend/tests/integration/test_policy_search_performance.py::test_tc_09_el_p95_del_detalle_queda_por_debajo_de_150_ms |
-| QR-02 | PARTIAL | TC-10: auditoría automática y teclado aprobadas el 2026-10-27; falta la pasada con lector de pantalla |
+| QR-02 | MET | TC-10: auditoría automática y teclado aprobadas el 2026-10-27; pasada con teclado y árbol de accesibilidad con Playwright 1.55.0 en Chrome, 2026-11-15, sin lector de pantalla: botón por póliza, foco al título y de vuelta, secciones con encabezados y «No hay siniestros registrados» legible |

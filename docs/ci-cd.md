@@ -84,6 +84,97 @@ Archivo: `.github/workflows/deploy.yml`. Se dispara con cada fusión en `main` o
 Las credenciales de AWS y las llaves del backend son secretos del repositorio en GitHub; nunca se
 escriben en el código ni en los registros.
 
+## Secretos y variables del repositorio
+
+Se configuran en **Settings → Secrets and variables → Actions**. Los valores nunca van al repositorio, a
+los registros ni a los paquetes de spec.
+
+| Nombre | Tipo | Para qué | Si falta |
+|---|---|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Secretos | Despliegue con Terraform y ECR | No se despliega |
+| `DB_PASSWORD`, `JWT_SECRET_KEY`, `OTP_SECRET_KEY` | Secretos | Base de datos, firma de los tokens y de los códigos | No se despliega |
+| `SONAR_TOKEN` | Secreto | Análisis de SonarCloud | Falla el check de SonarCloud |
+| `FIREBASE_CREDENTIALS_JSON` | Secreto | Push al asegurado (HU-MOV-11) | El backend funciona sin push; la app avisa al sincronizar |
+| `ORACLE_SECRET` | Secreto | Firma de los eventos del oráculo (HU-MOV-10, RC-26) | `POST /oracle/events` responde 503: no entran siniestros paramétricos |
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Secretos | Firma del APK de release (HU-MOV-09, RC-12) | El job `mobile-release` se omite |
+| `ANDROID_API_BASE_URL` | Variable | URL `https` del API para el APK de release | El job `mobile-release` se omite |
+
+**Dónde terminan los secretos del backend.** `deploy.yml` y `destroy.yml` pasan `DB_PASSWORD`,
+`JWT_SECRET_KEY`, `OTP_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` a Terraform como
+`TF_VAR_*`, a variables con `sensitive = true`. Terraform los guarda en AWS Secrets Manager, cifrados con la
+llave KMS de RDS: `solventa-rds-password-production` para `DB_PASSWORD` y `solventa-<nombre>-production`
+para los demás (`solventa-jwt-secret-key-production`, `solventa-otp-secret-key-production`,
+`solventa-firebase-credentials-json-production`, `solventa-oracle-secret-production`). La tarea de ECS los
+recibe con el bloque `secrets`: la definición de tarea solo contiene el ARN de cada uno. El rol de ejecución
+es el único rol de carga de trabajo con permiso para leerlos, y solo descifra a través de Secrets Manager
+(`kms:ViaService`); la identidad de despliegue y los administradores IAM de la cuenta también pueden, porque
+la llave delega en IAM (pendiente en el ADR 0029: llave dedicada). El backend
+los sigue leyendo como variables de entorno (ADR 0029, `specs/HOTFIX-secretos-en-ecs`).
+`FIREBASE_CREDENTIALS_JSON` y `ORACLE_SECRET` vacíos no crean secreto ni variable; `ORACLE_SECRET` con
+valor debe tener al menos 32 caracteres o Terraform falla la validación. Los valores siguen en el estado de
+Terraform: el bucket de estado es tan sensible como los secretos.
+
+- **Para rotar** un secreto se cambia en GitHub y se despliega: Terraform guarda una versión nueva y el
+  despliegue del backend reemplaza las tareas. Cambiar `JWT_SECRET_KEY` cierra todas las sesiones y cambiar
+  `OTP_SECRET_KEY` invalida los códigos pendientes. Rotar `FIREBASE_CREDENTIALS_JSON` es crear una llave
+  nueva de la cuenta de servicio en la consola de Firebase (o de Google Cloud), cargarla en GitHub,
+  desplegar y, cuando las tareas nuevas estén arriba, **borrar la llave anterior de la cuenta de servicio**:
+  mientras exista, el JSON viejo sigue sirviendo. `ORACLE_SECRET` se cambia a la vez en los dos lados.
+- **Vaciar un secreto opcional en GitHub lo borra de inmediato.** Los secretos usan
+  `recovery_window_in_days = 0`, como el de RDS, para que el apagado y la recreación no choquen con nombres
+  en borrado. Si alguien vacía `FIREBASE_CREDENTIALS_JSON` u `ORACLE_SECRET` y despliega, Terraform borra el
+  secreto sin ventana de recuperación y la tarea arranca sin esa variable (sin push, o el oráculo en 503).
+  No hay copia que restaurar en Secrets Manager: se vuelve a cargar el valor en GitHub y se despliega, y el
+  secreto se recrea con el mismo nombre. Si nadie conserva el valor, se emite una llave nueva de la cuenta
+  de servicio (y se borra la anterior) o se acuerda una llave nueva con el oráculo. Vaciar
+  `JWT_SECRET_KEY` u `OTP_SECRET_KEY` no borra nada: la validación de Terraform falla antes del apply.
+- **Antes del primer despliegue con este cambio**, si en la cuenta ya existe a mano un secreto con alguno
+  de esos nombres, se borra o se importa al estado; si no, el apply falla.
+
+**Después del primer despliegue: borrar las revisiones con valores en claro.** Las revisiones anteriores
+de la definición de tarea tienen los valores en claro. Desregistrar una revisión no basta: queda
+`INACTIVE` y `DescribeTaskDefinition` la sigue mostrando completa. Hay que borrarla. Se hace **solo
+cuando el despliegue nuevo está estable** (el servicio con `rolloutState` `COMPLETED` y `/health` en 200),
+porque después el circuit breaker ya no puede volver a esas revisiones: si la revisión nueva falla, la
+reversión automática no tiene a dónde ir y hay que corregir y desplegar de nuevo. Desde una sesión con
+permisos de ECS, sin imprimir el contenido de ninguna definición:
+
+1. Anotar la revisión vigente:
+   `aws ecs describe-services --cluster solventa-cluster-production --services solventa-backend-service-production --query "services[0].[taskDefinition,deployments[0].rolloutState]"`.
+2. Listar las activas y desregistrar todas menos la vigente:
+   `aws ecs list-task-definitions --family-prefix solventa-backend-production --status ACTIVE`, y por cada
+   ARN distinto del vigente `aws ecs deregister-task-definition --task-definition <arn>`.
+3. Listar las inactivas, que incluyen las recién desregistradas y las de despliegues anteriores:
+   `aws ecs list-task-definitions --family-prefix solventa-backend-production --status INACTIVE`.
+4. Borrarlas con `aws ecs delete-task-definitions --task-definitions <arn1> <arn2> ...`, **máximo 10 ARN
+   por llamada**; con más, se repite en lotes de 10. Revisar `failures` en la respuesta. El borrado pasa por
+   `DELETE_IN_PROGRESS` y termina cuando ninguna tarea usa la revisión.
+5. Verificar con una revisión vieja que ya no se puede leer:
+   `aws ecs describe-task-definition --task-definition solventa-backend-production:<revisión> --query taskDefinition.status`
+   debe fallar con `ClientException`. Mientras muestre `DELETE_IN_PROGRESS` la revisión todavía se puede leer
+   completa: repetir hasta el `ClientException`; solo entonces T-05 está hecho.
+   **Nunca** ejecutar `describe-task-definition` sobre una revisión vieja sin `--query` ni con `--debug`:
+   imprime los valores en claro.
+6. Rotar los valores que estuvieron expuestos (T-06 del hotfix), porque quien leyó una revisión antes del
+   borrado los conoce.
+
+**`ORACLE_SECRET`.** Texto aleatorio de al menos 32 caracteres que comparten el backend y el oráculo. Se
+genera con `python -c "import secrets; print(secrets.token_urlsafe(48))"`, se pega directamente en GitHub y
+se entrega al oráculo por un canal privado. Para rotarla se cambia en los dos lados a la vez.
+
+**APK de release (opcional, apagado).** El job `mobile-release` de `ci.yml` firma `assembleRelease` en cada
+push a `dev` y publica el APK como artefacto, pero solo si existen los cuatro secretos de la llave y la
+variable `ANDROID_API_BASE_URL`; sin ellos se omite sin fallar. Hoy el equipo prueba con el APK debug local,
+así que queda apagado. Para activarlo:
+
+1. Crear la llave fuera del repositorio:
+   `keytool -genkeypair -v -keystore solventa-release.jks -alias solventa -keyalg RSA -keysize 2048 -validity 10000`.
+2. Convertirla a texto y copiarla: en PowerShell,
+   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("solventa-release.jks")) | Set-Clipboard`.
+3. Crear los cuatro secretos y la variable de la tabla.
+4. Guardar el `.jks` y sus contraseñas en un lugar seguro: si se pierden, las actualizaciones de la app ya
+   no se pueden firmar con la misma llave.
+
 ## Apagado y recreación de la infraestructura
 
 Para no generar costos entre entregas, la infraestructura se destruye con el flujo

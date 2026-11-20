@@ -152,10 +152,35 @@ describe('AuthService (HU-WEB-13)', () => {
     expect(service.isAuthenticated()).toBe(true);
 
     service.logout();
+    // HU-WEB-15: el backend revoca el refresh; la sesión se limpia sin esperar la respuesta.
+    const revoke = httpMock.expectOne('/api/v1/experience/auth/logout');
+    expect(revoke.request.body).toEqual({ refresh_token: 'ref' });
+    revoke.flush(null, { status: 204, statusText: 'No Content' });
 
     expect(service.isAuthenticated()).toBe(false);
     expect(service.currentSession()).toBeNull();
     expect(sessionStorage.getItem('solventa_advisor_session')).toBeNull();
     expect(navigateSpy).toHaveBeenCalledWith(['/login']);
   });
+
+  it('HU-WEB-15 (AC-15) dos renovaciones a la vez comparten una sola petición', () => {
+    service.login({ username: 'u', password: 'p', totpCode: '123456' }).subscribe();
+    httpMock.expectOne('/api/v1/experience/auth/login').flush({
+      access_token: 'tok', refresh_token: 'ref', token_type: 'bearer', role: 'analyst', advisor_name: 'Ana', expires_in: 900,
+    });
+    const tokens: string[] = [];
+
+    service.refreshToken().subscribe((session) => tokens.push(session.accessToken));
+    service.refreshToken().subscribe((session) => tokens.push(session.accessToken));
+    httpMock.expectOne('/api/v1/experience/auth/refresh').flush({
+      access_token: 'nuevo', refresh_token: 'ref-2', token_type: 'bearer', role: 'analyst', advisor_name: 'Ana', expires_in: 900,
+    });
+
+    expect(tokens).toEqual(['nuevo', 'nuevo']);
+    service.refreshToken().subscribe();
+    httpMock.expectOne('/api/v1/experience/auth/refresh').flush({
+      access_token: 'otro', refresh_token: 'ref-3', token_type: 'bearer', role: 'analyst', advisor_name: 'Ana', expires_in: 900,
+    });
+  });
 });
+

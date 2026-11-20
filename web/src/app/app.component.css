@@ -45,6 +45,34 @@
   min-width: 0;
 }
 
+.main-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.main-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.main-nav a:hover,
+.main-nav a.active {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.main-nav a:focus-visible {
+  outline: 3px solid #38bdf8;
+  outline-offset: 1px;
+}
+
 .user-greeting {
   font-size: 0.8125rem;
   font-weight: 500;

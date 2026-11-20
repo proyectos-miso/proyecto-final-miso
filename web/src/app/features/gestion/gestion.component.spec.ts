@@ -77,7 +77,7 @@ describe('GestionComponent (HU-WEB-08, HU-WEB-09)', () => {
     expect(rows[0].textContent).toContain('Vigente');
     expect(rows[1].textContent).toContain('Sin nombre registrado');
     expect(rows[1].textContent).toContain('Banco Aliado S.A.');
-    expect(page().querySelector('[role="status"]')?.textContent).toContain('2 pólizas encontradas');
+    expect(page().querySelector('.count[role="status"]')?.textContent).toContain('2 pólizas encontradas');
     expect(page().querySelectorAll('thead th[scope="col"]').length).toBe(6);
   });
 
@@ -102,7 +102,7 @@ describe('GestionComponent (HU-WEB-08, HU-WEB-09)', () => {
     const empty = page().querySelector('[data-testid="no-results"]') as HTMLElement;
     expect(empty.textContent).toContain('No encontramos pólizas que coincidan con «9999999999»');
     expect(page().querySelector('table')).toBeNull();
-    expect(page().querySelector('[role="status"]')?.textContent).toContain('Sin resultados');
+    expect(page().querySelector('.count[role="status"]')?.textContent).toContain('Sin resultados');
 
     (empty.querySelector('button') as HTMLButtonElement).click();
     const call = pending();
@@ -117,7 +117,7 @@ describe('GestionComponent (HU-WEB-08, HU-WEB-09)', () => {
     respond({ items: [item], has_more: true });
 
     expect(page().textContent).toContain('Se muestran las 50 pólizas más recientes');
-    expect(page().querySelector('[role="status"]')?.textContent).toContain('1 o más');
+    expect(page().querySelector('.count[role="status"]')?.textContent).toContain('1 o más');
   });
 
   it('muestra el error del servidor como alerta', () => {

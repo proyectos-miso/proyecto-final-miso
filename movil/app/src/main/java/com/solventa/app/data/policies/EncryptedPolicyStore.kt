@@ -4,6 +4,14 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import com.solventa.app.data.assistance.ProvidersJson
+import com.solventa.app.data.claims.ClaimsJson
+import com.solventa.app.domain.assistance.ProvidersCopy
+import com.solventa.app.domain.assistance.ProvidersCopyStore
+import com.solventa.app.domain.claims.ClaimReceipt
+import com.solventa.app.domain.claims.ClaimsCopy
+import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.claims.ReceiptKeeper
 import com.solventa.app.domain.policies.CoverageLimit
 import com.solventa.app.domain.policies.PolicyCard
 import com.solventa.app.domain.policies.PolicyStore
@@ -19,6 +27,7 @@ import kotlinx.coroutines.withContext
 import net.zetetic.database.sqlcipher.SQLiteNotADatabaseException
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -33,7 +42,7 @@ class EncryptedPolicyStore(
     private val vault: PassphraseVault,
     // La app siempre cifra con SQLCipher; las pruebas en la JVM pasan SQLite sin cifrar para probar el flujo.
     private val openHelper: (ByteArray) -> SupportSQLiteOpenHelper.Factory = ::sqlcipher,
-) : PolicyStore {
+) : PolicyStore, ReceiptKeeper, ProvidersCopyStore {
 
     // Un turno por cuenta: read, save y delete de la misma cuenta no se cruzan (CTL-10).
     private val turns = ConcurrentHashMap<String, Mutex>()
@@ -74,6 +83,73 @@ class EncryptedPolicyStore(
                     Opened.Damaged -> discarded(accountId)
                     Opened.Failed -> StoredCopy.Unavailable
                 }
+            }
+        }
+    }
+
+    override suspend fun saveClaims(accountEmail: String, claims: ClaimsCopy): Boolean = withExisting(accountEmail, false) { db ->
+        val entities = claims.claims.distinctBy(InsuredClaim::claimNumber)
+            .mapIndexed { i, claim -> InsuredClaimEntity(claim.claimNumber, i, ClaimsJson.toJson(claim).toString()) }
+        db.claims().replace(entities, claims.updatedAt.toEpochMilli())
+        true
+    }
+
+    override suspend fun readClaims(accountEmail: String): ClaimsCopy? = withExisting(accountEmail, null) { db ->
+        db.claims().updatedAt()?.let { millis ->
+            val claims = try {
+                db.claims().all().map { ClaimsJson.claim(JSONObject(it.json)) }
+            } catch (e: JSONException) {
+                return@withExisting null
+            }
+            ClaimsCopy(claims, Instant.ofEpochMilli(millis))
+        }
+    }
+
+    override suspend fun markNotified(accountEmail: String, key: String): Boolean = withExisting(accountEmail, false) { db ->
+        db.claims().markNotice(SentNoticeEntity(key)) != -1L
+    }
+
+    // Lo guarda el envío en segundo plano, sin sesión: solo conoce el id de la cuenta.
+    override suspend fun keep(accountId: String, receipt: ClaimReceipt): Boolean = withExistingId(accountId, false) { db ->
+        db.claims().saveReceipt(receipt.toEntity())
+        true
+    }
+
+    override suspend fun readReceipt(accountEmail: String): ClaimReceipt? = withExisting(accountEmail, null) { db ->
+        db.claims().receipt()?.toReceipt()
+    }
+
+    override suspend fun dismissReceipt(accountEmail: String): Boolean = withExisting(accountEmail, false) { db ->
+        db.claims().deleteReceipt() > 0
+    }
+
+    override suspend fun saveProviders(accountEmail: String, copy: ProvidersCopy): Boolean = withExisting(accountEmail, false) { db ->
+        db.providers().save(ProvidersCopyEntity(json = ProvidersJson.toJson(copy.providers).toString(), cityCode = copy.cityCode,
+            savedAtEpochMillis = copy.savedAt.toEpochMilli()))
+        true
+    }
+
+    override suspend fun readProviders(accountEmail: String): ProvidersCopy? = withExisting(accountEmail, null) { db ->
+        db.providers().read()?.let { entity ->
+            try {
+                ProvidersCopy(ProvidersJson.providers(JSONArray(entity.json)), entity.cityCode, Instant.ofEpochMilli(entity.savedAtEpochMillis))
+            } catch (e: JSONException) {
+                null
+            }
+        }
+    }
+
+    private suspend fun <T> withExisting(accountEmail: String, otherwise: T, block: suspend (WalletDatabase) -> T): T =
+        withExistingId(PassphraseVault.accountId(accountEmail), otherwise, block)
+
+    // Siniestros, avisos y constancia solo viven junto a una copia de la billetera que ya existe; nunca crean ni descartan la base.
+    private suspend fun <T> withExistingId(accountId: String, otherwise: T, block: suspend (WalletDatabase) -> T): T {
+        return inTurn(accountId) {
+            if (!databaseExists(accountId)) return@inTurn otherwise
+            val stored = vault.existing(accountId) as? Unwrapped.Secret ?: return@inTurn otherwise
+            when (val opened = withDatabase(accountId, stored.bytes, block)) {
+                is Opened.Done -> opened.value
+                else -> otherwise
             }
         }
     }
@@ -136,6 +212,7 @@ class EncryptedPolicyStore(
         return try {
             db = Room.databaseBuilder(context, WalletDatabase::class.java, fileName(accountId))
                 .openHelperFactory(openHelper(passphrase))
+                .addMigrations(WalletDatabase.MIGRATION_3_4, WalletDatabase.MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
             Opened.Done(block(db))
@@ -199,3 +276,12 @@ internal fun PolicyCardEntity.toCard(): PolicyCard {
         validUntil = Instant.ofEpochMilli(validUntilEpochMillis),
     )
 }
+
+internal fun ClaimReceipt.toEntity() = ClaimReceiptEntity(
+    claimNumber = claimNumber,
+    provisionalNumber = provisionalNumber,
+    policyNumber = policyNumber,
+    reportedAtEpochMillis = reportedAt.toEpochMilli(),
+)
+
+internal fun ClaimReceiptEntity.toReceipt() = ClaimReceipt(claimNumber, provisionalNumber, policyNumber, Instant.ofEpochMilli(reportedAtEpochMillis))

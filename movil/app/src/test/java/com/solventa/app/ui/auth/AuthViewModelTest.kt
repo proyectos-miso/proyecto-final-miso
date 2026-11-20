@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.solventa.app.data.claims.InMemoryClaimStore
 import com.solventa.app.data.policies.FakePolicySync
 import com.solventa.app.data.policies.FakeScheduler
 import com.solventa.app.data.policies.FakeSyncAuthApi
@@ -64,6 +65,9 @@ class AuthViewModelTest {
     private lateinit var policyStore: InMemoryPolicyStore
     private lateinit var sync: FakePolicySync
     private lateinit var appScope: CoroutineScope
+    private val claimStore = InMemoryClaimStore()
+    private val reportTokens = com.solventa.app.data.claims.MapReportTokens()
+    private val notificationPreferences = com.solventa.app.data.policies.InMemoryNotificationPreferences()
     private lateinit var viewModel: AuthViewModel
 
     @Before
@@ -86,7 +90,8 @@ class AuthViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(policySync: PolicySync = sync) = AuthViewModel(repository, authApi, policyStore, policySync, appScope)
+    private fun newViewModel(policySync: PolicySync = sync) =
+        AuthViewModel(repository, authApi, policyStore, policySync, appScope, claimStore, reportTokens, notificationPreferences)
 
     /** El ViewModel dentro de una pantalla, para poder terminarla como Android cuando termina la actividad. */
     private fun inScreen(screen: ViewModelStore, policySync: PolicySync = sync): AuthViewModel =
@@ -257,6 +262,21 @@ class AuthViewModelTest {
 
         assertFalse(EMAIL in policyStore.copies)
         assertTrue(OTHER_EMAIL in policyStore.copies)
+    }
+
+    // HU-MOV-10: la constancia del último reporte vive en la copia de la cuenta y se borra con ella al cerrar sesión.
+    @Test
+    fun `HU-MOV-10 cerrar sesion borra la constancia del reporte recibido`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        policyStore.copies[EMAIL] = emptyList()
+        policyStore.receipts[EMAIL] = com.solventa.app.domain.claims.ClaimReceipt(
+            "SIN-2026-00001", "OFF-2026-AB12", "POL-2026-00001", java.time.Instant.parse("2026-11-14T10:00:00Z"),
+        )
+
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+
+        assertFalse(EMAIL in policyStore.receipts)
     }
 
     // HU-MOV-04 TC-07: con un 401 que la renovación no salva, la sincronización borra la copia y se pide ingresar.
@@ -596,6 +616,20 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `cambiar de pantalla reinicia la espera para pedir codigo`() {
+        viewModel.openPasswordRecovery()
+        viewModel.requestRecoveryCode(EMAIL)
+        assertFalse(viewModel.uiState.value.canRequestOtp(EMAIL))
+
+        viewModel.closePasswordRecovery()
+
+        assertEquals(0, viewModel.uiState.value.otpCooldownSeconds)
+        assertTrue(viewModel.uiState.value.canRequestOtp(EMAIL))
+        advanceSeconds(60)
+        assertEquals(0, viewModel.uiState.value.otpCooldownSeconds)
+    }
+
+    @Test
     fun `TC-S1-10 servidor pide esperar antes de otro codigo`() {
         authApi.otpResult = OtpResult.TooManyRequests(retryAfterSeconds = 25)
 
@@ -836,6 +870,120 @@ class AuthViewModelTest {
         viewModel.closePasswordRecovery()
         assertFalse(viewModel.uiState.value.showPasswordRecovery)
         assertTrue(viewModel.uiState.value.showAlternativeAccess)
+    }
+
+    // HU-MOV-08 TC-08: el reporte de siniestro se borra en las mismas revocaciones que la copia, salvo la sesión vencida.
+    @Test
+    fun `HU-MOV-08 TC-08 cerrar sesion borra el reporte de siniestro de la cuenta`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 la huella desactivada en el servidor borra el reporte`() {
+        authApi.biometricResult = LoginResult.InvalidCredentials
+
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 cambiar la contrasena borra el reporte de esa cuenta`() {
+        viewModel.openPasswordRecovery()
+
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+
+        assertEquals(listOf(EMAIL), claimStore.deleted)
+    }
+
+    @Test
+    fun `HU-MOV-08 TC-08 la sesion vencida y el nuevo ingreso conservan el reporte`() = kotlinx.coroutines.runBlocking {
+        val auth = FakeSyncAuthApi().apply { refreshResult = { RefreshResult.Rejected } }
+        val policies = ScriptedPoliciesApi().apply { respond = { PoliciesResult.Unauthorized } }
+        val realSync = SessionPolicySync(repository, auth, policies, policyStore, FakeScheduler()) { claimStore.delete(it) }
+        viewModel = newViewModel(realSync)
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        val outcome = realSync.sync() as SyncOutcome.SessionEnded
+        viewModel.onSessionEnded(outcome.reason)
+        viewModel.onSessionEnded(SessionEndReason.RELOGIN)
+
+        assertEquals(SessionEndReason.EXPIRED, outcome.reason)
+        assertTrue(claimStore.deleted.isEmpty())
+    }
+
+    // HU-MOV-09 SR-05: el token de reporte se borra con los datos de la cuenta.
+    @Test
+    fun `HU-MOV-09 cerrar sesion, la huella revocada o el cambio de contrasena borran el token de reporte`() {
+        val account = com.solventa.app.data.policies.PassphraseVault.accountId(EMAIL)
+        reportTokens.tokens[account] = "token-de-reporte"
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+        assertNull(reportTokens.read(account))
+
+        reportTokens.tokens[account] = "token-de-reporte"
+        authApi.biometricResult = LoginResult.InvalidCredentials
+        newViewModel().authenticateWithBiometrics(FakeBiometricAuthenticator())
+        assertNull(reportTokens.read(account))
+
+        reportTokens.tokens[account] = "token-de-reporte"
+        viewModel.openPasswordRecovery()
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+        assertNull(reportTokens.read(account))
+    }
+
+    // FE-MOV-04: la copia local de las preferencias de avisos se borra con los datos de la cuenta.
+    @Test
+    fun `FE-MOV-04 cerrar sesion, la huella revocada o el cambio de contrasena borran las preferencias de avisos`() {
+        val off = com.solventa.app.domain.policies.PushPreferences(claims = false, renewals = false, payments = false)
+        notificationPreferences.save(EMAIL, off, pending = true)
+        notificationPreferences.save(OTHER_EMAIL, off, pending = false)
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+        viewModel.confirmLogout()
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
+        assertFalse(notificationPreferences.pending(EMAIL))
+        assertEquals(off, notificationPreferences.read(OTHER_EMAIL))
+
+        notificationPreferences.save(EMAIL, off, pending = false)
+        authApi.biometricResult = LoginResult.InvalidCredentials
+        newViewModel().authenticateWithBiometrics(FakeBiometricAuthenticator())
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
+
+        notificationPreferences.save(EMAIL, off, pending = false)
+        viewModel.openPasswordRecovery()
+        viewModel.resetPassword(EMAIL, "123456", "NuevaClave2026", "NuevaClave2026")
+        assertEquals(com.solventa.app.domain.policies.PushPreferences(), notificationPreferences.read(EMAIL))
+    }
+
+    // HU-MOV-09 AC-02: cerrar la app revoca el refresh pero conserva el token de reporte; cerrar sesión revoca todo.
+    @Test
+    fun `HU-MOV-09 al terminar la actividad revoca la sesion conservando el token de reporte`() {
+        val screen = ViewModelStore()
+        inScreen(screen).authenticateWithBiometrics(FakeBiometricAuthenticator())
+
+        screen.clear()
+
+        assertNull(repository.openSession)
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+        assertEquals(true, authApi.lastKeepReporting)
+    }
+
+    @Test
+    fun `HU-MOV-09 cerrar sesion revoca tambien el token de reporte`() {
+        viewModel.authenticateWithBiometrics(FakeBiometricAuthenticator())
+        viewModel.requestLogout()
+
+        viewModel.confirmLogout()
+
+        assertEquals(newTokens.refreshToken, authApi.lastRevokedToken)
+        assertEquals(false, authApi.lastKeepReporting)
     }
 
     @Test
@@ -1107,6 +1255,49 @@ class AuthViewModelTest {
         assertEquals(300, viewModel.uiState.value.lockedSeconds)
     }
 
+    // Mejora FE-MOV-01: registro con documento y selfie
+
+    @Test
+    fun `crear cuenta abre el registro y cerrarlo vuelve al ingreso`() {
+        viewModel.openRegistration()
+        assertTrue(viewModel.uiState.value.showRegistration)
+
+        viewModel.closeRegistration()
+
+        assertFalse(viewModel.uiState.value.showRegistration)
+        assertFalse(viewModel.uiState.value.isAuthenticated)
+    }
+
+    @Test
+    fun `la cuenta registrada abre su sesion y ofrece activar la huella`() {
+        viewModel.openRegistration()
+
+        viewModel.completeRegistration(" Nueva.Persona@Example.com ", newTokens, "Ana Prueba", FakeBiometricAuthenticator())
+
+        val state = viewModel.uiState.value
+        assertFalse(state.showRegistration)
+        assertTrue(state.offerBiometricEnrollment)
+        assertEquals("nueva.persona@example.com", state.currentAccountEmail)
+        assertEquals("Ana Prueba", state.fullName)
+        assertEquals(newTokens, repository.activeSession)
+
+        viewModel.skipBiometricEnrollment()
+        assertTrue(viewModel.uiState.value.isAuthenticated)
+    }
+
+    @Test
+    fun `sin sensor la cuenta registrada entra directo a la billetera`() {
+        viewModel.completeRegistration(
+            "nueva.persona@example.com", newTokens, "Ana Prueba",
+            FakeBiometricAuthenticator(availability = BiometricAvailability.UNAVAILABLE),
+        )
+
+        val state = viewModel.uiState.value
+        assertTrue(state.isAuthenticated)
+        assertFalse(state.offerBiometricEnrollment)
+        assertEquals(AuthStatus.AUTHENTICATED, state.status)
+    }
+
     private inner class FakeAuthApi : AuthApi {
         var otpResult: OtpResult = OtpResult.Sent(debugCode = null)
         var forgotResult: OtpResult = OtpResult.Sent(debugCode = null)
@@ -1119,6 +1310,7 @@ class AuthViewModelTest {
         var lastOtpEmail: String? = null
         var lastForgotEmail: String? = null
         var lastRevokedToken: String? = null
+        var lastKeepReporting: Boolean? = null
         var lastBiometricCredential: DeviceCredential? = null
         var lastRegisterToken: String? = null
         var lastRevokedDevice: String? = null
@@ -1137,8 +1329,9 @@ class AuthViewModelTest {
             return pendingLogin?.await() ?: loginResult
         }
 
-        override suspend fun logout(refreshToken: String): Boolean {
+        override suspend fun logout(refreshToken: String, keepReporting: Boolean): Boolean {
             lastRevokedToken = refreshToken
+            lastKeepReporting = keepReporting
             return logoutResult
         }
 

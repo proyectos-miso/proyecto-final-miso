@@ -6,7 +6,7 @@
 | Title | Evidencias CI/CD |
 | User story | none: hotfix de la calificación del Sprint 1 (CI/CD 4/10 y ejecución de pruebas 8/10) |
 | Owner | Juan Camilo Peña |
-| Status | DRAFT |
+| Status | DONE |
 | Created | 2026-10-25 |
 | Security profile | HIGH |
 
@@ -181,4 +181,4 @@ N/A: no cambia la arquitectura de la aplicación ni de la infraestructura; el pr
 | T-04 | Despliegue solo desde main, ambiente produccion y espera a ECS estable | AC-03, AC-04, SR-02 | CTL-02 | DONE | scripts/ci/test_workflows.py::test_el_despliegue_solo_corre_desde_main_con_el_ambiente_produccion |
 | T-05 | Prueba de humo y su trabajo en el CD | AC-05, SR-03 | CTL-04 | DONE | scripts/ci/test_smoke_test.py |
 | T-06 | Documento del proceso y enlace en el README | AC-06 | — | DONE | docs/ci-cd.md |
-| T-07 | Configurar en GitHub el ambiente produccion y la protección de dev y main | AC-03, SR-02, SR-05 | CTL-03, CTL-06 | TODO | — |
+| T-07 | Configurar en GitHub el ambiente produccion y la protección de dev y main | AC-03, SR-02, SR-05 | CTL-03, CTL-06 | DONE | docs/ci-cd.md |

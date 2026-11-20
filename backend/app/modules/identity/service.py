@@ -22,6 +22,7 @@ from app.core.security import create_access_token, decode_access_token, get_pass
 from app.core.sms import SmsDeliveryError, SmsSender, get_sms_sender
 from app.modules.identity import policy
 from app.modules.identity.db_models import (
+    DocumentOtpDB,
     InsuredAccountDB,
     InsuredDeviceDB,
     InsuredOtpDB,
@@ -33,11 +34,28 @@ from app.modules.identity.models import TokenPair
 
 OTP_TTL = timedelta(minutes=5)
 REFRESH_TOKEN_TTL = timedelta(days=7)
+# Solo para enviar el reporte con la app cerrada (HU-MOV-09, SR-02). Pertenece a la familia de la sesión (`sid`):
+# cerrar la app revoca el refresh pero no la familia; el cierre de sesión explícito revoca las dos.
+REPORT_TOKEN_TTL = timedelta(days=7)
+REPORT_SCOPE = "claims:submit"
 
 PURPOSE_LOGIN = "login"
 PURPOSE_RESET = "password_reset"
+PURPOSE_CONSENT = "consent"
+PURPOSE_POLICY_SIGNATURE = "policy_signature"
+PURPOSE_REGISTRATION = "registration"
 
-FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked")
+VERIFICATION_APPROVED = "APPROVED"
+VERIFICATION_PENDING = "PENDING"
+VERIFICATION_REJECTED = "REJECTED"
+VERIFICATION_EXPIRED = "EXPIRED"
+VERIFICATION_REVOKED = "REVOKED"
+# Cuentas cuya identidad se rechazó, venció sin decisión o quedó sin imágenes porque el titular revocó la autorización:
+# el ingreso, el código y la recuperación las tratan como inexistentes.
+CLOSED_VERIFICATIONS = (VERIFICATION_REJECTED, VERIFICATION_EXPIRED, VERIFICATION_REVOKED)
+
+# `duplicate` y `rejected` son intentos de registro fallidos: cuentan en el límite por IP (mejora FE-MOV-01).
+FAILURE_RESULTS = ("bad_password", "bad_code", "bad_device", "unknown_user", "locked", "duplicate", "rejected")
 SUCCESS_CHANNELS = ("password", "biometric", "reset")
 
 # Cuentas de prueba para desarrollo; nunca se cargan en producción. La clave de prueba está en el README.
@@ -87,6 +105,13 @@ def _sha256(value: str) -> str:
 
 def _normalize(email: str) -> str:
     return email.strip().lower()
+
+
+async def lock_account(session: AsyncSession, user_id: str) -> None:
+    """Bloquea la cuenta del asegurado hasta el commit de la transacción en curso."""
+    await session.execute(
+        select(InsuredAccountDB.user_id).where(InsuredAccountDB.user_id == user_id).with_for_update()
+    )
 
 
 class InsuredAuthService:
@@ -167,7 +192,7 @@ class InsuredAuthService:
             session, LoginAttemptDB.email == email, "otp_request", ("success", "unknown_user"), since
         )
         retry_after = policy.otp_request_retry_after(requested, now)
-        account = await self._find(session, email)
+        account = self._open(await self._find(session, email))
         if retry_after is not None:
             await self._audit(session, email, account.user_id if account else None, ip, "otp_request", "rate_limited", now)
             await session.commit()
@@ -211,7 +236,8 @@ class InsuredAuthService:
         await self._reject_if_locked(session, email, None, ip, "password", now)
 
         account = await self._find(session, email, for_update=True)
-        if account is None:
+        # Una cuenta cuya identidad se rechazó o venció responde como si no existiera (mejora FE-MOV-01).
+        if self._open(account) is None:
             await self._register_failure(session, email, None, ip, "password", "unknown_user", now)
             raise InvalidCredentialsError()
 
@@ -231,10 +257,13 @@ class InsuredAuthService:
         await session.commit()
         return tokens
 
-    async def logout(self, session: AsyncSession, refresh_token: str) -> None:
-        """Revoca el refresh token (HU-MOV-12). Repetir el logout no falla."""
+    async def logout(self, session: AsyncSession, refresh_token: str, keep_reporting: bool = False) -> None:
+        """Revoca el refresh token (HU-MOV-12). Repetir el logout no falla.
+        Al cerrar la app (no la sesión) la app pide `keep_reporting` para que el reporte en cola siga saliendo (HU-MOV-09)."""
         claims = self._decode_refresh_token(refresh_token)
         await self._revoke_jti(session, claims)
+        if not keep_reporting and claims.get("sid") and await session.get(RevokedTokenDB, claims["sid"]) is None:
+            session.add(RevokedTokenDB(jti=claims["sid"], expires_at=self._clock() + REPORT_TOKEN_TTL))
         await session.commit()
 
     async def refresh(self, session: AsyncSession, refresh_token: str) -> TokenPair:
@@ -250,7 +279,7 @@ class InsuredAuthService:
         if lock is not None:
             raise AccountLockedError(lock.locked_until, policy.seconds_until(lock.locked_until, now))
         await self._revoke_jti(session, claims)
-        tokens = self._issue_tokens(account)
+        tokens = self._issue_tokens(account, sid=claims.get("sid"))
         await session.commit()
         return tokens
 
@@ -285,12 +314,27 @@ class InsuredAuthService:
             raise InvalidCredentialsError()
 
         account = await session.get(InsuredAccountDB, device.user_id)
+        if self._open(account) is None:
+            await self._audit(session, account.email, account.user_id, ip, "biometric", "bad_device", now)
+            await session.commit()
+            raise InvalidCredentialsError()
         await self._reject_if_locked(session, account.email, account.user_id, ip, "biometric", now)
         device.last_used_at = now
         await self._audit(session, account.email, account.user_id, ip, "biometric", "success", now)
         tokens = self._issue_tokens(account)
         await session.commit()
         return tokens
+
+    async def account_for_report(self, session: AsyncSession, claims: dict) -> InsuredAccountDB:
+        """Cuenta del token de reporte: solo vale con su versión y mientras su familia de sesión no esté revocada."""
+        if claims.get("type") != "report" or claims.get("scope") != REPORT_SCOPE or not claims.get("sid"):
+            raise InvalidTokenError()
+        if await session.get(RevokedTokenDB, claims["sid"]) is not None:
+            raise InvalidTokenError()
+        account = await session.get(InsuredAccountDB, claims["sub"])
+        if account is None or claims.get("ver", 0) != account.token_version:
+            raise InvalidTokenError()
+        return account
 
     async def account_for_access(self, session: AsyncSession, claims: dict) -> InsuredAccountDB:
         """Cuenta del token de acceso; una sesión revocada con token_version deja de valer (HU-MOV-04)."""
@@ -324,7 +368,7 @@ class InsuredAuthService:
         email = _normalize(email)
         await self._check_ip(session, ip, now)
 
-        account = await self._find(session, email, for_update=True)
+        account = self._open(await self._find(session, email, for_update=True))
         if account is None:
             await self._audit(session, email, None, ip, "reset", "unknown_user", now)
             await session.commit()
@@ -351,6 +395,13 @@ class InsuredAuthService:
         await session.execute(delete(LoginLockDB).where(LoginLockDB.email == email))
         await self._audit(session, email, account.user_id, ip, "reset", "success", now)
         await session.commit()
+
+    @staticmethod
+    def _open(account: Optional[InsuredAccountDB]) -> Optional[InsuredAccountDB]:
+        """None si no existe o si su identidad se rechazó, venció o se revocó (mejora FE-MOV-01)."""
+        if account is None or account.verification_status in CLOSED_VERIFICATIONS:
+            return None
+        return account
 
     async def _find(self, session: AsyncSession, email: str, for_update: bool = False) -> Optional[InsuredAccountDB]:
         stmt = select(InsuredAccountDB).where(InsuredAccountDB.email == _normalize(email))
@@ -499,24 +550,134 @@ class InsuredAuthService:
             raise InvalidTokenError()
         return claims
 
-    def _issue_tokens(self, account: InsuredAccountDB) -> TokenPair:
+    def _issue_tokens(self, account: InsuredAccountDB, sid: Optional[str] = None) -> TokenPair:
+        sid = sid or uuid.uuid4().hex
         access_token = create_access_token(
             subject=account.user_id,
             role="insured",
             claims={"channel": "mobile", "type": "access", "ver": account.token_version},
         )
+        refresh_jti = uuid.uuid4().hex
         refresh_token = create_access_token(
             subject=account.user_id,
             role="insured",
-            claims={"channel": "mobile", "type": "refresh", "jti": uuid.uuid4().hex, "ver": account.token_version},
+            claims={"channel": "mobile", "type": "refresh", "jti": refresh_jti, "sid": sid, "ver": account.token_version},
             expires_delta=REFRESH_TOKEN_TTL,
+        )
+        report_token = create_access_token(
+            subject=account.user_id,
+            role="insured",
+            claims={"channel": "mobile", "type": "report", "scope": REPORT_SCOPE, "sid": sid,
+                    "ver": account.token_version},
+            expires_delta=REPORT_TOKEN_TTL,
         )
         return TokenPair(
             access_token=access_token,
             refresh_token=refresh_token,
+            report_token=report_token,
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             full_name=account.full_name,
         )
+
+    @staticmethod
+    def _document_code_hash(document_number: str, purpose: str, code: str, binding: str = "") -> str:
+        """`binding` ata el código a otros datos, como el teléfono del registro (mejora FE-MOV-01)."""
+        message = f"doc:{document_number}:{purpose}:{code}{':' + binding if binding else ''}".encode()
+        return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _binding_hash(document_number: str, purpose: str, binding: str) -> Optional[str]:
+        """Seudónimo del `binding` (el teléfono del registro) para elegir la fila sin guardar el número."""
+        if not binding:
+            return None
+        message = f"binding:{document_number}:{purpose}:{binding}".encode()
+        return hmac.new(settings.OTP_SECRET_KEY.get_secret_value().encode(), message, hashlib.sha256).hexdigest()
+
+    @classmethod
+    def _document_otp_filter(cls, document_number: str, purpose: str, binding: str) -> list:
+        """Sin `binding`, todos los códigos del documento y propósito; con él, solo el de ese teléfono: pedir un código
+        de registro con el documento de otra persona no borra el que ella pidió desde su celular (mejora FE-MOV-01)."""
+        conditions = [DocumentOtpDB.document_number == document_number, DocumentOtpDB.purpose == purpose]
+        if binding:
+            conditions.append(DocumentOtpDB.binding_hash == cls._binding_hash(document_number, purpose, binding))
+        return conditions
+
+    async def consume_document_otp(
+        self, session: AsyncSession, document_number: str, purpose: str, binding: str = ""
+    ) -> None:
+        """Borra el código sin validarlo; no hace commit. Lo usa el registro tras un rollback (mejora FE-MOV-01)."""
+        await session.execute(delete(DocumentOtpDB).where(*self._document_otp_filter(document_number, purpose, binding)))
+
+    async def request_document_otp(
+        self,
+        session: AsyncSession,
+        document_number: str,
+        purpose: str,
+        phone: Optional[str] = None,
+        document_type: str = "CC",
+        binding: str = "",
+    ) -> str:
+        """Genera un OTP de 6 dígitos asociado a un documento para consentimiento o firma de póliza (RC-02, RC-06)."""
+        now = self._clock()
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        await session.execute(delete(DocumentOtpDB).where(*self._document_otp_filter(document_number, purpose, binding)))
+        session.add(
+            DocumentOtpDB(
+                document_type=document_type,
+                document_number=document_number,
+                purpose=purpose,
+                code_hash=self._document_code_hash(document_number, purpose, code, binding),
+                binding_hash=self._binding_hash(document_number, purpose, binding),
+                expires_at=now + OTP_TTL,
+                attempts=0,
+                created_at=now,
+            )
+        )
+        if phone:
+            await self.sms.send(phone, f"Solventa: su código de verificación es {code}. Vence en 5 minutos.")
+        await session.commit()
+        return code
+
+    async def verify_document_otp(
+        self,
+        session: AsyncSession,
+        document_number: str,
+        purpose: str,
+        code: str,
+        document_type: str = "CC",
+        commit: bool = True,
+        binding: str = "",
+    ) -> bool:
+        """Valida el código de un solo uso para un documento y, si es correcto, lo consume.
+        Con commit=False el consumo queda en la transacción de quien llama (la emisión), y la fila
+        bloqueada hace esperar a otra petición con el mismo código hasta que esa transacción termine."""
+        now = self._clock()
+        stmt = (
+            select(DocumentOtpDB)
+            .where(*self._document_otp_filter(document_number, purpose, binding))
+            .with_for_update()
+        )
+        otp = (await session.execute(stmt)).scalars().first()
+        if otp is None:
+            return False
+
+        if now > otp.expires_at:
+            await session.delete(otp)
+            await session.commit()
+            return False
+
+        expected_hash = self._document_code_hash(document_number, purpose, code, binding)
+        if not hmac.compare_digest(otp.code_hash, expected_hash):
+            otp.attempts += 1
+            if otp.attempts >= policy.MAX_CODE_ATTEMPTS:
+                await session.delete(otp)
+            await session.commit()
+            return False
+
+        await session.delete(otp)
+        if commit:
+            await session.commit()
+        return True
 
 
 insured_auth_service = InsuredAuthService()

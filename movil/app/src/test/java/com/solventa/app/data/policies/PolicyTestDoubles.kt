@@ -1,6 +1,20 @@
 package com.solventa.app.data.policies
 
+import com.solventa.app.domain.claims.ClaimTimelineStep
+import com.solventa.app.domain.claims.ClaimsApi
+import com.solventa.app.domain.claims.ClaimsCopy
+import com.solventa.app.domain.claims.ClaimsResult
+import com.solventa.app.domain.claims.InsuredClaim
+import com.solventa.app.domain.policies.CaratulaResult
+import com.solventa.app.domain.policies.ConsentRevocationResult
 import com.solventa.app.domain.policies.CoverageLimit
+import com.solventa.app.domain.policies.Notice
+import com.solventa.app.domain.policies.NotificationPoster
+import com.solventa.app.domain.policies.NotificationPreferences
+import com.solventa.app.domain.policies.PolicyActions
+import com.solventa.app.domain.policies.PreferencesResult
+import com.solventa.app.domain.policies.PushPreferences
+import com.solventa.app.domain.policies.RenewalResult
 import com.solventa.app.domain.policies.PoliciesApi
 import com.solventa.app.domain.policies.PoliciesResult
 import com.solventa.app.domain.policies.PolicyCard
@@ -77,7 +91,28 @@ class InMemoryPolicyStore : PolicyStore {
         deleteGate?.await()
         copies.remove(accountEmail)
         syncTimes.remove(accountEmail)
+        claims.remove(accountEmail)
+        notified.remove(accountEmail)
+        receipts.remove(accountEmail)
     }
+
+    val receipts = mutableMapOf<String, com.solventa.app.domain.claims.ClaimReceipt>()
+
+    override suspend fun readReceipt(accountEmail: String) = receipts[accountEmail]
+
+    override suspend fun dismissReceipt(accountEmail: String): Boolean = receipts.remove(accountEmail) != null
+
+    val claims = mutableMapOf<String, ClaimsCopy>()
+    val notified = mutableMapOf<String, MutableSet<String>>()
+
+    override suspend fun saveClaims(accountEmail: String, claims: ClaimsCopy): Boolean {
+        if (canWrite) this.claims[accountEmail] = claims
+        return canWrite
+    }
+
+    override suspend fun readClaims(accountEmail: String): ClaimsCopy? = claims[accountEmail]
+
+    override suspend fun markNotified(accountEmail: String, key: String): Boolean = notified.getOrPut(accountEmail) { mutableSetOf() }.add(key)
 }
 
 class FakePoliciesApi(var result: PoliciesResult = PoliciesResult.Loaded(emptyList())) : PoliciesApi {
@@ -117,7 +152,7 @@ class FakeSyncAuthApi : AuthApi {
         return biometricResult()
     }
 
-    override suspend fun logout(refreshToken: String): Boolean {
+    override suspend fun logout(refreshToken: String, keepReporting: Boolean): Boolean {
         loggedOut += refreshToken
         return true
     }
@@ -186,3 +221,91 @@ fun samplePolicy(number: String = "POL-2026-00001", validUntil: String = "2027-0
     validFrom = Instant.parse("2026-01-01T00:00:00Z"),
     validUntil = Instant.parse(validUntil),
 )
+
+class FakeClaimsApi(var result: ClaimsResult = ClaimsResult.Unavailable) : ClaimsApi {
+    override suspend fun claims(accessToken: String): ClaimsResult = result
+}
+
+class RecordingPoster : NotificationPoster {
+    val posted = mutableListOf<Notice>()
+
+    override fun post(notice: Notice) {
+        posted += notice
+    }
+}
+
+class FakePolicyActions : PolicyActions {
+    var caratula: CaratulaResult = CaratulaResult.Unavailable
+    var renewal: RenewalResult = RenewalResult.Unavailable
+    val renewed = mutableListOf<String>()
+
+    /** Preferencias de avisos del servidor y lo que responde al guardarlas (FE-MOV-04). */
+    var preferences: PreferencesResult = PreferencesResult.Loaded(PushPreferences())
+    var saveResult: suspend (PushPreferences) -> PreferencesResult = { PreferencesResult.Loaded(it) }
+    val saved = mutableListOf<PushPreferences>()
+    var reads = 0
+
+    override suspend fun caratula(policyNumber: String): CaratulaResult = caratula
+
+    override suspend fun renew(policyNumber: String): RenewalResult {
+        renewed += policyNumber
+        return renewal
+    }
+
+    override suspend fun registerPushToken(token: String): Boolean = true
+
+    override suspend fun pushPreferences(): PreferencesResult {
+        reads++
+        return preferences
+    }
+
+    override suspend fun savePushPreferences(preferences: PushPreferences): PreferencesResult {
+        saved += preferences
+        return saveResult(preferences)
+    }
+
+    /** Revocación de la autorización biométrica (mejora FE-MOV-01). */
+    var revocation: ConsentRevocationResult = ConsentRevocationResult.Revoked
+    var revocations = 0
+
+    override suspend fun revokeBiometricConsent(): ConsentRevocationResult {
+        revocations++
+        return revocation
+    }
+}
+
+/** Copia local de las preferencias de avisos por cuenta (FE-MOV-04). */
+class InMemoryNotificationPreferences : NotificationPreferences {
+    val stored = mutableMapOf<String, PushPreferences>()
+    val pendingAccounts = mutableSetOf<String>()
+
+    override fun read(accountEmail: String): PushPreferences = stored[accountEmail] ?: PushPreferences()
+    override fun pending(accountEmail: String): Boolean = accountEmail in pendingAccounts
+
+    override fun save(accountEmail: String, preferences: PushPreferences, pending: Boolean) {
+        stored[accountEmail] = preferences
+        if (pending) pendingAccounts += accountEmail else pendingAccounts -= accountEmail
+    }
+
+    override fun replaceIf(accountEmail: String, expected: PushPreferences, expectedPending: Boolean, preferences: PushPreferences): Boolean {
+        if (read(accountEmail) != expected || pending(accountEmail) != expectedPending) return false
+        save(accountEmail, preferences, pending = false)
+        return true
+    }
+
+    override fun delete(accountEmail: String) {
+        stored.remove(accountEmail)
+        pendingAccounts -= accountEmail
+    }
+}
+
+fun sampleClaim(number: String = "SIN-2026-00001", status: String = "IN_REVIEW", label: String = "En evaluación", reportedAt: String = "2026-10-01T10:00:00Z") =
+    InsuredClaim(
+        claimNumber = number,
+        policyNumber = "POL-2026-00001",
+        reportedAt = Instant.parse(reportedAt),
+        status = status,
+        statusLabel = label,
+        lastChangeAt = Instant.parse(reportedAt),
+        timeline = listOf(ClaimTimelineStep("RECEIVED", "Recibido", "Recibimos su reporte.", Instant.parse(reportedAt))),
+    )

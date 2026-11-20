@@ -22,6 +22,12 @@ team accepts or changes them.
 | [0006](0006-backend-persistence.md) | Persistence with async SQLAlchemy behind repository ports |
 | [0007](0007-backend-errors-and-responses.md) | Domain errors and HTTP error responses |
 | [0023](0023-backend-document-storage.md) | Documents in S3 behind presigned links |
+| [0025](0025-backend-schema-migrations.md) | Schema changes only through versioned migrations |
+| [0026](0026-backend-outbox-publisher.md) | Outbox events published to SQS at least once |
+| [0027](0027-backend-parametric-oracle.md) | Parametric claims from signed oracle events |
+| [0030](0030-backend-outbox-consumer.md) | An in-process consumer delivers outbox events effectively once |
+| [0031](0031-backend-identity-verifier-port.md) | Identity verification behind a port, with a simulated adapter |
+| [0032](0032-mobile-document-scanner-port.md) | Document scanning behind a port, with ML Kit and a camera fallback |
 
 ## Web portal (Angular)
 
@@ -44,6 +50,8 @@ team accepts or changes them.
 | [0017](0017-mobile-credential-storage.md) | Credentials protected by the Keystore and biometrics; tokens only in memory |
 | [0021](0021-mobile-encrypted-local-database.md) | An encrypted local database per account with Room and SQLCipher |
 | [0022](0022-mobile-background-work.md) | Background work with WorkManager |
+| [0024](0024-mobile-claim-evidence.md) | Claim evidence encrypted on the device |
+| [0028](0028-mobile-report-token.md) | A report-only token in the session family |
 
 ## Infrastructure (Terraform)
 
@@ -52,6 +60,7 @@ team accepts or changes them.
 | [0018](0018-terraform-root-and-modules.md) | One Terraform root composing a local module per AWS component |
 | [0019](0019-terraform-environments-and-state.md) | Environments and Terraform state |
 | [0020](0020-private-load-balancer-behind-cloudfront.md) | A private load balancer that only CloudFront reaches |
+| [0029](0029-terraform-backend-secrets.md) | Backend secrets in Secrets Manager, injected through ECS `secrets` (supersedes rule 5 of 0018) |
 
 ## How we write them
 

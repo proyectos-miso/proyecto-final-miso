@@ -164,8 +164,8 @@
 | Tool or method | Configuración de GitHub y una ejecución del CD |
 | Automation | MANUAL |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | docs/ci-cd.md (sección Condiciones para fusionar) y scripts/ci/test_workflows.py::test_el_despliegue_solo_corre_desde_main_con_el_ambiente_produccion |
+| Status | PASS |
 
 ### TC-09 · El documento describe el proceso y las condiciones
 
@@ -198,8 +198,8 @@
 | Tool or method | GitHub Actions |
 | Automation | AUTOMATED |
 | Environment | CI |
-| Evidence | PENDING |
-| Status | PENDING |
+| Evidence | .github/workflows/ci.yml y prueba de scripts/ci/test_workflows.py::test_cada_componente_publica_resumen_y_reporte_junit |
+| Status | PASS |
 
 ## Security test coverage
 

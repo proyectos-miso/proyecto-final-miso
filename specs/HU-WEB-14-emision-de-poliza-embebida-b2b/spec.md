@@ -6,7 +6,7 @@
 | Title | Emisión de póliza embebida B2B |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/113 |
 | Owner | Oscar Saraza |
-| Status | DRAFT |
+| Status | DONE |
 | Created | 2026-10-24 |
 | Security profile | HIGH |
 

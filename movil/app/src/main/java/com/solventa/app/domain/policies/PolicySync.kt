@@ -22,6 +22,9 @@ sealed interface SyncOutcome {
     data object Failed : SyncOutcome
     data class SessionEnded(val accountEmail: String, val reason: SessionEndReason) : SyncOutcome
     data object NoSession : SyncOutcome
+
+    /** El servidor aún verifica la identidad de la cuenta: no es falta de red ni se reintenta. */
+    data object IdentityInReview : SyncOutcome
 }
 
 enum class SessionEndReason {

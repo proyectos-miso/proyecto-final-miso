@@ -64,6 +64,7 @@ seed data, deployment scripts. Keep the patterns precise; an over-broad pattern 
 | web/src/app/core/guards/** | Authorization | Route access in the portal; the server still decides | MEDIUM |
 | web/src/index.html | Web | Content Security Policy, third-party scripts and fonts | MEDIUM |
 | movil/app/src/main/java/**/data/session/** | Mobile | Keystore keys and stored credentials | HIGH |
+| movil/app/src/main/java/**/data/claims/** | Mobile | Claim evidence on the device: photos, location, description and their keys | HIGH |
 | movil/app/src/main/java/**/MainActivity.kt | Mobile | Screenshot protection and the biometric prompt host | MEDIUM |
 | movil/app/src/main/java/**/SolventaApplication.kt | Mobile | Wiring of session storage and HTTP clients | MEDIUM |
 | movil/app/proguard-rules.pro | Mobile | Release shrinking and obfuscation | MEDIUM |

@@ -72,6 +72,69 @@ resource "aws_iam_role_policy_attachment" "execution_standard" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Secretos del backend en Secrets Manager, cifrados con la llave KMS de RDS (HOTFIX-secretos-en-ecs).
+# Los opcionales vacíos no se crean: sin la variable, el backend apaga el push o el canal del oráculo.
+locals {
+  backend_secret_values = {
+    JWT_SECRET_KEY            = var.jwt_secret_key
+    OTP_SECRET_KEY            = var.otp_secret_key
+    FIREBASE_CREDENTIALS_JSON = var.firebase_credentials_json
+    ORACLE_SECRET             = var.oracle_secret
+  }
+  backend_secret_names = toset([for name, value in local.backend_secret_values : name if nonsensitive(value != "")])
+}
+
+resource "aws_secretsmanager_secret" "backend" {
+  for_each = local.backend_secret_names
+
+  name                    = "${var.project_name}-${lower(replace(each.key, "_", "-"))}-${var.environment}"
+  description             = "${each.key} del backend, inyectado en la tarea de ECS"
+  kms_key_id              = var.db_kms_key_arn
+  recovery_window_in_days = 0
+
+  tags = {
+    Name = "${var.project_name}-${lower(replace(each.key, "_", "-"))}-${var.environment}"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "backend" {
+  for_each = aws_secretsmanager_secret.backend
+
+  secret_id     = each.value.id
+  secret_string = local.backend_secret_values[each.key]
+}
+
+data "aws_region" "current" {}
+
+# El rol de ejecución solo lee estos secretos y solo descifra con su llave (RC-33, HOTFIX-secretos-en-ecs)
+resource "aws_iam_role_policy" "execution_secrets" {
+  name = "${var.project_name}-ecs-execution-secrets-${var.environment}"
+  role = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "LeerSecretosDelBackend"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = concat([var.db_password_secret_arn], [for secret in aws_secretsmanager_secret.backend : secret.arn])
+      },
+      {
+        Sid      = "DescifrarSecretosDelBackend"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.db_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # IAM Role para la aplicación dentro del contenedor (acceso a S3 y SQS)
 resource "aws_iam_role" "task" {
   name = "${var.project_name}-ecs-task-role-${var.environment}"
@@ -105,6 +168,46 @@ resource "aws_iam_role_policy" "task_documents" {
         Resource = "${var.s3_bucket_arn}/caratulas/*"
       },
       {
+        # Fotos de los siniestros: la recepción las guarda ya verificadas (HU-MOV-09) y el expediente las lee (HU-WEB-15).
+        Sid      = "FotosDeSiniestros"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
+        Resource = "${var.s3_bucket_arn}/siniestros/*"
+      },
+      {
+        # Imágenes de identidad del registro (mejora FE-MOV-01): solo mientras la verificación está pendiente. El bucket
+        # tiene versionado: borrarlas de verdad exige borrar cada versión y cada marcador de borrado.
+        Sid      = "ImagenesDeIdentidad"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]
+        Resource = "${var.s3_bucket_arn}/identidad/*"
+      },
+      {
+        # Listar las versiones solo bajo identidad/: el backend lista el prefijo de una verificación para borrarla.
+        Sid      = "VersionesDeIdentidad"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucketVersions"]
+        Resource = var.s3_bucket_arn
+        Condition = {
+          StringLike = { "s3:prefix" = ["identidad/", "identidad/*"] }
+        }
+      },
+      {
+        # Publicador del outbox (HU-MOV-10, RC-14): solo envía a la cola de eventos.
+        Sid      = "PublicarEventos"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage", "sqs:GetQueueUrl"]
+        Resource = var.sqs_queue_arn
+      },
+      {
+        # Consumidor del outbox (ADR 0030): lee, aplaza el reintento y borra los mensajes de la misma cola.
+        Sid      = "ConsumirEventos"
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility"]
+        Resource = var.sqs_queue_arn
+      },
+      {
+        # La misma llave cifra el bucket y la cola: Decrypt también sirve para leer los mensajes.
         Sid      = "LlaveDelBucket"
         Effect   = "Allow"
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
@@ -144,8 +247,8 @@ resource "aws_ecs_task_definition" "backend" {
           value = "8000"
         },
         {
-          name  = "DATABASE_URL"
-          value = "postgresql+asyncpg://${var.db_user}:${var.db_password}@${var.db_host}:5432/${var.db_name}"
+          name  = "ENVIRONMENT"
+          value = var.environment
         },
         {
           name  = "DB_HOST"
@@ -160,18 +263,6 @@ resource "aws_ecs_task_definition" "backend" {
           value = var.db_user
         },
         {
-          name  = "DB_PASSWORD"
-          value = var.db_password
-        },
-        {
-          name  = "JWT_SECRET_KEY"
-          value = var.jwt_secret_key
-        },
-        {
-          name  = "OTP_SECRET_KEY"
-          value = var.otp_secret_key
-        },
-        {
           name  = "SQS_EVENTS_URL"
           value = var.sqs_queue_url
         },
@@ -180,6 +271,16 @@ resource "aws_ecs_task_definition" "backend" {
           value = var.s3_bucket_name
         }
       ]
+
+      secrets = concat(
+        [
+          {
+            name      = "DB_PASSWORD"
+            valueFrom = var.db_password_secret_arn
+          }
+        ],
+        [for name, secret in aws_secretsmanager_secret.backend : { name = name, valueFrom = secret.arn }]
+      )
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -191,6 +292,8 @@ resource "aws_ecs_task_definition" "backend" {
       }
     }
   ])
+
+  depends_on = [aws_secretsmanager_secret_version.backend, aws_iam_role_policy.execution_secrets]
 
   tags = {
     Name = "${var.project_name}-task-def-${var.environment}"
@@ -204,6 +307,11 @@ resource "aws_ecs_service" "backend" {
   task_definition = aws_ecs_task_definition.backend.arn
   desired_count   = 2
   launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = var.private_subnet_ids

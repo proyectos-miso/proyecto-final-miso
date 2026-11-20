@@ -25,4 +25,11 @@ variable "db_username" {
 variable "db_password" {
   type      = string
   sensitive = true
+  default   = null
+}
+
+variable "db_deletion_protection" {
+  description = "Habilitar protección contra eliminación accidental de la base de datos RDS"
+  type        = bool
+  default     = true
 }

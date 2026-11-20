@@ -4,6 +4,8 @@ from pydantic import SecretStr, ValidationError, field_validator, model_validato
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 MIN_KEY_LENGTH = 32
+# Ambientes donde el verificador de identidad simulado decide y el registro desde la app abre por defecto (mejora FE-MOV-01).
+SIMULATION_ENVIRONMENTS = frozenset({"development", "local", "test"})
 
 
 class Settings(BaseSettings):
@@ -29,6 +31,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     PARTNER_TOKEN_EXPIRE_MINUTES: int = 60
+    PARTNER_QUOTA_WINDOW_SECONDS: int = 3600  # Ventana de cuota de cotización por socio (HU-WEB-12)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     MAX_FAILED_LOGIN_ATTEMPTS: int = 5
     LOCKOUT_DURATION_MINUTES: int = 15
@@ -51,12 +54,28 @@ class Settings(BaseSettings):
     SQS_EVENTS_URL: Optional[str] = None
     # Solo con Floci detrás de docker compose: dirección del emulador que alcanza el navegador (HU-WEB-16).
     S3_PUBLIC_ENDPOINT_URL: Optional[str] = None
+    # HU-MOV-11: ruta del JSON de la cuenta de servicio de Firebase; sin ella no se envían push.
+    FIREBASE_CREDENTIALS_FILE: Optional[str] = None
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    # Llave compartida con el oráculo de eventos para firmar los eventos paramétricos (HU-MOV-10, RC-26).
+    ORACLE_SECRET: Optional[SecretStr] = None
+    # Registro desde la app con documento y selfie (mejora FE-MOV-01). Sin valor, solo abre en SIMULATION_ENVIRONMENTS:
+    # sin un proveedor real de verificación, en otro ambiente guardaría datos biométricos que nadie decide.
+    REGISTRATION_ENABLED: Optional[bool] = None
 
     @field_validator("JWT_SECRET_KEY", "OTP_SECRET_KEY")
     @classmethod
     def llave_suficiente(cls, value: SecretStr) -> SecretStr:
         if len(value.get_secret_value()) < MIN_KEY_LENGTH:
             raise ValueError(f"debe tener al menos {MIN_KEY_LENGTH} caracteres")
+        return value
+
+    @field_validator("ORACLE_SECRET", mode="before")
+    @classmethod
+    def oraculo_sin_llave_vacia(cls, value):
+        # Una variable vacía apaga el oráculo (503); nunca se verifica con una llave vacía.
+        if value is None or not str(value.get_secret_value() if isinstance(value, SecretStr) else value).strip():
+            return None
         return value
 
     @model_validator(mode="after")
@@ -69,6 +88,17 @@ class Settings(BaseSettings):
     def debug_enabled(self) -> bool:
         """Código de prueba en respuestas, cuentas sembradas y documentación interactiva."""
         return self.ENVIRONMENT != "production"
+
+    @property
+    def simulated_identity_decides(self) -> bool:
+        """El verificador simulado solo aprueba o rechaza en una lista cerrada de ambientes; en otro todo queda PENDING."""
+        return self.ENVIRONMENT in SIMULATION_ENVIRONMENTS
+
+    @property
+    def registration_enabled(self) -> bool:
+        if self.REGISTRATION_ENABLED is not None:
+            return self.REGISTRATION_ENABLED
+        return self.ENVIRONMENT in SIMULATION_ENVIRONMENTS
 
     @model_validator(mode="after")
     def assemble_db_connection(self) -> "Settings":

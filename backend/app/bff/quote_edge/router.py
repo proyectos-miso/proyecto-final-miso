@@ -1,6 +1,8 @@
-"""Router BFF para socios B2B (quote-edge) con aislamiento multi-tenant y credenciales OAuth2 (HU-WEB-10, HU-WEB-11, HU-WEB-14)."""
-from typing import List, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+"""Router BFF para socios B2B (quote-edge) con aislamiento multi-tenant, credenciales OAuth2 y cuotas (HU-WEB-10, HU-WEB-11, HU-WEB-12, HU-WEB-14)."""
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -10,7 +12,10 @@ from app.core.security import (
     authenticate_partner,
     create_partner_access_token,
     get_current_partner,
+    log_partner_security_event,
+    require_roles,
 )
+from app.bff.experience.router import operations_scope
 from app.modules.policy.models import (
     PartnerPolicyIssueRequest,
     PartnerPolicyResponse,
@@ -23,13 +28,26 @@ from app.modules.policy.service import (
 from app.modules.rating.models import (
     PartnerDB,
     PartnerQuoteResponse,
+    PartnerQuotaExceededResponse,
+    PartnerQuotaStatus,
     PartnerTokenRequest,
     PartnerTokenResponse,
     QuoteRequest,
 )
-from app.modules.rating.service import rating_service
+from app.modules.rating import partners
+from app.modules.rating.service import PartnerQuotaExceededError, rating_service
 
 router = APIRouter(prefix="/quote-edge", tags=["Quote Edge B2B"])
+
+
+def _quota_headers(quota_status: PartnerQuotaStatus) -> dict[str, str]:
+    """Construye las cabeceras estándar RFC 6585 de telemetría de cuotas para socios B2B (HU-WEB-12)."""
+    return {
+        "X-RateLimit-Limit": str(quota_status.quota_limit),
+        "X-RateLimit-Remaining": str(quota_status.quota_remaining),
+        "X-RateLimit-Reset": str(int(quota_status.reset_at.timestamp())),
+        "X-RateLimit-Reset-Time": quota_status.reset_at.isoformat(),
+    }
 
 
 @router.post(
@@ -71,6 +89,53 @@ async def issue_partner_token(
     )
 
 
+class PartnerRegistrationRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    contact_email: str = Field(..., max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class PartnerRegistrationResponse(BaseModel):
+    partner_id: str
+    name: str
+    client_id: str
+    client_secret: str
+    environment: str
+    quota_limit: int
+    openapi_spec_url: str
+    message: str
+
+
+@router.post(
+    "/partners/register",
+    response_model=PartnerRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Autoservicio de registro de socio B2B en sandbox (RC-23)",
+)
+async def register_partner_sandbox(
+    request: PartnerRegistrationRequest,
+    response: Response,
+    partner_scope: Optional[str] = Depends(operations_scope),
+    claims: Dict[str, Any] = Depends(require_roles(["analyst"])),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Registro por autoservicio de nuevos socios B2B (RC-23, AC-15, SR-09).
+    Entrega credenciales inmediatas confinadas a entorno 'sandbox' con cuota acotada (1.000 req/h).
+    """
+    if partner_scope is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el equipo de alianzas de Solventa puede registrar socios.",
+        )
+    registered = await partners.register(db, request.name, request.contact_email, claims["sub"])
+    response.headers["Cache-Control"] = "no-store"
+    return PartnerRegistrationResponse(
+        **registered.model_dump(),
+        openapi_spec_url="/openapi.json",
+        message="Socio registrado exitosamente en entorno sandbox con 1.000 solicitudes/hora.",
+    )
+
+
 # -- Cotizaciones B2B (HU-WEB-10) --------------------------------------------------------------
 
 
@@ -81,7 +146,25 @@ async def issue_partner_token(
     summary="Generar cotización desde el canal del socio B2B",
     responses={
         status.HTTP_200_OK: {
-            "description": "Cotización calculada, guardada bajo el partner_id del socio y con cuota de uso (quota_used) incrementada.",
+            "description": "Cotización calculada, guardada bajo el partner_id del socio y con cabeceras de cuota restante.",
+            "headers": {
+                "X-RateLimit-Limit": {
+                    "description": "Límite máximo de solicitudes contratadas.",
+                    "schema": {"type": "integer", "example": 50000},
+                },
+                "X-RateLimit-Remaining": {
+                    "description": "Solicitudes restantes en la ventana activa.",
+                    "schema": {"type": "integer", "example": 49999},
+                },
+                "X-RateLimit-Reset": {
+                    "description": "Timestamp UNIX de renovación de cuota.",
+                    "schema": {"type": "integer", "example": 1761922800},
+                },
+                "X-RateLimit-Reset-Time": {
+                    "description": "Fecha y hora ISO-8601 de renovación de cuota.",
+                    "schema": {"type": "string", "example": "2026-10-31T15:00:00+00:00"},
+                },
+            },
         },
         status.HTTP_400_BAD_REQUEST: {
             "description": "Encabezado Idempotency-Key ausente o vacío (HU-WEB-11).",
@@ -92,12 +175,38 @@ async def issue_partner_token(
         status.HTTP_409_CONFLICT: {
             "description": "La clave de idempotencia ya fue utilizada con una solicitud de cotización diferente (HU-WEB-11).",
         },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "model": PartnerQuotaExceededResponse,
+            "description": "Se ha superado la cuota de cotizaciones contratada para el socio (HU-WEB-12).",
+            "headers": {
+                "Retry-After": {
+                    "description": "Segundos que el socio debe esperar antes de reintentar.",
+                    "schema": {"type": "integer", "example": 1500},
+                },
+                "X-RateLimit-Limit": {
+                    "description": "Límite máximo de solicitudes contratadas.",
+                    "schema": {"type": "integer", "example": 50000},
+                },
+                "X-RateLimit-Remaining": {
+                    "description": "Solicitudes restantes en el período (0 al ser rechazado).",
+                    "schema": {"type": "integer", "example": 0},
+                },
+                "X-RateLimit-Reset": {
+                    "description": "Timestamp UNIX de renovación de cuota.",
+                    "schema": {"type": "integer", "example": 1761922800},
+                },
+                "X-RateLimit-Reset-Time": {
+                    "description": "Fecha y hora ISO-8601 de renovación de cuota.",
+                    "schema": {"type": "string", "example": "2026-10-31T15:00:00+00:00"},
+                },
+            },
+        },
     },
 )
 async def create_partner_quote(
     request: QuoteRequest,
+    response: Response,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    simulated_delay: float = 0.0,
     current_partner: PartnerDB = Depends(get_current_partner),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -106,6 +215,8 @@ async def create_partner_quote(
     autenticado e incrementa su contador `quota_used` (**HU-WEB-10**).
     Garantiza idempotencia por socio y clave: si la misma clave y payload se reenvían,
     retorna la cotización previa sin duplicar registros en base de datos (**HU-WEB-11**).
+    Controla la cuota contratada del socio en su ventana activa y rechaza con HTTP 429 Too Many Requests
+    y cabecera Retry-After cuando se agota la capacidad (**HU-WEB-12**).
     """
     if not idempotency_key or not idempotency_key.strip():
         raise HTTPException(
@@ -128,16 +239,56 @@ async def create_partner_quote(
         )
 
     if saved:
+        quota_status = await rating_service.get_partner_quota_status(
+            session=db,
+            partner_id=current_partner.partner_id,
+        )
+        response.headers.update(_quota_headers(quota_status))
         return PartnerQuoteResponse(**saved.response_body)
+
+    try:
+        quota_status = await rating_service.consume_partner_quota(
+            session=db,
+            partner_id=current_partner.partner_id,
+            commit=False,
+        )
+    except PartnerQuotaExceededError as exc:
+        log_partner_security_event(
+            event_code="PARTNER_QUOTA_EXCEEDED",
+            reason=f"Cuota superada ({exc.quota_used}/{exc.quota_limit}). Retry-After: {exc.retry_after}s",
+            client_id=current_partner.client_id,
+            partner_id=current_partner.partner_id,
+            endpoint="/api/v1/quote-edge/quotes",
+        )
+        quota_headers = {
+            "Retry-After": str(exc.retry_after),
+            "X-RateLimit-Limit": str(exc.quota_limit),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": str(int(exc.reset_at.timestamp())),
+            "X-RateLimit-Reset-Time": exc.reset_at.isoformat(),
+        }
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers=quota_headers,
+            content=PartnerQuotaExceededResponse(
+                detail="Se ha superado la cuota de solicitudes contratada para el socio.",
+                error="QUOTA_EXCEEDED",
+                retry_after=exc.retry_after,
+                reset_at=exc.reset_at.isoformat(),
+                quota_limit=exc.quota_limit,
+                quota_remaining=0,
+            ).model_dump(mode="json"),
+        )
 
     quote = await rating_service.create_quote(
         session=db,
         request=request,
-        simulated_bureau_delay=simulated_delay,
+        simulated_bureau_delay=0.0,
         partner_id=current_partner.partner_id,
         commit=False,
+        increment_quota=False,
     )
-    response = PartnerQuoteResponse(
+    quote_response = PartnerQuoteResponse(
         **quote.model_dump(),
         partner_id=current_partner.partner_id,
     )
@@ -147,10 +298,11 @@ async def create_partner_quote(
         idempotency_key=cleaned_key,
         request=request,
         status=status.HTTP_200_OK,
-        body=response.model_dump(mode="json"),
+        body=quote_response.model_dump(mode="json"),
     )
     await db.commit()
-    return response
+    response.headers.update(_quota_headers(quota_status))
+    return quote_response
 
 
 @router.get(
@@ -235,6 +387,9 @@ async def list_partner_quotes(
         status.HTTP_401_UNAUTHORIZED: {
             "description": "Token ausente, inválido, expirado o de socio revocado.",
         },
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Un socio en sandbox cotiza pero no emite pólizas reales (FE-WEB-05).",
+        },
         status.HTTP_404_NOT_FOUND: {
             "description": "Cotización inexistente o perteneciente a otro socio / canal (aislamiento multi-tenant).",
         },
@@ -258,6 +413,8 @@ async def issue_partner_policy(
             request=request,
             partner_id=current_partner.partner_id,
         )
+    except partners.PartnerBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail)
     except QuoteNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

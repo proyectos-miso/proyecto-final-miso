@@ -6,7 +6,7 @@
 | Title | Descarga de caratula |
 | User story | https://github.com/proyectos-miso/proyecto-final-miso/issues/114 |
 | Owner | David Gutiérrez |
-| Status | IN_REVIEW |
+| Status | DONE |
 | Created | 2026-10-31 |
 | Security profile | HIGH |
 

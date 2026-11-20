@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
-import { PolicyRecord } from '../../core/models/policy.model';
+import { Beneficiary, PolicyRecord } from '../../core/models/policy.model';
 import { QuoteResponse, QuoteTier } from '../../core/models/quote.model';
 import { CotizadorComponent } from './cotizador.component';
 import { CatalogService } from '../../core/catalogs/catalog.service';
@@ -149,6 +149,8 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
         insured_amount: 200_000_000,
         city: 'Medellín',
         occupation_risk: 2,
+        financial_entity: 'Davivienda',
+        term_months: 180,
       });
 
       call.flush(quote);
@@ -271,6 +273,9 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
   });
 
   describe('emisión de la póliza (HU-WEB-05)', () => {
+    const beneficiaries: Beneficiary[] = [
+      { name: 'Lucía Prueba', document_type: 'CC', document_number: '52000111', relationship: 'CONYUGE', percentage: 100 },
+    ];
     const policy: PolicyRecord = {
       policy_number: 'POL-2026-00001',
       quote_id: 'QUO-1',
@@ -308,6 +313,17 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
       });
       component.quote.set(quote);
       fixture.detectChanges();
+      component.beneficiaries.set(beneficiaries);
+      component.signatureCode.set('482913');
+      fixture.detectChanges();
+    });
+
+    it('HU-WEB-15 no deja emitir sin beneficiarios que sumen 100 %', () => {
+      component.beneficiaries.set(null);
+      fixture.detectChanges();
+
+      expect(button('Emitir póliza')!.disabled).toBe(true);
+      expect(page().querySelector('app-beneficiaries-editor')).not.toBeNull();
     });
 
     it('emite el plan elegido y confirma el número y la vigencia', () => {
@@ -320,6 +336,8 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
         quote_id: 'QUO-1',
         tier: 'premium',
         holder: { name: 'Carlos Rodríguez', document_type: 'CC', email: 'carlos@correo.co', phone: '3001234567' },
+        beneficiaries,
+        otp_code: '482913',
       });
       expect(button('Emitir póliza')!.disabled).toBe(true);
       call.flush(policy);
@@ -352,6 +370,43 @@ describe('CotizadorComponent (Flujo Comercial HU-WEB-01 a HU-WEB-06)', () => {
 
       expect(page().querySelector('[role="alert"]')?.textContent).toContain('No se pudo emitir la póliza');
       expect(button('Recotizar con datos actuales')).toBeUndefined();
+      expect(button('Emitir póliza')!.disabled).toBe(false);
+    });
+
+    it('RC-02 no deja emitir sin el código de firma de 6 dígitos', () => {
+      component.signatureCode.set('12');
+      fixture.detectChanges();
+
+      expect(button('Emitir póliza')!.disabled).toBe(true);
+    });
+
+    it('RC-02 envía el código de firma al teléfono del titular y muestra el de prueba en local', () => {
+      button('Enviar código de firma')!.click();
+      const call = http.expectOne('/api/v1/experience/policies/otp-request');
+      expect(call.request.body).toEqual({ document_number: '1020304050', phone: '3001234567', document_type: 'CC' });
+      call.flush({ status: 'OTP_SENT', message: 'Código de firma enviado al titular', debug_code: '482913' });
+      fixture.detectChanges();
+
+      expect(page().textContent).toContain('Código enviado al teléfono del titular');
+      expect(page().textContent).toContain('Código de prueba (solo en local): 482913');
+      expect(button('Reenviar código de firma')).toBeDefined();
+    });
+
+    it('RC-02 sin código de prueba no lo muestra y un fallo del envío se avisa', () => {
+      button('Enviar código de firma')!.click();
+      http.expectOne('/api/v1/experience/policies/otp-request').flush({ detail: 'No se pudo enviar el código.' }, { status: 503, statusText: 'Unavailable' });
+      fixture.detectChanges();
+
+      expect(page().textContent).not.toContain('Código de prueba');
+      expect(page().querySelector('[role="alert"]')?.textContent).toContain('No se pudo enviar el código');
+    });
+
+    it('RC-02 un código de firma inválido muestra el motivo y deja reintentar', () => {
+      issue().flush({ detail: 'El código de firma electrónica no es válido o ya venció. Solicite uno nuevo.' },
+        { status: 422, statusText: 'Unprocessable Entity' });
+      fixture.detectChanges();
+
+      expect(page().querySelector('[role="alert"]')?.textContent).toContain('no es válido o ya venció');
       expect(button('Emitir póliza')!.disabled).toBe(false);
     });
 

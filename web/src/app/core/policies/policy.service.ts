@@ -3,6 +3,10 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   CaratulaLink,
+  EndorsementRequest,
+  OtpSent,
+  PolicyAudit,
+  PolicyOperationResult,
   PolicyDetail,
   PolicyIssueRequest,
   PolicyRecord,
@@ -22,6 +26,22 @@ export class PolicyService {
     return this.http.post<PolicyRecord>(`${this.baseUrl}/experience/policies`, request);
   }
 
+  /** Solicita OTP para la firma digital de la póliza (RC-02). */
+  requestSignatureOtp(
+    documentNumber: string,
+    phone?: string,
+    documentType: string = 'CC',
+  ): Observable<OtpSent> {
+    return this.http.post<OtpSent>(
+      `${this.baseUrl}/experience/policies/otp-request`,
+      {
+        document_number: documentNumber,
+        phone,
+        document_type: documentType,
+      },
+    );
+  }
+
   /** Búsqueda de operaciones (HU-WEB-08); el alcance por socio lo decide el servidor. */
   searchPolicies(query: string, status: PolicyStatus | '' = ''): Observable<PolicySearchResponse> {
     let params = new HttpParams().set('q', query.trim());
@@ -37,5 +57,42 @@ export class PolicyService {
   /** Enlace de 15 minutos a la carátula (HU-WEB-16); el backend la genera la primera vez. */
   getCaratulaLink(policyNumber: string): Observable<CaratulaLink> {
     return this.http.get<CaratulaLink>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/caratula`);
+  }
+
+  /** Endoso de beneficiarios o de suma asegurada (HU-WEB-15). */
+  endorse(policyNumber: string, request: EndorsementRequest): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/endorsements`,
+      request,
+    );
+  }
+
+  /** Cancelación a pedido del cliente con devolución proporcional (HU-WEB-15). */
+  cancel(policyNumber: string, reason: string): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/cancellation`,
+      { reason },
+    );
+  }
+
+  /** Renovación anual de la póliza (RC-24). */
+  renew(policyNumber: string): Observable<PolicyOperationResult> {
+    return this.http.post<PolicyOperationResult>(
+      `${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/renewal`,
+      {},
+    );
+  }
+
+  /** Decisiones sobre la póliza en orden (HU-WEB-15). */
+  audit(policyNumber: string): Observable<PolicyAudit> {
+    return this.http.get<PolicyAudit>(`${this.baseUrl}/experience/policies/${encodeURIComponent(policyNumber)}/audit`);
+  }
+
+  /** Reporte mensual al regulador y al reasegurador, como archivo (HU-WEB-15). */
+  monthlyReport(period: string, format: 'csv' | 'pdf'): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/experience/reports/${period}`, {
+      params: new HttpParams().set('format', format),
+      responseType: 'blob',
+    });
   }
 }

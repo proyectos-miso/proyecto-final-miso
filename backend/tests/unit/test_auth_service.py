@@ -28,6 +28,11 @@ class InMemorySessionTestDouble:
 
     def __init__(self):
         self.users = {}
+        self.revoked = {}
+
+    async def get(self, model, pk):
+        """Solo los refresh revocados (HU-WEB-15) se buscan por llave primaria."""
+        return self.revoked.get(pk)
 
     async def execute(self, stmt):
         class Result:
@@ -49,8 +54,11 @@ class InMemorySessionTestDouble:
         user = self.users.get(clean_username)
         return Result([user] if user else [])
 
-    def add(self, user):
-        self.users[user.username] = user
+    def add(self, obj):
+        if hasattr(obj, "jti"):
+            self.revoked[obj.jti] = obj
+        else:
+            self.users[obj.username] = obj
 
     async def commit(self):
         pass
@@ -322,6 +330,9 @@ async def test_session_token_generation_and_refresh(
     # 2. Renovar sesión con el refresh token
     refreshed_tokens = await auth_service.refresh_session(session, tokens.refresh_token)
     assert refreshed_tokens.role == "advisor"
+    # HU-WEB-15: el refresh usado queda revocado y no renueva otra vez.
+    with pytest.raises(HTTPException):
+        await auth_service.refresh_session(session, tokens.refresh_token)
     assert refreshed_tokens.advisor_name == "Carlos Asesor"
     assert refreshed_tokens.access_token is not None
 

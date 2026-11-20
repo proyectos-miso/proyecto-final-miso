@@ -1,10 +1,11 @@
 """Modelos de datos para el motor de cotización y canal de socios B2B (HU-WEB-10)."""
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, func
 from app.core.database import Base
+from app.core.immutable import make_immutable
 from app.modules.underwriting.models import UnderwritingDecision
 
 
@@ -31,10 +32,15 @@ class Coverage(BaseModel):
 class QuoteRequest(BaseModel):
     document_type: str = Field(..., json_schema_extra={"example": "CC"})
     document_number: str = Field(..., json_schema_extra={"example": "123456789"})
-    birth_date: str = Field(..., json_schema_extra={"example": "1990-05-15"})
+    birth_date: Union[date, str] = Field(..., json_schema_extra={"example": "1990-05-15"})
     insured_amount: float = Field(..., gt=0, json_schema_extra={"example": 150000000.0})
     city: str = Field(default="Bogota")
     occupation_risk: int = Field(default=1, ge=1, le=5)
+    financial_entity: Optional[str] = Field(None, json_schema_extra={"example": "BANCOLOMBIA"})
+    term_months: Optional[int] = Field(None, ge=1, le=360, json_schema_extra={"example": 240})
+    consent_id: Optional[str] = Field(
+        None, description="Identificador de un consentimiento real y vigente del mismo cliente; si no, 422."
+    )
 
 
 class PremiumFactor(BaseModel):
@@ -137,8 +143,53 @@ class PartnerQuoteResponse(QuoteResponse):
         )
 
 
+class PartnerQuotaStatus(BaseModel):
+    """Estado y telemetría de cuota de un socio B2B dentro de su ventana de tiempo (HU-WEB-12)."""
+    partner_id: str
+    quota_limit: int
+    quota_used: int
+    quota_remaining: int
+    quota_window_seconds: int
+    reset_at: datetime
+    retry_after: int = 0
+
+
+class PartnerQuotaExceededResponse(BaseModel):
+    """Respuesta HTTP 429 cuando el socio supera su cuota de cotización contratada (HU-WEB-12)."""
+    detail: str = Field(
+        default="Se ha superado la cuota de solicitudes contratada para el socio.",
+        description="Mensaje claro y comprensible sobre el motivo del rechazo.",
+        json_schema_extra={"example": "Se ha superado la cuota de solicitudes contratada para el socio."},
+    )
+    error: str = Field(
+        default="QUOTA_EXCEEDED",
+        description="Código de error estandarizado para integración automatizada.",
+        json_schema_extra={"example": "QUOTA_EXCEEDED"},
+    )
+    retry_after: int = Field(
+        ...,
+        description="Segundos que el socio debe esperar antes de reintentar una nueva solicitud.",
+        json_schema_extra={"example": 1500},
+    )
+    reset_at: str = Field(
+        ...,
+        description="Fecha y hora UTC ISO-8601 en la que la cuota se renueva.",
+        json_schema_extra={"example": "2026-10-31T15:00:00+00:00"},
+    )
+    quota_limit: int = Field(
+        ...,
+        description="Límite máximo de solicitudes contratadas para el período.",
+        json_schema_extra={"example": 50000},
+    )
+    quota_remaining: int = Field(
+        default=0,
+        description="Solicitudes restantes en la ventana activa (0 al ser rechazado).",
+        json_schema_extra={"example": 0},
+    )
+
+
 class PartnerDB(Base):
-    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10)."""
+    """Socio de distribución B2B habilitado para cotizar con credenciales propias (HU-WEB-10, HU-WEB-12, RC-23)."""
     __tablename__ = "partners"
 
     partner_id = Column(String(64), primary_key=True, index=True)
@@ -148,11 +199,15 @@ class PartnerDB(Base):
     status = Column(String(32), nullable=False, default=PartnerStatus.ACTIVE.value)
     quota_limit = Column(Integer, nullable=False, default=50000)
     quota_used = Column(Integer, nullable=False, default=0)
+    quota_window_seconds = Column(Integer, nullable=False, default=3600)
+    quota_reset_at = Column(DateTime(timezone=True), nullable=True)
+    environment = Column(String(16), nullable=False, default="production")
+    contact_email = Column(String(254), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class QuoteDB(Base):
-    """Cotización calculada, con su traza de degradación y confinamiento opcional por socio (HU-WEB-05, HU-WEB-10)."""
+    """Cotización calculada, con su traza de degradación y confinamiento opcional por socio (HU-WEB-05, HU-WEB-10, RC-06, RC-08)."""
     __tablename__ = "quotes"
 
     quote_id = Column(String(16), primary_key=True)
@@ -164,3 +219,16 @@ class QuoteDB(Base):
     tiers = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    consent_id = Column(String(36), nullable=True)
+    financial_entity = Column(String(120), nullable=True)
+    term_months = Column(Integer, nullable=True)
+    birth_date = Column(DateTime(timezone=True), nullable=True)
+    # Ciudad del asegurado: un evento del oráculo afecta a las pólizas de su ciudad (HU-MOV-10, RC-26).
+    city = Column(String(80), nullable=True, index=True)
+    # Entradas para recalcular la decisión en la auditoría; nulas en las cotizaciones anteriores (FE-WEB-08).
+    rules_version = Column(String(16), nullable=True)
+    insured_amount = Column(Float, nullable=True)
+    occupation_risk = Column(Integer, nullable=True)
+
+
+make_immutable(QuoteDB.__table__, "Las cotizaciones no se pueden modificar ni borrar")
