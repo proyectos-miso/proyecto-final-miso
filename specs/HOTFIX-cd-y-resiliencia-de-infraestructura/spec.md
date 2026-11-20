@@ -54,7 +54,7 @@ Fuera de alcance:
 | terraform/modules/alb/main.tf | alarmas CloudWatch para 5XX y UnHealthyHostCount |
 | terraform/main.tf | paso de db_deletion_protection al módulo RDS |
 | terraform/variables.tf | declaración de db_deletion_protection |
-| .github/workflows/deploy.yml | etiquetado con SHA y bloqueo DynamoDB para Terraform backend |
+| .github/workflows/deploy.yml | etiquetado con SHA y bloqueo DynamoDB para Terraform backend (con espera de tabla activa `aws dynamodb wait table-exists` y falla explícita al crearla) |
 | .github/workflows/destroy.yml | bloqueo DynamoDB para Terraform backend |
 | .github/workflows/ci.yml | --cov-fail-under=85 y sonarqube-scan-action@v6 |
 | .github/workflows/deploy-local.yml | eliminado por redundancia |
@@ -128,7 +128,7 @@ Fuera de alcance:
 - `terraform/modules/ecs`: Configura `deployment_circuit_breaker { enable = true, rollback = true }` en el servicio Fargate.
 - `terraform/modules/rds`: Configura retención de respaldos por 7 días, `deletion_protection = true`, y snapshot final en caso de eliminación.
 - `terraform/modules/alb`: Alarmas de CloudWatch (`aws_cloudwatch_metric_alarm.alb_5xx` y `aws_cloudwatch_metric_alarm.unhealthy_hosts`).
-- `.github/workflows/deploy.yml`: Etiquetado doble en ECR con `${{ github.sha }}` y `:latest`. Inicialización de Terraform con tabla DynamoDB `solventa-tfstate-lock-${ACCOUNT_ID}`.
+- `.github/workflows/deploy.yml`: Etiquetado doble en ECR con `${{ github.sha }}` y `:latest`. Inicialización de Terraform con tabla DynamoDB `solventa-tfstate-lock-${ACCOUNT_ID}`, esperando a que alcance estado `ACTIVE` (`aws dynamodb wait table-exists`) sin silenciar fallos de creación.
 - `.github/workflows/ci.yml`: Bandera `--cov-fail-under=85` y actualización de SonarCloud action a `@v6`.
 
 ### Data flows

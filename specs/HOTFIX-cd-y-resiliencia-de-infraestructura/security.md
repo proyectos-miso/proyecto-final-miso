@@ -162,7 +162,7 @@ N/A: Sin inquilinos múltiples.
 
 | ID | Risk | Threats | Likelihood | Impact | Level | Treatment | Residual risk | Status |
 |---|---|---|---|---|---|---|---|---|
-| RISK-01 | La tabla DynamoDB para tfstate requiere permisos IAM de creación si no existe previamente | THR-03 | LOW | LOW | LOW | MITIGATE | Bajo: el workflow deploy.yml verifica y crea la tabla automáticamente | MITIGATED |
+| RISK-01 | La tabla DynamoDB para tfstate requiere permisos IAM de creación si no existe previamente | THR-03 | LOW | LOW | LOW | MITIGATE | Bajo: el workflow deploy.yml verifica y crea la tabla sin silenciar errores y espera con `aws dynamodb wait table-exists` a que quede en estado ACTIVE antes de ejecutar Terraform | MITIGATED |
 
 ## 16. Pending decisions
 

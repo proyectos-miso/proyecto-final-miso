@@ -51,7 +51,7 @@
 | AC-01 | MET | .github/workflows/deploy.yml:113-125 |
 | AC-02 | MET | terraform/modules/ecs/main.tf:235-245 |
 | AC-03 | MET | terraform/modules/rds/main.tf:95-103 |
-| AC-04 | MET | .github/workflows/deploy.yml:47-75, .github/workflows/destroy.yml:45-65 |
+| AC-04 | MET | .github/workflows/deploy.yml:47-82, .github/workflows/destroy.yml:45-65 |
 | AC-05 | MET | terraform/modules/alb/main.tf:120-165 |
 | AC-06 | MET | .github/workflows/ci.yml:71-73, .github/workflows/ci.yml:239-242 |
 | AC-07 | MET | .github/workflows/deploy.yml:1-50 |
