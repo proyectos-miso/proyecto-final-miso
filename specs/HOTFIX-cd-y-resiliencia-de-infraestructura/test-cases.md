@@ -69,12 +69,12 @@
 | Risk covered | THR-03, THR-05 |
 | Level | STATIC |
 | Preconditions | Workflows actualizados en .github/workflows/ |
-| Procedure | 1. Verificar presencia de tag SHA y tabla DynamoDB en .github/workflows/deploy.yml y destroy.yml. 2. Verificar que .github/workflows/deploy-local.yml no exista en el árbol de trabajo. |
-| Expected result | Configuración de tagging y bloqueo presentes; deploy-local.yml eliminado |
-| Tool or method | git status y validación de archivos |
+| Procedure | 1. Verificar presencia de tag SHA, tabla DynamoDB, espera `aws dynamodb wait table-exists` y ausencia de `2>/dev/null || true` en `aws dynamodb create-table` en `.github/workflows/deploy.yml` y configuración de bloqueo en `.github/workflows/destroy.yml`. 2. Validar sintaxis YAML y shell de `.github/workflows/deploy.yml`. 3. Verificar que `.github/workflows/deploy-local.yml` no exista en el árbol de trabajo. |
+| Expected result | Configuración de tagging y bloqueo presentes, espera activa de DynamoDB configurada sin silenciamiento de errores, sintaxis válida y `deploy-local.yml` eliminado |
+| Tool or method | Validación YAML/bash (`bash -n`), `git status` y revisión de archivos |
 | Automation | AUTOMATED |
 | Environment | LOCAL |
-| Evidence | .github/workflows/deploy.yml, .github/workflows/destroy.yml, .github/workflows/ci.yml |
+| Evidence | .github/workflows/deploy.yml (validado YAML y `bash -n`), .github/workflows/destroy.yml, .github/workflows/ci.yml |
 | Status | PASS |
 
 ### TC-04 · Validación de cobertura de backend con fail-under=85
